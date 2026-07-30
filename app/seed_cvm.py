@@ -12,6 +12,7 @@ from .repositorio import (
     Atributo, CampoCalculado, Classe, Coluna, Dataset, Fonte, RegraQualidade,
     salvar_agendamento, salvar_classe, salvar_dataset, salvar_fonte,
 )
+from .motor import ddl
 from .sinks import Sink
 
 FONTE = Fonte(
@@ -338,6 +339,7 @@ def aplicar(sink: Sink) -> None:
     """Cadastra (ou reversiona) a configuração da CVM."""
     for c in CLASSES:
         salvar_classe(sink, c, autor="seed")
+    ddl.garantir_classes(sink)
     salvar_fonte(sink, FONTE, autor="seed")
     salvar_fonte(sink, FONTE_CADASTRO, autor="seed")
     for d in datasets():

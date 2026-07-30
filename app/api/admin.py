@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import repositorio as repo
-from ..motor import ingestao, publicacao
+from ..motor import ddl, ingestao, publicacao
 from ..repositorio import (
     CampoCalculado, Coluna, Dataset, ErroConfiguracao, Fonte, RegraQualidade,
 )
@@ -92,9 +92,33 @@ class DatasetEntrada(BaseModel):
     padrao_arquivo: str
     tabela_destino: str
     chave_natural: list[str]
+    classe_chave: str | None = None
     colunas: list[ColunaEntrada] = Field(default_factory=list)
     calculados: list[CalculadoEntrada] = Field(default_factory=list)
     regras: list[RegraEntrada] = Field(default_factory=list)
+    descricao: str | None = None
+    ativo: bool = True
+
+
+class AtributoEntrada(BaseModel):
+    nome: str
+    tipo: str = "texto"
+    origem: str = "fonte"
+    obrigatorio: bool = False
+    guarda_texto: bool = False
+    unidade: str | None = None
+    descricao: str | None = None
+    ordem: int = 0
+
+
+class ClasseEntrada(BaseModel):
+    chave: str
+    nome: str
+    tabela: str
+    chave_identidade: list[str]
+    atributos: list[AtributoEntrada] = Field(default_factory=list)
+    indices: list[list[str]] = Field(default_factory=list)
+    sla_horas: int | None = None
     descricao: str | None = None
     ativo: bool = True
 
@@ -125,6 +149,65 @@ def _erro_config(e: ErroConfiguracao) -> HTTPException:
         status_code=422,
         detail={"codigo": "configuracao_invalida", "mensagem": str(e)},
     )
+
+
+# --------------------------------------------------------------------------
+# Classes de informação
+# --------------------------------------------------------------------------
+@router.get("/classes")
+async def get_classes(request: Request) -> Any:
+    sink = obter_sink(request)
+    saida = []
+    for c in repo.listar_classes(sink):
+        atributos = repo.atributos_de(sink, c["id"])
+        saida.append({
+            **c,
+            "atributos": atributos,
+            "datasets": [d["chave"] for d in repo.datasets_da_classe(sink, c["chave"])],
+            "divergencias": ddl.divergencias(sink, c, atributos),
+        })
+    return {"dados": saida}
+
+
+@router.post("/classes", dependencies=[Depends(exigir_admin)])
+async def post_classe(entrada: ClasseEntrada, request: Request) -> Any:
+    """Cadastra a classe e materializa a tabela dela na mesma chamada.
+
+    É o ponto do produto: criar uma classe de informação nova não passa por
+    deploy. O DDL sai da configuração e é aplicado aqui.
+    """
+    sink = obter_sink(request)
+    c = repo.Classe(
+        chave=entrada.chave, nome=entrada.nome, tabela=entrada.tabela,
+        chave_identidade=entrada.chave_identidade, indices=entrada.indices,
+        sla_horas=entrada.sla_horas, descricao=entrada.descricao,
+        ativo=entrada.ativo,
+        atributos=[repo.Atributo(**a.model_dump()) for a in entrada.atributos],
+    )
+    try:
+        novo = repo.salvar_classe(sink, c, autor="ui")
+    except ErroConfiguracao as e:
+        raise _erro_config(e) from e
+    salva = repo.classe_vigente(sink, entrada.chave)
+    aplicadas = ddl.garantir_tabela(sink, salva, repo.atributos_de(sink, novo))
+    return {"dados": salva, "id": novo, "ddl_aplicado": aplicadas}
+
+
+@router.get("/classes/{chave}/ddl")
+async def get_classe_ddl(chave: str, request: Request) -> Any:
+    """O DDL que a configuração implica, e o que diverge do banco hoje."""
+    sink = obter_sink(request)
+    c = repo.classe_vigente(sink, chave)
+    if c is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"codigo": "classe_nao_encontrada", "mensagem": chave},
+        )
+    atributos = repo.atributos_de(sink, c["id"])
+    return {"dados": {
+        "sentencas": ddl.sentencas_da_classe(c, atributos),
+        "divergencias": ddl.divergencias(sink, c, atributos),
+    }}
 
 
 # --------------------------------------------------------------------------
@@ -165,8 +248,8 @@ async def post_dataset(entrada: DatasetEntrada, request: Request) -> Any:
     d = Dataset(
         chave=entrada.chave, fonte_chave=entrada.fonte_chave, nome=entrada.nome,
         padrao_arquivo=entrada.padrao_arquivo, tabela_destino=entrada.tabela_destino,
-        chave_natural=entrada.chave_natural, descricao=entrada.descricao,
-        ativo=entrada.ativo,
+        chave_natural=entrada.chave_natural, classe_chave=entrada.classe_chave,
+        descricao=entrada.descricao, ativo=entrada.ativo,
         colunas=[Coluna(**c.model_dump()) for c in entrada.colunas],
         calculados=[CampoCalculado(**c.model_dump()) for c in entrada.calculados],
         regras=[RegraQualidade(**r.model_dump()) for r in entrada.regras],
