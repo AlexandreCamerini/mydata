@@ -224,6 +224,39 @@ def datasets() -> list[Dataset]:
     ]
 
 
+# Indicadores fundamentalistas como configuração. `c('X')` é a conta contábil
+# no padrão CVM: 1.01 Ativo Circulante, 2.01 Passivo Circulante,
+# 2.02 Passivo Não Circulante, 2.03 Patrimônio Líquido, 3.01 Receita,
+# 3.11 Lucro/Prejuízo do período.
+METRICAS = [
+    ("liquidez_corrente", "Liquidez corrente", "c('1.01') / c('2.01')", "razao",
+     "Ativo Circulante / Passivo Circulante. Abaixo de 1 indica aperto de caixa."),
+    ("alavancagem", "Alavancagem", "(c('2.01') + c('2.02')) / c('2.03')", "razao",
+     "(Passivo Circulante + Não Circulante) / Patrimônio Líquido."),
+    ("margem_liquida", "Margem líquida", "c('3.11') / c('3.01')", "percentual",
+     "Lucro do período / Receita. Negativa indica prejuízo."),
+    ("roe", "Retorno sobre o PL", "c('3.11') / c('2.03')", "percentual",
+     "Lucro do período / Patrimônio Líquido."),
+    ("imobilizacao_pl", "Imobilização do PL", "c('1.02') / c('2.03')", "razao",
+     "Ativo Não Circulante / Patrimônio Líquido."),
+]
+
+
+def aplicar_metricas(sink: Sink) -> None:
+    from .repositorio import _aposentar
+
+    for chave, nome, formula, unidade, descricao in METRICAS:
+        versao = _aposentar(sink, "cfg_metrica", chave)
+        sink.executar(
+            """INSERT INTO cfg_metrica
+               (id, nome, formula, unidade, descricao, ativo, chave, versao,
+                vigente, vigente_chave, criado_por)
+               VALUES (?,?,?,?,?,TRUE,?,?,TRUE,?,'seed')""",
+            (sink.proximo_id("cfg_metrica"), nome, formula, unidade, descricao,
+             chave, versao, chave),
+        )
+
+
 def aplicar(sink: Sink) -> None:
     """Cadastra (ou reversiona) a configuração da CVM."""
     salvar_fonte(sink, FONTE, autor="seed")
@@ -233,3 +266,4 @@ def aplicar(sink: Sink) -> None:
     salvar_agendamento(sink, "cvm_dfp_anual", "cvm_dfp", "0 6 1 4 *", autor="seed")
     salvar_agendamento(sink, "cvm_itr_trimestral", "cvm_itr", "0 6 15 2,5,8,11 *", autor="seed")
     salvar_agendamento(sink, "cvm_cadastro_semanal", "cvm_cadastro", "0 5 * * 1", autor="seed")
+    aplicar_metricas(sink)

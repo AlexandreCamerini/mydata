@@ -79,13 +79,19 @@ def versao_atual(sink: Sink) -> int:
     return int(linha["v"]) if linha and linha["v"] is not None else 0
 
 
-def criar_views_vazias(sink: Sink) -> None:
-    """Ponteiros na versão 0: gold existe e está vazia antes da 1ª publicação.
+def garantir_ponteiros(sink: Sink) -> int:
+    """Garante que gold existe, apontando para a publicação corrente.
 
-    Sem isto a API quebraria entre a migração e a primeira carga.
+    Antes da primeira carga a versão é 0 e gold fica vazia — a API responde
+    em vez de quebrar. Depois, aponta para a última publicação: recriar os
+    ponteiros no boot não pode esconder dado já publicado.
     """
+    versao = versao_atual(sink)
     for nome, corpo in VIEWS.items():
-        sink.executar(f"CREATE OR REPLACE VIEW {nome} AS {corpo.replace('{V}', '0')}")
+        sink.executar(
+            f"CREATE OR REPLACE VIEW {nome} AS " + corpo.replace("{V}", str(versao))
+        )
+    return versao
 
 
 def publicar(

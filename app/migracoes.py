@@ -286,6 +286,23 @@ MIGRACOES: list[Migracao] = [
                  ON fato_conta (publicado_em_versao)""",
         ],
     ),
+    Migracao(
+        # Indicadores fundamentalistas como configuração, não como código.
+        # A fórmula usa `c('1.01')` para referenciar conta contábil; o motor
+        # expande para um pivô sobre gold_demonstracoes.
+        nome="0006_metricas",
+        sql=[
+            "CREATE SEQUENCE IF NOT EXISTS seq_cfg_metrica START 1",
+            """CREATE TABLE IF NOT EXISTS cfg_metrica (
+                 id            {INT} PRIMARY KEY,
+                 nome          {TEXTO} NOT NULL,
+                 formula       {TEXTO} NOT NULL,
+                 unidade       {TEXTO} NOT NULL DEFAULT 'razao',
+                 descricao     {TEXTO},
+                 ativo         {BOOL} NOT NULL DEFAULT TRUE,
+               """ + _VERSAO + ")",
+        ],
+    ),
 ]
 
 # Tabelas silver que participam do ciclo de publicação.

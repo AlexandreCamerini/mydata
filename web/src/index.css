@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+/* Foco visível em tudo que recebe foco — requisito de aceite, não estilo. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 3px solid var(--cor-foco);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+@theme {
+  --color-tinta: #10151c;
+  --color-tinta-suave: #46505e;
+  --color-papel: #fbfbf9;
+  --color-borda: #d7dbe0;
+  --color-acento: #10151c;
+  --color-alerta: #8a4b00;
+  --color-erro: #99131a;
+  --color-ok: #1c5c34;
+}
+
+:root {
+  --cor-foco: #1f5fb8;
+  color-scheme: light;
+}
+
+body {
+  background: var(--color-papel);
+  color: var(--color-tinta);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* Pular para o conteúdo: primeiro tab da página. */
+.pular {
+  position: absolute;
+  left: -9999px;
+}
+.pular:focus {
+  left: 0.5rem;
+  top: 0.5rem;
+  z-index: 50;
+  background: var(--color-tinta);
+  color: #fff;
+  padding: 0.5rem 0.75rem;
+}

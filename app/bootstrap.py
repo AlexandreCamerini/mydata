@@ -14,6 +14,7 @@ def preparar(sink: Sink) -> list[str]:
     """Deixa o banco pronto para uso. Idempotente."""
     novas = migracoes.aplicar(sink)
     # Gold precisa existir antes da primeira carga, senão a API quebra entre
-    # a migração e a primeira publicação.
-    publicacao.criar_views_vazias(sink)
+    # a migração e a primeira publicação. Aponta para a publicação corrente —
+    # recriar no boot não pode esconder dado já publicado.
+    publicacao.garantir_ponteiros(sink)
     return novas
