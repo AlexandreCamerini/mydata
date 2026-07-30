@@ -1,0 +1,8 @@
+# Runtime do portal. Enxuto de propósito: cada dependência é imagem maior e
+# mais memória no Railway. pandas e duckdb ficam fora — o motor usa csv da
+# stdlib e o sink de produção é Postgres.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+psycopg[binary]>=3.1
+requests>=2.28

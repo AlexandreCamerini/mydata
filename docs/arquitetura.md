@@ -1,6 +1,6 @@
 # Portal de Dados — definição do sistema e arquitetura proposta
 
-**Status:** proposta · **Versão:** 1.0 · **Data:** 2026-07-30
+**Status:** implementado (fases 1–5) · **Versão:** 1.1 · **Data:** 2026-07-30
 **Escopo deste documento:** o que o sistema é, que garantias oferece, como é
 construído e por quê. Decisões com alternativa descartada estão registradas em
 [Decisões arquiteturais](#11-decisões-arquiteturais); o que ainda não foi
@@ -268,13 +268,32 @@ não da janela. O catálogo precisa saber disso, e é por isso que
 
 ### 4.5 Publicação em gold
 
-Gold não é escrita in-place. Cada publicação cria `gold_v{n}` e move um ponteiro
-(view alias ou `search_path`). Consequências:
+Duas metades, e a implementação mostrou que **só a segunda não basta**.
 
-- Regra bloqueante barra a promoção do ponteiro; o consumidor continua na
-  `gold_v{n-1}`, íntegra, sem janela de dado quebrado.
+1. **Rótulo por linha.** Linha carregada nasce sem `publicado_em_versao`; gold
+   só enxerga linha rotulada. Publicar rotula as pendentes.
+2. **Ponteiro versionado.** Cada publicação cria `*_v{n}` e move o alias que a
+   API lê. Reverter é mover o ponteiro de volta.
+
+O ponteiro sozinho versiona a *definição* da view, não o dado que ela lê — com
+gold sendo view sobre silver, uma carga reprovada apareceria para o consumidor
+no mesmo instante em que fosse carregada. O rótulo é o que faz o gate valer;
+o teste `test_versao_anterior_continua_no_ar_apos_bloqueio` existe para isso.
+Bloqueio também descarta de silver as linhas sem rótulo da execução — dado já
+publicado não é tocado.
+
+Consequências:
+
+- Regra bloqueante barra a promoção; o consumidor continua na versão íntegra.
 - Rollback é mover o ponteiro de volta.
 - `versao_publicacao` vira `ETag` na API (§ [6.4](#64-cache-e-custo)).
+
+**Limite conhecido:** linha já publicada sobrescrita por upsert com valor
+diferente muda em gold sem passar pelo gate — só ocorreria se a CVM
+republicasse a mesma chave natural com outro valor. E `recomputar` de uma
+janela cuja carga seja depois reprovada deixa a janela sem dado publicado até
+a correção, porque as linhas antigas já foram removidas. A solução completa
+para os dois é área de staging antes do merge — registrada como backlog.
 
 ---
 
