@@ -112,7 +112,13 @@ def carregar_arquivo(
     sink: Sink, ds: dict, colunas: list[dict], fonte: dict, captura_id: int,
     nome_arquivo: str, payload: bytes, contexto: dict[str, str],
 ) -> int:
-    """Parseia e carrega um arquivo em silver, com upsert pela chave natural."""
+    """Parseia e carrega um arquivo em silver, com upsert pela chave natural.
+
+    A deduplicação dentro do arquivo — a CVM repete a mesma chave natural em
+    alguns CSVs — é resolvida no SQL da staging, pela ordem de leitura. Antes
+    era um `set` em Python que segurava a chave de cada linha do arquivo: para
+    um CSV de meio milhão de linhas, isso era memória que o container não tem.
+    """
     fisicas = _colunas_da_tabela(sink, ds["tabela_destino"])
     chave_natural = [c.strip() for c in ds["chave_natural"].split(",") if c.strip()]
 
@@ -122,37 +128,25 @@ def carregar_arquivo(
         extras={"captura_id": captura_id, "fonte_arquivo": nome_arquivo},
     )
 
-    campos: list[str] | None = None
-    sql = ""
-    lote: list[list] = []
-    total = 0
-    vistas: set[tuple] = set()
+    primeira = next(iter(linhas), None)
+    if primeira is None:
+        return 0
+    campos = [c for c in primeira if c in fisicas]
+    ausentes = [c for c in chave_natural if c not in campos]
+    if ausentes:
+        raise ErroIngestao(
+            f"chave natural do dataset '{ds['chave']}' cita coluna que o "
+            f"arquivo não produz: {', '.join(ausentes)}"
+        )
 
-    for linha in linhas:
-        if campos is None:
-            campos = [c for c in linha if c in fisicas]
-            atualizaveis = [c for c in campos if c not in chave_natural]
-            sql = (
-                f"INSERT INTO {ds['tabela_destino']} ({', '.join(campos)}) "
-                f"VALUES ({', '.join('?' for _ in campos)}) "
-                f"ON CONFLICT ({', '.join(chave_natural)}) DO UPDATE SET "
-                + ", ".join(f"{c} = excluded.{c}" for c in atualizaveis)
-            )
-        # Dedup dentro do lote: o próprio ON CONFLICT não resolve duplicata na
-        # mesma instrução, e a CVM repete linha em alguns arquivos.
-        chave = tuple(linha.get(c) for c in chave_natural)
-        if chave in vistas:
-            continue
-        vistas.add(chave)
-        lote.append([linha.get(c) for c in campos])
-        if len(lote) >= 5000:
-            sink.executar_muitos(sql, lote)
-            total += len(lote)
-            lote = []
-    if lote:
-        sink.executar_muitos(sql, lote)
-        total += len(lote)
-    return total
+    def valores():
+        yield [primeira.get(c) for c in campos]
+        for linha in linhas:
+            yield [linha.get(c) for c in campos]
+
+    return sink.carregar_em_lote(
+        ds["tabela_destino"], campos, chave_natural, valores()
+    )
 
 
 # --------------------------------------------------------------------------
@@ -309,6 +303,32 @@ def recomputar(
     return executar(
         sink, dataset_chave, janela, trigger="replay", baixar=None, publicar=publicar
     )
+
+
+def janelas_capturadas(sink: Sink, dataset_chave: str) -> list[str]:
+    return [
+        linha["janela"]
+        for linha in sink.consultar(
+            "SELECT DISTINCT janela FROM bronze_captura "
+            "WHERE dataset_chave = ? ORDER BY janela",
+            (dataset_chave,),
+        )
+    ]
+
+
+def recomputar_tudo(sink: Sink) -> list[Resultado]:
+    """Reconstrói todo o derivado a partir do bronze existente. Sem rede.
+
+    É a rede de segurança das mudanças de modelo: se o bronze é suficiente
+    para reconstruir tudo, qualquer etapa é reversível. Publica ao final de
+    cada janela em vez de uma vez só no fim — assim uma falha no meio deixa
+    o que já foi refeito visível, em vez de gold vazia.
+    """
+    resultados: list[Resultado] = []
+    for ds in repo.listar_datasets(sink):
+        for janela in janelas_capturadas(sink, ds["chave"]):
+            resultados.append(recomputar(sink, ds["chave"], janela))
+    return resultados
 
 
 def _contar(sink: Sink, tabela: str) -> int:

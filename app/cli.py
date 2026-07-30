@@ -13,7 +13,7 @@ import sys
 from datetime import datetime, timezone
 
 from . import bootstrap, repositorio as repo, seed_cvm
-from .motor import download, ingestao, publicacao
+from .motor import download, ingestao, publicacao, verificacao
 from .sinks import criar_sink
 
 log = logging.getLogger("portal")
@@ -96,6 +96,40 @@ def cmd_agendados(args) -> int:
     return 1 if falhas else 0
 
 
+def cmd_recomputar(args) -> int:
+    """Refaz o derivado a partir do bronze — a rotina normal de correção."""
+    sink = criar_sink()
+    bootstrap.preparar(sink)
+    antes = verificacao.impressao_digital(sink)
+    if args.dataset:
+        janelas = [args.janela] if args.janela else ingestao.janelas_capturadas(
+            sink, args.dataset
+        )
+        resultados = [ingestao.recomputar(sink, args.dataset, j) for j in janelas]
+    else:
+        resultados = ingestao.recomputar_tudo(sink)
+    depois = verificacao.impressao_digital(sink)
+    print(json.dumps({
+        "recomputadas": [
+            {"dataset": r.dataset_chave, "janela": r.janela, "status": r.status,
+             "linhas": r.linhas_silver}
+            for r in resultados
+        ],
+        "antes": antes,
+        "depois": depois,
+        "reproduziu": antes == depois,
+    }, ensure_ascii=False, indent=2))
+    sink.fechar()
+    return 0 if antes == depois or not antes else 3
+
+
+def cmd_verificar(args) -> int:
+    sink = criar_sink()
+    print(json.dumps(verificacao.impressao_digital(sink), ensure_ascii=False, indent=2))
+    sink.fechar()
+    return 0
+
+
 def cmd_chave(args) -> int:
     from .api import auth
 
@@ -142,6 +176,17 @@ def main(argv: list[str] | None = None) -> int:
     a = sub.add_parser("agendados", help="roda os agendamentos ativos (cron)")
     a.add_argument("--chave", help="roda só um agendamento")
     a.set_defaults(func=cmd_agendados)
+
+    r = sub.add_parser(
+        "recomputar",
+        help="refaz silver/calculados/gold a partir do bronze, sem rede",
+    )
+    r.add_argument("dataset", nargs="?", help="omitido = todos")
+    r.add_argument("janela", nargs="?", help="omitida = todas as capturadas")
+    r.set_defaults(func=cmd_recomputar)
+
+    v = sub.add_parser("verificar", help="imprime a digital de gold")
+    v.set_defaults(func=cmd_verificar)
 
     c = sub.add_parser("chave", help="emite chave de API")
     c.add_argument("consumidor")

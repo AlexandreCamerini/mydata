@@ -62,11 +62,56 @@ def qmark_para_pyformat(sql: str) -> str:
     return "".join(partes)
 
 
+# --------------------------------------------------------------------------
+# Carga em bloco
+# --------------------------------------------------------------------------
+# Upsert linha a linha contra tabela indexada custa ~300 linhas/s: um ano da
+# CVM levava 27 minutos. O caminho rápido é encher uma staging sem índice e
+# resolver tudo numa instrução só — medido em ~9.300 linhas/s, trinta vezes
+# mais. A staging carrega `_ord` para o desempate ficar determinístico: a CVM
+# repete a mesma chave natural dentro do arquivo, e a primeira ocorrência é a
+# que vale, como era no laço em Python.
+STAGING = "_stg_carga"
+
+
+def sql_upsert_da_staging(
+    tabela: str, campos: list[str], chave_natural: list[str], stg: str = STAGING
+) -> str:
+    lista = ", ".join(campos)
+    atualizaveis = [c for c in campos if c not in chave_natural]
+    resolucao = (
+        f"DO UPDATE SET {', '.join(f'{c} = excluded.{c}' for c in atualizaveis)}"
+        if atualizaveis
+        else "DO NOTHING"
+    )
+    return (
+        f"INSERT INTO {tabela} ({lista}) SELECT {lista} FROM ("
+        f"  SELECT {lista}, row_number() OVER ("
+        f"    PARTITION BY {', '.join(chave_natural)} ORDER BY _ord) AS _rn"
+        f"  FROM {stg}"
+        f") s WHERE _rn = 1 "
+        f"ON CONFLICT ({', '.join(chave_natural)}) {resolucao}"
+    )
+
+
+def sql_criar_staging(tabela: str, campos: list[str], stg: str = STAGING) -> str:
+    """Staging com os tipos da tabela alvo, sem índice e sem restrição."""
+    return (
+        f"CREATE TEMP TABLE {stg} AS "
+        f"SELECT {', '.join(campos)}, CAST(0 AS bigint) AS _ord "
+        f"FROM {tabela} WHERE 1 = 0"
+    )
+
+
 class Sink(Protocol):
     dialeto: str
 
     def executar(self, sql: str, params: Iterable[Any] = ()) -> None: ...
     def executar_muitos(self, sql: str, linhas: Iterable[Iterable[Any]]) -> None: ...
+    def carregar_em_lote(
+        self, tabela: str, campos: list[str], chave_natural: list[str],
+        linhas: Iterable[Iterable[Any]],
+    ) -> int: ...
     def consultar(self, sql: str, params: Iterable[Any] = ()) -> list[dict]: ...
     def um(self, sql: str, params: Iterable[Any] = ()) -> dict | None: ...
     def proximo_id(self, tabela: str) -> int: ...
@@ -93,6 +138,38 @@ class SinkDuckDB:
         dados = [list(linha) for linha in linhas]
         if dados:
             self.con.executemany(sql, dados)
+
+    def carregar_em_lote(
+        self, tabela: str, campos: list[str], chave_natural: list[str],
+        linhas: Iterable[Iterable[Any]],
+    ) -> int:
+        # `executemany` do DuckDB é uma execução preparada por linha. Blocos de
+        # 200 num único VALUES foram o melhor ponto medido; blocos maiores
+        # voltam a piorar por causa do custo de parsear a instrução gigante.
+        self.executar(f"DROP TABLE IF EXISTS {STAGING}")
+        self.executar(sql_criar_staging(tabela, campos))
+        marcador = "(" + ",".join(["?"] * (len(campos) + 1)) + ")"
+        total, bloco = 0, []
+        try:
+            for linha in linhas:
+                bloco.append([*linha, total])
+                total += 1
+                if len(bloco) >= 200:
+                    self._despejar(marcador, bloco)
+                    bloco = []
+            if bloco:
+                self._despejar(marcador, bloco)
+            if total:
+                self.executar(sql_upsert_da_staging(tabela, campos, chave_natural))
+        finally:
+            self.executar(f"DROP TABLE IF EXISTS {STAGING}")
+        return total
+
+    def _despejar(self, marcador: str, bloco: list[list]) -> None:
+        self.con.execute(
+            f"INSERT INTO {STAGING} VALUES " + ",".join([marcador] * len(bloco)),
+            [valor for linha in bloco for valor in linha],
+        )
 
     def consultar(self, sql: str, params: Iterable[Any] = ()) -> list[dict]:
         cur = self.con.execute(sql, list(params))
@@ -131,6 +208,26 @@ class SinkPostgres:
             return
         with self.con.cursor() as cur:
             cur.executemany(qmark_para_pyformat(sql), dados)
+
+    def carregar_em_lote(
+        self, tabela: str, campos: list[str], chave_natural: list[str],
+        linhas: Iterable[Iterable[Any]],
+    ) -> int:
+        total = 0
+        with self.con.cursor() as cur:
+            cur.execute(f"DROP TABLE IF EXISTS {STAGING}")
+            cur.execute(sql_criar_staging(tabela, campos))
+            copia = f"COPY {STAGING} ({', '.join(campos)}, _ord) FROM STDIN"
+            try:
+                with cur.copy(copia) as fluxo:
+                    for linha in linhas:
+                        fluxo.write_row([*linha, total])
+                        total += 1
+                if total:
+                    cur.execute(sql_upsert_da_staging(tabela, campos, chave_natural))
+            finally:
+                cur.execute(f"DROP TABLE IF EXISTS {STAGING}")
+        return total
 
     def consultar(self, sql: str, params: Iterable[Any] = ()) -> list[dict]:
         with self.con.cursor() as cur:

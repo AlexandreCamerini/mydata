@@ -32,6 +32,7 @@
       "Bash(git push:*)",
       "Bash(gh:*)",
       "Bash(docker push:*)",
+      "Bash(railway:*)",
       "Bash(fly:*)",
       "Bash(render:*)",
       "WebFetch"

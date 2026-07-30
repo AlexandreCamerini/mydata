@@ -74,6 +74,16 @@ VIEWS: dict[str, str] = {
 }
 
 
+def vistas(sink: Sink) -> dict[str, str]:
+    """As vistas de gold e seus corpos, com `{V}` ainda por substituir."""
+    return dict(VIEWS)
+
+
+def tabelas_publicaveis(sink: Sink) -> tuple[str, ...]:
+    """As tabelas silver que participam do rótulo de publicação."""
+    return TABELAS_SILVER
+
+
 def versao_atual(sink: Sink) -> int:
     linha = sink.um("SELECT max(versao) AS v FROM publicacao")
     return int(linha["v"]) if linha and linha["v"] is not None else 0
@@ -87,7 +97,7 @@ def garantir_ponteiros(sink: Sink) -> int:
     ponteiros no boot não pode esconder dado já publicado.
     """
     versao = versao_atual(sink)
-    for nome, corpo in VIEWS.items():
+    for nome, corpo in vistas(sink).items():
         sink.executar(
             f"CREATE OR REPLACE VIEW {nome} AS " + corpo.replace("{V}", str(versao))
         )
@@ -99,13 +109,13 @@ def publicar(
 ) -> int:
     """Rotula as linhas pendentes e move o ponteiro de gold para a nova versão."""
     nova = versao_atual(sink) + 1
-    for tabela in TABELAS_SILVER:
+    for tabela in tabelas_publicaveis(sink):
         sink.executar(
             f"UPDATE {tabela} SET publicado_em_versao = ? "
             f"WHERE publicado_em_versao IS NULL",
             (nova,),
         )
-    for nome, corpo in VIEWS.items():
+    for nome, corpo in vistas(sink).items():
         sink.executar(f"CREATE OR REPLACE VIEW {nome}_v{nova} AS "
                       + corpo.replace("{V}", str(nova)))
         sink.executar(f"CREATE OR REPLACE VIEW {nome} AS SELECT * FROM {nome}_v{nova}")
@@ -126,7 +136,7 @@ def descartar_nao_publicado(sink: Sink, capturas: list[int]) -> int:
         return 0
     marcadores = ",".join("?" for _ in capturas)
     total = 0
-    for tabela in TABELAS_SILVER:
+    for tabela in tabelas_publicaveis(sink):
         antes = sink.um(f"SELECT count(*) AS n FROM {tabela}")["n"]
         sink.executar(
             f"DELETE FROM {tabela} WHERE publicado_em_versao IS NULL "
@@ -142,7 +152,7 @@ def reverter(sink: Sink, versao: int) -> int:
     existe = sink.um("SELECT versao FROM publicacao WHERE versao = ?", (versao,))
     if existe is None:
         raise ValueError(f"publicação {versao} não existe")
-    for nome in VIEWS:
+    for nome in vistas(sink):
         sink.executar(f"CREATE OR REPLACE VIEW {nome} AS SELECT * FROM {nome}_v{versao}")
     log.warning("gold revertida para a versão %d", versao)
     return versao
