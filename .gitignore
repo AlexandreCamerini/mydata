@@ -13,3 +13,4 @@ dist/
 node_modules/
 venv/
 web/dist/
+web/dist/axe.min.js

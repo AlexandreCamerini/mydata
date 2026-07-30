@@ -145,7 +145,15 @@ export function Tabela(props: {
   children: ReactNode;
 }) {
   return (
-    <div className="overflow-x-auto border border-borda rounded bg-white">
+    // tabIndex + role: um container que rola precisa receber foco, senão quem
+    // navega por teclado não alcança o conteúdo que ficou fora da viewport.
+    // (axe: scrollable-region-focusable)
+    <div
+      className="overflow-x-auto border border-borda rounded bg-white"
+      tabIndex={0}
+      role="region"
+      aria-label={props.legenda}
+    >
       <table className="w-full text-sm">
         <caption className="sr-only">{props.legenda}</caption>
         <thead>
