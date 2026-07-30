@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cvm-financas"
+version = "0.1.0"
+description = "Ingestor das demonstrações financeiras da CVM (DFP/ITR) para base própria, com normalização."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Alex Camerini" }]
+keywords = ["cvm", "b3", "demonstracoes-financeiras", "dfp", "itr", "fundamentalista", "etl"]
+dependencies = [
+    "requests>=2.28",
+    "pandas>=2.0",
+]
+
+[project.optional-dependencies]
+duckdb = ["duckdb>=0.9"]
+postgres = ["sqlalchemy>=2.0", "psycopg[binary]>=3.1"]
+dev = ["pytest>=7.0", "duckdb>=0.9"]
+
+[project.scripts]
+cvm-ingest = "cvm_financas.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cvm_financas = ["sql/*.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

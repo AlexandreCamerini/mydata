@@ -1,0 +1,15 @@
+
+# ambiente e dados locais
+*.duckdb
+*.egg-info/
+*.py[cod]
+.eggs/
+.pytest_cache/
+.venv/
+__pycache__/
+build/
+dados/
+dist/
+node_modules/
+venv/
+web/dist/
