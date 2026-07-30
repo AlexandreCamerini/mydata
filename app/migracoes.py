@@ -273,7 +273,23 @@ MIGRACOES: list[Migracao] = [
                )""",
         ],
     ),
+    Migracao(
+        # Sem isto, o gate de qualidade não protege nada: gold é view sobre
+        # silver, então linha carregada e reprovada já apareceria para o
+        # consumidor. O rótulo marca quais linhas foram promovidas; gold só
+        # enxerga linha rotulada. Bloqueio deixa a linha sem rótulo — invisível.
+        nome="0005_rotulo_de_publicacao",
+        sql=[
+            "ALTER TABLE fato_conta ADD COLUMN publicado_em_versao {INT}",
+            "ALTER TABLE dim_empresa ADD COLUMN publicado_em_versao {INT}",
+            """CREATE INDEX IF NOT EXISTS ix_fato_publicado
+                 ON fato_conta (publicado_em_versao)""",
+        ],
+    ),
 ]
+
+# Tabelas silver que participam do ciclo de publicação.
+TABELAS_SILVER = ("fato_conta", "dim_empresa")
 
 
 def aplicar(sink: Sink, ate: str | None = None) -> list[str]:
