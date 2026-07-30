@@ -9,8 +9,8 @@ Trocar isto por outra fonte é cadastrar outras linhas — não é editar o moto
 from __future__ import annotations
 
 from .repositorio import (
-    CampoCalculado, Coluna, Dataset, Fonte, RegraQualidade,
-    salvar_agendamento, salvar_dataset, salvar_fonte,
+    Atributo, CampoCalculado, Classe, Coluna, Dataset, Fonte, RegraQualidade,
+    salvar_agendamento, salvar_classe, salvar_dataset, salvar_fonte,
 )
 from .sinks import Sink
 
@@ -166,6 +166,81 @@ CHAVE_NATURAL_CONTA = [
     "ordem_exerc", "versao",
 ]
 
+# --------------------------------------------------------------------------
+# Classes de informação
+# --------------------------------------------------------------------------
+# A classe é o que o consumidor pergunta ("me dá a empresa"), independente de
+# quantas fontes a alimentam. Aqui ela descreve exatamente as tabelas que já
+# existem: enquanto for espelho verificado, nada muda de comportamento.
+def _atr(nome, tipo="texto", **kw):
+    return Atributo(nome=nome, tipo=tipo, **kw)
+
+
+CLASSE_DEMONSTRACAO = Classe(
+    chave="demonstracao_financeira",
+    nome="Demonstração financeira",
+    descricao="Uma conta contábil de uma companhia num período, como publicada.",
+    tabela="fato_conta",
+    chave_identidade=CHAVE_NATURAL_CONTA,
+    indices=[["cd_cvm", "dt_refer"], ["cd_conta"]],
+    sla_horas=24 * 120,   # DFP sai uma vez por ano; ITR, a cada trimestre.
+    atributos=[
+        _atr("cd_cvm", "inteiro", obrigatorio=True, ordem=1,
+             descricao="Código da companhia na CVM."),
+        _atr("cnpj", ordem=2),
+        _atr("denom_cia", ordem=3, descricao="Denominação como consta no arquivo."),
+        _atr("tipo_doc", obrigatorio=True, ordem=4, descricao="DFP ou ITR."),
+        _atr("grupo", obrigatorio=True, ordem=5,
+             descricao="BPA, BPP, DRE, DFC_MI, DFC_MD, DVA, DRA ou DMPL."),
+        _atr("consolidado", "booleano", obrigatorio=True, ordem=6),
+        _atr("dt_refer", "data", obrigatorio=True, ordem=7),
+        _atr("dt_ini_exerc", "data", ordem=8),
+        _atr("dt_fim_exerc", "data", ordem=9),
+        _atr("ordem_exerc", obrigatorio=True, ordem=10,
+             descricao="ÚLTIMO ou PENÚLTIMO. Somar sem filtrar dobra os valores."),
+        _atr("versao", "inteiro", obrigatorio=True, ordem=11,
+             descricao="Versão do documento. Reapresentação cria versão nova."),
+        _atr("cd_conta", obrigatorio=True, ordem=12),
+        _atr("ds_conta", ordem=13),
+        _atr("st_conta_fixa", ordem=14, descricao="'N' indica conta customizada."),
+        _atr("moeda", ordem=15),
+        _atr("escala_moeda", obrigatorio=True, ordem=16,
+             descricao="UNIDADE, MIL ou MILHÃO — varia por companhia."),
+        _atr("coluna_df", ordem=17),
+        _atr("vl_conta", "numero", ordem=18, guarda_texto=True,
+             descricao="Valor na escala original. O texto do arquivo fica ao lado."),
+        _atr("vl_conta_norm", "numero", origem="calculado", ordem=19,
+             unidade="BRL", descricao="Valor em reais, com a escala aplicada."),
+        _atr("is_latest", "booleano", origem="calculado", ordem=20,
+             descricao="Última versão do documento para a companhia e a data."),
+        _atr("itr_acumulado", "booleano", origem="calculado", ordem=21,
+             descricao="Conta de fluxo do ITR: valor acumulado no exercício."),
+    ],
+)
+
+CLASSE_EMPRESA = Classe(
+    chave="empresa",
+    nome="Empresa",
+    descricao="Companhia aberta registrada na CVM.",
+    tabela="dim_empresa",
+    chave_identidade=["cd_cvm"],
+    sla_horas=24 * 14,    # o cadastro é semanal; duas semanas já é atraso.
+    atributos=[
+        _atr("cd_cvm", "inteiro", obrigatorio=True, ordem=1),
+        _atr("cnpj", ordem=2),
+        _atr("denom_social", obrigatorio=True, ordem=3),
+        _atr("denom_comerc", ordem=4),
+        _atr("setor_atividade", ordem=5),
+        _atr("situacao", ordem=6),
+        _atr("controle_acionario", ordem=7),
+        _atr("uf", ordem=8),
+        _atr("municipio", ordem=9),
+        _atr("dt_registro", "data", ordem=10),
+    ],
+)
+
+CLASSES = [CLASSE_DEMONSTRACAO, CLASSE_EMPRESA]
+
 COLUNAS_CADASTRO = [
     Coluna("CD_CVM", "cd_cvm", "inteiro", obrigatoria=True, ordem=1),
     Coluna("CNPJ_CIA", "cnpj", "texto", ordem=2),
@@ -185,6 +260,7 @@ def datasets() -> list[Dataset]:
         fonte_chave="cvm",
         padrao_arquivo=PADRAO_CONTA,
         tabela_destino="fato_conta",
+        classe_chave="demonstracao_financeira",
         chave_natural=CHAVE_NATURAL_CONTA,
         colunas=COLUNAS_CONTA,
         calculados=CALCULADOS_CONTA,
@@ -210,6 +286,7 @@ def datasets() -> list[Dataset]:
             descricao="Base do endpoint /v1/empresas.",
             padrao_arquivo=r"^cad_cia_aberta\.csv$",
             tabela_destino="dim_empresa",
+            classe_chave="empresa",
             chave_natural=["cd_cvm"],
             colunas=COLUNAS_CADASTRO,
             calculados=[],
@@ -259,6 +336,8 @@ def aplicar_metricas(sink: Sink) -> None:
 
 def aplicar(sink: Sink) -> None:
     """Cadastra (ou reversiona) a configuração da CVM."""
+    for c in CLASSES:
+        salvar_classe(sink, c, autor="seed")
     salvar_fonte(sink, FONTE, autor="seed")
     salvar_fonte(sink, FONTE_CADASTRO, autor="seed")
     for d in datasets():

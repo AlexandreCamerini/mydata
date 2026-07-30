@@ -65,11 +65,43 @@ class Dataset:
     padrao_arquivo: str
     tabela_destino: str
     chave_natural: list[str]
+    classe_chave: str | None = None
     colunas: list[Coluna] = field(default_factory=list)
     calculados: list[CampoCalculado] = field(default_factory=list)
     regras: list[RegraQualidade] = field(default_factory=list)
     politica_versao: str = "max_versao"
     particao: str = "ano"
+    descricao: str | None = None
+    ativo: bool = True
+
+
+@dataclass
+class Atributo:
+    """Um campo da classe de informação, independente de quem o alimenta."""
+
+    nome: str
+    tipo: str = "texto"            # texto | inteiro | numero | data | booleano
+    origem: str = "fonte"          # fonte | calculado
+    obrigatorio: bool = False
+    guarda_texto: bool = False     # mantém a representação original em <nome>_txt
+    unidade: str | None = None
+    descricao: str | None = None
+    ordem: int = 0
+
+
+@dataclass
+class Classe:
+    """Uma coisa sobre a qual o portal guarda informação — Empresa, Cotação,
+    Demonstração Financeira. Vive acima do dataset: uma classe é alimentada
+    por N fontes, e é dela que sai a tabela física."""
+
+    chave: str
+    nome: str
+    tabela: str
+    chave_identidade: list[str]
+    atributos: list[Atributo] = field(default_factory=list)
+    indices: list[list[str]] = field(default_factory=list)
+    sla_horas: int | None = None
     descricao: str | None = None
     ativo: bool = True
 
@@ -136,6 +168,109 @@ def listar_fontes(sink: Sink) -> list[dict]:
 
 
 # --------------------------------------------------------------------------
+# Classe de informação (agregado)
+# --------------------------------------------------------------------------
+TIPOS_ATRIBUTO = ("texto", "inteiro", "numero", "data", "booleano")
+
+
+def validar_classe(c: Classe) -> None:
+    nomes = [a.nome for a in c.atributos]
+    if not nomes:
+        raise ErroConfiguracao(f"classe '{c.chave}' não declara nenhum atributo")
+    repetidos = {n for n in nomes if nomes.count(n) > 1}
+    if repetidos:
+        raise ErroConfiguracao(
+            f"classe '{c.chave}' declara atributo repetido: {', '.join(sorted(repetidos))}"
+        )
+    for a in c.atributos:
+        if a.tipo not in TIPOS_ATRIBUTO:
+            raise ErroConfiguracao(
+                f"atributo '{a.nome}' tem tipo desconhecido '{a.tipo}'. "
+                f"Use um de: {', '.join(TIPOS_ATRIBUTO)}"
+            )
+    if not c.chave_identidade:
+        raise ErroConfiguracao(
+            f"classe '{c.chave}' precisa de chave de identidade: é ela que diz "
+            f"quando duas linhas falam da mesma coisa"
+        )
+    ausentes = [k for k in c.chave_identidade if k not in nomes]
+    if ausentes:
+        raise ErroConfiguracao(
+            f"chave de identidade da classe '{c.chave}' cita atributo "
+            f"inexistente: {', '.join(ausentes)}"
+        )
+    for indice in c.indices:
+        fora = [k for k in indice if k not in nomes]
+        if fora:
+            raise ErroConfiguracao(
+                f"índice da classe '{c.chave}' cita atributo inexistente: "
+                f"{', '.join(fora)}"
+            )
+    if not c.tabela.replace("_", "").isalnum():
+        raise ErroConfiguracao(
+            f"nome de tabela inválido para a classe '{c.chave}': {c.tabela}"
+        )
+
+
+def salvar_classe(sink: Sink, c: Classe, autor: str = "sistema") -> int:
+    validar_classe(c)
+    versao = _aposentar(sink, "cfg_classe", c.chave)
+    novo_id = sink.proximo_id("cfg_classe")
+    sink.executar(
+        """INSERT INTO cfg_classe
+           (id, nome, descricao, tabela, chave_identidade, indices, sla_horas,
+            ativo, chave, versao, vigente, vigente_chave, criado_por)
+           VALUES (?,?,?,?,?,?,?,?,?,?,TRUE,?,?)""",
+        (novo_id, c.nome, c.descricao, c.tabela, ",".join(c.chave_identidade),
+         ";".join(",".join(i) for i in c.indices), c.sla_horas, c.ativo,
+         c.chave, versao, c.chave, autor),
+    )
+    for a in c.atributos:
+        sink.executar(
+            """INSERT INTO cfg_atributo
+               (id, classe_id, nome, tipo, origem, obrigatorio, guarda_texto,
+                unidade, descricao, ordem) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (sink.proximo_id("cfg_atributo"), novo_id, a.nome, a.tipo, a.origem,
+             a.obrigatorio, a.guarda_texto, a.unidade, a.descricao, a.ordem),
+        )
+    return novo_id
+
+
+def classe_vigente(sink: Sink, chave: str) -> dict | None:
+    return sink.um("SELECT * FROM cfg_classe WHERE chave = ? AND vigente", (chave,))
+
+
+def listar_classes(sink: Sink, so_ativas: bool = False) -> list[dict]:
+    sql = "SELECT * FROM cfg_classe WHERE vigente"
+    if so_ativas:
+        sql += " AND ativo"
+    return sink.consultar(sql + " ORDER BY chave")
+
+
+def atributos_de(sink: Sink, classe_id: int) -> list[dict]:
+    return sink.consultar(
+        "SELECT * FROM cfg_atributo WHERE classe_id = ? ORDER BY ordem, id",
+        (classe_id,),
+    )
+
+
+def datasets_da_classe(sink: Sink, classe_chave: str) -> list[dict]:
+    return sink.consultar(
+        "SELECT * FROM cfg_dataset WHERE vigente AND classe_chave = ? ORDER BY chave",
+        (classe_chave,),
+    )
+
+
+def indices_de(classe: dict) -> list[list[str]]:
+    bruto = classe.get("indices") or ""
+    return [
+        [c.strip() for c in grupo.split(",") if c.strip()]
+        for grupo in bruto.split(";")
+        if grupo.strip()
+    ]
+
+
+# --------------------------------------------------------------------------
 # Dataset (agregado)
 # --------------------------------------------------------------------------
 def validar_dataset(d: Dataset) -> None:
@@ -184,12 +319,12 @@ def salvar_dataset(sink: Sink, d: Dataset, autor: str = "sistema") -> int:
     sink.executar(
         """INSERT INTO cfg_dataset
            (id, fonte_chave, nome, descricao, padrao_arquivo, tabela_destino,
-            chave_natural, politica_versao, particao, ativo, chave, versao,
-            vigente, vigente_chave, criado_por)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,TRUE,?,?)""",
+            chave_natural, politica_versao, particao, ativo, classe_chave,
+            chave, versao, vigente, vigente_chave, criado_por)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,TRUE,?,?)""",
         (novo_id, d.fonte_chave, d.nome, d.descricao, d.padrao_arquivo,
          d.tabela_destino, ",".join(d.chave_natural), d.politica_versao,
-         d.particao, d.ativo, d.chave, versao, d.chave, autor),
+         d.particao, d.ativo, d.classe_chave, d.chave, versao, d.chave, autor),
     )
     for c in d.colunas:
         sink.executar(

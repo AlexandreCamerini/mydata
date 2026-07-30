@@ -303,9 +303,55 @@ MIGRACOES: list[Migracao] = [
                """ + _VERSAO + ")",
         ],
     ),
+    Migracao(
+        # A classe de informação é o que faltava acima do dataset. Enquanto a
+        # tabela física nasce de um CREATE TABLE escrito à mão, cadastrar uma
+        # classe nova pela interface exige deploy — o oposto do produto.
+        #
+        # Esta migração é aditiva de propósito: as tabelas entram vazias e o
+        # motor continua lendo `tabela_destino`. A classe começa como espelho
+        # verificado do que já existe; só depois assume.
+        nome="0007_classe_de_informacao",
+        sql=[
+            "CREATE SEQUENCE IF NOT EXISTS seq_cfg_classe START 1",
+            "CREATE SEQUENCE IF NOT EXISTS seq_cfg_atributo START 1",
+            """CREATE TABLE IF NOT EXISTS cfg_classe (
+                 id               {INT} PRIMARY KEY,
+                 nome             {TEXTO} NOT NULL,
+                 descricao        {TEXTO},
+                 tabela           {TEXTO} NOT NULL,
+                 chave_identidade {TEXTO} NOT NULL,
+                 indices          {TEXTO},
+                 sla_horas        {INT},
+                 ativo            {BOOL} NOT NULL DEFAULT TRUE,
+               """ + _VERSAO + ")",
+            """CREATE TABLE IF NOT EXISTS cfg_atributo (
+                 id           {INT} PRIMARY KEY,
+                 classe_id    {INT} NOT NULL,
+                 nome         {TEXTO} NOT NULL,
+                 tipo         {TEXTO} NOT NULL DEFAULT 'texto',
+                 origem       {TEXTO} NOT NULL DEFAULT 'fonte',
+                 obrigatorio  {BOOL} NOT NULL DEFAULT FALSE,
+                 guarda_texto {BOOL} NOT NULL DEFAULT FALSE,
+                 unidade      {TEXTO},
+                 descricao    {TEXTO},
+                 ordem        {INT} NOT NULL DEFAULT 0,
+                 CHECK (origem IN ('fonte','calculado'))
+               )""",
+            # Anulável: dataset antigo segue funcionando enquanto a classe é só
+            # espelho. A obrigatoriedade chega na Etapa 3, com a virada.
+            "ALTER TABLE cfg_dataset ADD COLUMN classe_chave {TEXTO}",
+        ],
+        so_postgres=[
+            """ALTER TABLE cfg_atributo ADD CONSTRAINT fk_cfg_atributo_classe
+                 FOREIGN KEY (classe_id) REFERENCES cfg_classe(id)""",
+        ],
+    ),
 ]
 
-# Tabelas silver que participam do ciclo de publicação.
+# Tabelas silver que participam do ciclo de publicação. A partir da Etapa 3
+# quem responde é `publicacao.tabelas_publicaveis`, lendo `cfg_classe`; esta
+# constante permanece como piso para banco ainda sem classe cadastrada.
 TABELAS_SILVER = ("fato_conta", "dim_empresa")
 
 
