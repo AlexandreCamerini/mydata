@@ -179,12 +179,18 @@ export function Selo({ texto }: { texto: string }) {
   const cor =
     {
       publicado: "bg-green-50 text-ok border-ok",
+      em_dia: "bg-green-50 text-ok border-ok",
       bloqueada: "bg-amber-50 text-alerta border-alerta",
+      atrasada: "bg-amber-50 text-alerta border-alerta",
       falha: "bg-red-50 text-erro border-erro",
+      sem_carga: "bg-gray-50 text-tinta-suave border-borda",
     }[texto] ?? "bg-gray-50 text-tinta-suave border-borda";
+  // O rótulo textual carrega o significado; a cor é reforço, não a
+  // informação — daí "em dia" escrito, e não só um ponto verde.
+  const legivel = texto.replace(/_/g, " ");
   return (
     <span className={`inline-block rounded border px-2 py-0.5 text-xs ${cor}`}>
-      {texto}
+      {legivel}
     </span>
   );
 }

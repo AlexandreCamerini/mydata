@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Classes } from "./telas/Classes";
 import { Fontes } from "./telas/Fontes";
 import { Datasets } from "./telas/Datasets";
 import { Calculados } from "./telas/Calculados";
@@ -10,10 +11,12 @@ import { Catalogo } from "./telas/Catalogo";
 // Roteamento por hash: funciona servido estaticamente em /admin sem
 // configuração de servidor e sem dependência de biblioteca de rotas.
 const TELAS = [
+  { id: "classes", titulo: "Classes", componente: Classes,
+    resumo: "A informação que o portal guarda, e quem a alimenta" },
   { id: "fontes", titulo: "Fontes", componente: Fontes,
     resumo: "De onde o dado vem" },
-  { id: "datasets", titulo: "Datasets", componente: Datasets,
-    resumo: "O que extrair e como tipar" },
+  { id: "datasets", titulo: "Mapeamentos", componente: Datasets,
+    resumo: "Ligação fonte → classe: o que extrair e como tipar" },
   { id: "calculados", titulo: "Campos calculados", componente: Calculados,
     resumo: "Derivadas com linhagem" },
   { id: "qualidade", titulo: "Qualidade", componente: Qualidade,
@@ -28,7 +31,9 @@ const TELAS = [
 
 function telaAtual(): string {
   const id = window.location.hash.replace("#/", "");
-  return TELAS.some((t) => t.id === id) ? id : "execucoes";
+  // A entrada é a classe de informação, não o histórico de execução: quem
+  // abre o portal quer saber o que existe, não o que rodou ontem.
+  return TELAS.some((t) => t.id === id) ? id : "classes";
 }
 
 export function App() {
@@ -57,7 +62,7 @@ export function App() {
           <div className="max-w-6xl mx-auto px-4 py-3">
             <p className="font-semibold">Portal de Dados — B3/CVM</p>
             <p className="text-xs text-tinta-suave">
-              Plano de controle. O dado oficial é imutável; o derivado se
+              Hub multi-fonte. O dado oficial é imutável; o derivado se
               recomputa.
             </p>
           </div>

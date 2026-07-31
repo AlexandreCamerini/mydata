@@ -39,6 +39,11 @@ export function Datasets() {
                 <span className="font-mono text-xs text-tinta-suave ml-2">
                   {d.chave}
                 </span>
+                {/* O mapeamento existe para alimentar uma classe: dizer qual
+                    é a informação principal, não detalhe do painel. */}
+                <span className="block text-xs text-tinta-suave">
+                  {d.fonte_chave} → {d.classe_chave ?? "sem classe"}
+                </span>
               </span>
               <span className="text-xs text-tinta-suave">
                 v{d.versao} · {d.colunas.length} colunas ·{" "}
@@ -51,8 +56,10 @@ export function Datasets() {
             <div id={`painel-${d.chave}`} className="px-4 pb-4 grid gap-4">
               <dl className="text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1">
                 <div>
-                  <dt className="text-tinta-suave inline">Tabela destino: </dt>
-                  <dd className="inline font-mono text-xs">{d.tabela_destino}</dd>
+                  <dt className="text-tinta-suave inline">Classe: </dt>
+                  <dd className="inline font-mono text-xs">
+                    {d.classe_chave ?? "—"} ({d.tabela_destino})
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-tinta-suave inline">Fonte: </dt>

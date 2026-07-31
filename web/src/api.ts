@@ -49,6 +49,15 @@ async function pedir<T>(
 }
 
 export const api = {
+  classes: () => pedir<Resposta<Classe[]>>("/admin/api/classes"),
+  ddlDaClasse: (chave: string) =>
+    pedir<Resposta<{ sentencas: string[]; divergencias: string[] }>>(
+      `/admin/api/classes/${chave}/ddl`,
+    ),
+  frescor: () => pedir<Resposta<Frescor[]>>("/admin/api/frescor"),
+  fases: (execucao: number) =>
+    pedir<Resposta<Fase[]>>(`/admin/api/execucoes/${execucao}/fases`),
+
   fontes: () => pedir<Resposta<Fonte[]>>("/admin/api/fontes"),
   salvarFonte: (f: Partial<Fonte>) =>
     pedir<Resposta<Fonte>>("/admin/api/fontes", {
@@ -113,6 +122,52 @@ export const api = {
 };
 
 // --------------------------------------------------------------------------
+export type Atributo = {
+  nome: string;
+  tipo: string;
+  origem: string;
+  obrigatorio: boolean;
+  guarda_texto: boolean;
+  unidade: string | null;
+  descricao: string | null;
+  precedencia: string | null;
+  ordem: number;
+};
+
+export type Classe = {
+  chave: string;
+  nome: string;
+  descricao: string | null;
+  tabela: string;
+  chave_identidade: string;
+  resolucao: string;
+  precedencia: string | null;
+  sla_horas: number | null;
+  versao: number;
+  atributos: Atributo[];
+  datasets: string[];
+  divergencias: string[];
+};
+
+export type Frescor = {
+  classe: string;
+  nome: string;
+  tabela: string;
+  fontes: string[];
+  sla_horas: number | null;
+  idade_horas: number | null;
+  situacao: "em_dia" | "atrasada" | "sem_carga";
+  ultima_publicacao: { id: number; dataset_chave: string; janela: string } | null;
+  ultima_falha: { id: number; status: string; erro: string | null } | null;
+};
+
+export type Fase = {
+  fase: string;
+  iniciado_em: string;
+  terminado_em: string | null;
+  duracao_ms: number | null;
+};
+
 export type Fonte = {
   chave: string;
   nome: string;
@@ -161,6 +216,7 @@ export type Dataset = {
   padrao_arquivo: string;
   tabela_destino: string;
   chave_natural: string;
+  classe_chave: string | null;
   versao: number;
   colunas: Coluna[];
   calculados: Calculado[];

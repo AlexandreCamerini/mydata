@@ -16,6 +16,7 @@ export function Execucoes() {
   const [saida, setSaida] = useState<ResultadoExecucao | null>(null);
   const [falha, setFalha] = useState<string | null>(null);
   const [confirmando, setConfirmando] = useState<number | null>(null);
+  const [detalhe, setDetalhe] = useState<number | null>(null);
 
   async function disparar(e: React.FormEvent) {
     e.preventDefault();
@@ -47,6 +48,8 @@ export function Execucoes() {
   return (
     <div className="grid gap-8 lg:grid-cols-[1fr_340px]">
       <div className="grid gap-6">
+        <Frescor />
+
         <section aria-labelledby="hist">
           <h2 id="hist" className="font-medium mb-3">
             Histórico
@@ -67,7 +70,15 @@ export function Execucoes() {
               {execs.dados.dados.map((x) => (
                 <tr key={x.id} className="border-b border-borda last:border-0 align-top">
                   <th scope="row" className="text-left px-3 py-2 font-mono text-xs">
-                    {x.id}
+                    <button
+                      onClick={() => setDetalhe(detalhe === x.id ? null : x.id)}
+                      aria-expanded={detalhe === x.id}
+                      aria-label={`Fases da execução ${x.id}`}
+                      className="underline decoration-dotted"
+                    >
+                      {x.id}
+                    </button>
+                    {detalhe === x.id && <Fases execucao={x.id} />}
                   </th>
                   <td className="px-3 py-2 font-mono text-xs">{x.dataset_chave}</td>
                   <td className="px-3 py-2">{x.janela}</td>
@@ -215,5 +226,76 @@ export function Execucoes() {
         aoCancelar={() => setConfirmando(null)}
       />
     </div>
+  );
+}
+
+
+// --------------------------------------------------------------------------
+/** Frescor por classe: a primeira coisa que o operador precisa ver ao abrir
+ *  a tela — o que está velho, antes de o que rodou. */
+function Frescor() {
+  const f = useDados(() => api.frescor());
+  if (f.carregando) return <Carregando oque="frescor" />;
+  if (f.erro) return <Erro mensagem={f.erro} />;
+  const linhas = f.dados?.dados ?? [];
+  if (linhas.length === 0) return null;
+
+  return (
+    <section aria-labelledby="fresc">
+      <h2 id="fresc" className="font-medium mb-3">
+        Frescor por classe
+      </h2>
+      <Tabela
+        legenda="Idade do dado de cada classe contra o SLA declarado"
+        colunas={["Classe", "Atualizada há", "SLA", "Situação", "Última falha"]}
+      >
+        {linhas.map((x) => (
+          <tr key={x.classe} className="border-b border-borda last:border-0">
+            <th scope="row" className="text-left px-3 py-2">
+              {x.nome}
+              <span className="block text-xs text-tinta-suave">
+                {x.fontes.join(", ") || "sem fonte"}
+              </span>
+            </th>
+            <td className="px-3 py-2 text-xs tabular-nums">
+              {x.idade_horas === null ? "—" : `${Math.round(x.idade_horas)} h`}
+            </td>
+            <td className="px-3 py-2 text-xs tabular-nums">
+              {x.sla_horas === null ? "—" : `${x.sla_horas} h`}
+            </td>
+            <td className="px-3 py-2">
+              <Selo texto={x.situacao} />
+            </td>
+            <td className="px-3 py-2 text-xs text-alerta max-w-xs">
+              {x.ultima_falha ? `#${x.ultima_falha.id} ${x.ultima_falha.status}` : "—"}
+            </td>
+          </tr>
+        ))}
+      </Tabela>
+    </section>
+  );
+}
+
+/** Onde a carga gastou o tempo. Sem isto sabe-se que demorou, não onde. */
+function Fases({ execucao }: { execucao: number }) {
+  const f = useDados(() => api.fases(execucao), [execucao]);
+  const linhas = f.dados?.dados ?? [];
+  if (linhas.length === 0) return null;
+  const total = linhas.reduce((s, x) => s + (x.duracao_ms ?? 0), 0) || 1;
+
+  return (
+    <ul className="mt-2 font-normal">
+      {linhas.map((x) => (
+        <li key={x.fase} className="text-xs flex items-center gap-2 py-0.5">
+          <span className="w-16 shrink-0">{x.fase}</span>
+          <span
+            className="inline-block h-1.5 bg-tinta-suave rounded"
+            style={{ width: `${Math.max(2, ((x.duracao_ms ?? 0) / total) * 60)}px` }}
+            aria-hidden="true"
+          />
+          <span className="tabular-nums text-tinta-suave">{x.duracao_ms} ms</span>
+        </li>
+      ))}
+    </ul>
   );
 }
