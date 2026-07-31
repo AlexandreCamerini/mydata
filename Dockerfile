@@ -16,6 +16,9 @@ COPY requisitos.txt ./
 RUN pip install --no-cache-dir -r requisitos.txt
 
 COPY app/ ./app/
+# entrada.sh decide o papel do serviço (web ou cron) e é o startCommand do
+# railway.json — sem esta cópia o deploy sobe e morre em "cannot open".
+COPY scripts/entrada.sh ./scripts/entrada.sh
 COPY --from=front /web/dist ./web/dist
 
 # Sem estado em disco: o filesystem do container é efêmero e o bronze mora

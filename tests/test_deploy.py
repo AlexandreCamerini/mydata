@@ -41,6 +41,18 @@ def test_entrada_migra_antes_de_servir_e_separa_os_papeis():
     assert "exit 64" in texto
 
 
+def test_imagem_contem_tudo_que_o_startcommand_referencia():
+    """O startCommand aponta para um arquivo; arquivo fora da imagem é deploy
+    que sobe e morre com "cannot open". Aconteceu uma vez."""
+    cfg = json.loads((RAIZ / "railway.json").read_text())
+    dockerfile = (RAIZ / "Dockerfile").read_text()
+    for palavra in cfg["deploy"]["startCommand"].split():
+        if "/" in palavra and not palavra.startswith("-"):
+            assert palavra in dockerfile, (
+                f"o startCommand usa '{palavra}', que o Dockerfile não copia"
+            )
+
+
 def test_dockerfile_nao_fixa_porta_e_nao_roda_como_root():
     texto = (RAIZ / "Dockerfile").read_text()
     assert "${PORT:-8000}" in texto, "a porta tem de vir do ambiente"
