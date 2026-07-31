@@ -33,8 +33,12 @@ def cmd_migrar(args) -> int:
     novas = bootstrap.preparar(sink)
     print(f"migrações aplicadas: {novas or 'nenhuma (já estava em dia)'}")
     if args.seed:
-        seed_cvm.aplicar(sink)
-        print("configuração da CVM cadastrada")
+        # Idempotente: configuração idêntica à vigente não cria versão nova.
+        # É isto que torna seguro semear a cada boot do serviço.
+        if seed_cvm.aplicar(sink, forcar=args.forcar_seed):
+            print("configuração da CVM cadastrada")
+        else:
+            print("configuração da CVM já estava em dia")
     sink.fechar()
     return 0
 
@@ -163,6 +167,8 @@ def main(argv: list[str] | None = None) -> int:
 
     m = sub.add_parser("migrar", help="aplica migrações (idempotente)")
     m.add_argument("--seed", action="store_true", help="cadastra a config da CVM")
+    m.add_argument("--forcar-seed", action="store_true",
+                   help="reversiona a config mesmo sem mudança")
     m.set_defaults(func=cmd_migrar)
 
     i = sub.add_parser("ingerir", help="roda uma janela de um dataset")

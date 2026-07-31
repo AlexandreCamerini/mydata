@@ -71,21 +71,43 @@ def dataset_exemplo(**over) -> Dataset:
 # --------------------------------------------------------------------------
 # Migrações
 # --------------------------------------------------------------------------
-def test_migracoes_criam_todas_as_tabelas(sink):
-    tabelas = {
+def _tabelas(sink) -> set[str]:
+    return {
         r["table_name"]
         for r in sink.consultar(
             "SELECT table_name FROM information_schema.tables "
             "WHERE table_schema = 'main'"
         )
     }
+
+
+def test_migracoes_criam_a_infraestrutura(sink):
     esperadas = {
         "schema_migracao", "cfg_fonte", "cfg_dataset", "cfg_coluna",
         "cfg_campo_calculado", "cfg_regra_qualidade", "cfg_agendamento",
         "cfg_chave_api", "uso_chave_api", "log_execucao", "bronze_captura",
-        "fato_conta", "dim_empresa", "publicacao",
+        "cfg_classe", "cfg_atributo", "cfg_vista", "cfg_seed", "publicacao",
     }
-    assert esperadas <= tabelas, f"faltando: {esperadas - tabelas}"
+    faltando = esperadas - _tabelas(sink)
+    assert not faltando, f"faltando: {faltando}"
+
+
+def test_migracao_nao_cria_tabela_de_classe(sink):
+    """A propriedade central da Etapa 3.
+
+    Enquanto `CREATE TABLE fato_conta` estiver numa migração, cadastrar uma
+    classe nova pela interface exige deploy. A tabela de classe passa a vir
+    de `motor.ddl`, a partir de `cfg_classe` — e o banco migrado e sem
+    configuração não tem tabela de domínio nenhuma.
+    """
+    assert not ({"fato_conta", "dim_empresa"} & _tabelas(sink))
+
+
+def test_tabela_de_classe_aparece_com_a_configuracao(sink):
+    from app import seed_cvm
+
+    seed_cvm.aplicar(sink)
+    assert {"fato_conta", "dim_empresa"} <= _tabelas(sink)
 
 
 def test_migracao_e_idempotente(sink):

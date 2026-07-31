@@ -215,75 +215,18 @@ MIGRACOES: list[Migracao] = [
         ],
     ),
     Migracao(
+        # A partir da Etapa 3 a tabela de uma classe vem de `motor.ddl`, não
+        # daqui. Só `publicacao` permanece: ela é do sistema, não de classe
+        # nenhuma. O DDL que esta migração aplicava está preservado abaixo em
+        # `DDL_HISTORICO_SILVER` — é contra ele que o gerador é comparado.
         nome="0004_silver_cvm",
         sql=[
-            """CREATE TABLE IF NOT EXISTS fato_conta (
-                 captura_id     {INT} NOT NULL,
-                 fonte_arquivo  {TEXTO} NOT NULL,
-                 cd_cvm         {INT},
-                 cnpj           {TEXTO},
-                 denom_cia      {TEXTO},
-                 tipo_doc       {TEXTO},
-                 grupo          {TEXTO},
-                 consolidado    {BOOL},
-                 dt_refer       {TEXTO},
-                 dt_ini_exerc   {TEXTO},
-                 dt_fim_exerc   {TEXTO},
-                 ordem_exerc    {TEXTO},
-                 versao         {INT},
-                 cd_conta       {TEXTO},
-                 ds_conta       {TEXTO},
-                 st_conta_fixa  {TEXTO},
-                 moeda          {TEXTO},
-                 escala_moeda   {TEXTO},
-                 coluna_df      {TEXTO},
-                 vl_conta_txt   {TEXTO},
-                 vl_conta       {NUM},
-                 vl_conta_norm  {NUM},
-                 is_latest      {BOOL},
-                 itr_acumulado  {BOOL},
-                 carregado_em   {TSTZ} NOT NULL DEFAULT {AGORA}
-               )""",
-            """CREATE UNIQUE INDEX IF NOT EXISTS ux_fato_conta_natural ON fato_conta
-                 (cd_cvm, tipo_doc, dt_refer, grupo, consolidado, cd_conta,
-                  ordem_exerc, versao)""",
-            "CREATE INDEX IF NOT EXISTS ix_fato_cvm_refer ON fato_conta (cd_cvm, dt_refer)",
-            "CREATE INDEX IF NOT EXISTS ix_fato_conta_cd ON fato_conta (cd_conta)",
-            """CREATE TABLE IF NOT EXISTS dim_empresa (
-                 captura_id     {INT} NOT NULL,
-                 fonte_arquivo  {TEXTO} NOT NULL,
-                 cd_cvm         {INT},
-                 cnpj           {TEXTO},
-                 denom_social   {TEXTO},
-                 denom_comerc   {TEXTO},
-                 setor_atividade {TEXTO},
-                 situacao       {TEXTO},
-                 controle_acionario {TEXTO},
-                 uf             {TEXTO},
-                 municipio      {TEXTO},
-                 dt_registro    {TEXTO},
-                 carregado_em   {TSTZ} NOT NULL DEFAULT {AGORA}
-               )""",
-            "CREATE UNIQUE INDEX IF NOT EXISTS ux_dim_empresa_natural ON dim_empresa (cd_cvm)",
             """CREATE TABLE IF NOT EXISTS publicacao (
                  versao      {INT} PRIMARY KEY,
                  publicado_em {TSTZ} NOT NULL DEFAULT {AGORA},
                  execucao_id {INT},
                  observacao  {TEXTO}
                )""",
-        ],
-    ),
-    Migracao(
-        # Sem isto, o gate de qualidade não protege nada: gold é view sobre
-        # silver, então linha carregada e reprovada já apareceria para o
-        # consumidor. O rótulo marca quais linhas foram promovidas; gold só
-        # enxerga linha rotulada. Bloqueio deixa a linha sem rótulo — invisível.
-        nome="0005_rotulo_de_publicacao",
-        sql=[
-            "ALTER TABLE fato_conta ADD COLUMN publicado_em_versao {INT}",
-            "ALTER TABLE dim_empresa ADD COLUMN publicado_em_versao {INT}",
-            """CREATE INDEX IF NOT EXISTS ix_fato_publicado
-                 ON fato_conta (publicado_em_versao)""",
         ],
     ),
     Migracao(
@@ -347,6 +290,30 @@ MIGRACOES: list[Migracao] = [
                  FOREIGN KEY (classe_id) REFERENCES cfg_classe(id)""",
         ],
     ),
+    Migracao(
+        # Vistas de gold e marcador de seed. A vista deixa de ser dicionário
+        # em Python e vira configuração ligada a uma classe: é o que permite
+        # publicar uma classe nova sem editar `publicacao.py`.
+        nome="0008_vistas_e_seed",
+        sql=[
+            "CREATE SEQUENCE IF NOT EXISTS seq_cfg_vista START 1",
+            """CREATE TABLE IF NOT EXISTS cfg_vista (
+                 id           {INT} PRIMARY KEY,
+                 classe_chave {TEXTO} NOT NULL,
+                 corpo        {TEXTO} NOT NULL,
+                 descricao    {TEXTO},
+                 ordem        {INT} NOT NULL DEFAULT 0,
+                 ativo        {BOOL} NOT NULL DEFAULT TRUE,
+               """ + _VERSAO + ")",
+            # Marcador de seed: reaplicar configuração idêntica a cada boot
+            # inflaria a versão de tudo sem nenhuma mudança real.
+            """CREATE TABLE IF NOT EXISTS cfg_seed (
+                 chave       {TEXTO} PRIMARY KEY,
+                 sha256      {TEXTO} NOT NULL,
+                 aplicado_em {TSTZ} NOT NULL DEFAULT {AGORA}
+               )""",
+        ],
+    ),
 ]
 
 # Tabelas silver que participam do ciclo de publicação. A partir da Etapa 3
@@ -375,3 +342,62 @@ def aplicar(sink: Sink, ate: str | None = None) -> list[str]:
         if ate and mig.nome == ate:
             break
     return novas
+
+
+# O DDL que a migração `0004_silver_cvm` aplicava antes de a configuração
+# assumir. Não roda mais: existe para o teste de regressão comparar o que o
+# gerador produz com o que a base de produção realmente tem.
+DDL_HISTORICO_SILVER: list[str] = [
+            """CREATE TABLE IF NOT EXISTS fato_conta (
+                 captura_id     {INT} NOT NULL,
+                 fonte_arquivo  {TEXTO} NOT NULL,
+                 cd_cvm         {INT},
+                 cnpj           {TEXTO},
+                 denom_cia      {TEXTO},
+                 tipo_doc       {TEXTO},
+                 grupo          {TEXTO},
+                 consolidado    {BOOL},
+                 dt_refer       {TEXTO},
+                 dt_ini_exerc   {TEXTO},
+                 dt_fim_exerc   {TEXTO},
+                 ordem_exerc    {TEXTO},
+                 versao         {INT},
+                 cd_conta       {TEXTO},
+                 ds_conta       {TEXTO},
+                 st_conta_fixa  {TEXTO},
+                 moeda          {TEXTO},
+                 escala_moeda   {TEXTO},
+                 coluna_df      {TEXTO},
+                 vl_conta_txt   {TEXTO},
+                 vl_conta       {NUM},
+                 vl_conta_norm  {NUM},
+                 is_latest      {BOOL},
+                 itr_acumulado  {BOOL},
+                 carregado_em   {TSTZ} NOT NULL DEFAULT {AGORA}
+               )""",
+            """CREATE UNIQUE INDEX IF NOT EXISTS ux_fato_conta_natural ON fato_conta
+                 (cd_cvm, tipo_doc, dt_refer, grupo, consolidado, cd_conta,
+                  ordem_exerc, versao)""",
+            "CREATE INDEX IF NOT EXISTS ix_fato_cvm_refer ON fato_conta (cd_cvm, dt_refer)",
+            "CREATE INDEX IF NOT EXISTS ix_fato_conta_cd ON fato_conta (cd_conta)",
+            """CREATE TABLE IF NOT EXISTS dim_empresa (
+                 captura_id     {INT} NOT NULL,
+                 fonte_arquivo  {TEXTO} NOT NULL,
+                 cd_cvm         {INT},
+                 cnpj           {TEXTO},
+                 denom_social   {TEXTO},
+                 denom_comerc   {TEXTO},
+                 setor_atividade {TEXTO},
+                 situacao       {TEXTO},
+                 controle_acionario {TEXTO},
+                 uf             {TEXTO},
+                 municipio      {TEXTO},
+                 dt_registro    {TEXTO},
+                 carregado_em   {TSTZ} NOT NULL DEFAULT {AGORA}
+               )""",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_dim_empresa_natural ON dim_empresa (cd_cvm)",
+            "ALTER TABLE fato_conta ADD COLUMN publicado_em_versao {INT}",
+            "ALTER TABLE dim_empresa ADD COLUMN publicado_em_versao {INT}",
+            """CREATE INDEX IF NOT EXISTS ix_fato_publicado
+                 ON fato_conta (publicado_em_versao)""",
+]

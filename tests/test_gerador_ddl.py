@@ -168,27 +168,32 @@ def test_salvar_classe_de_novo_nao_quebra_a_tabela_existente(admin):
 # --------------------------------------------------------------------------
 # Prova 2: o gerador reproduz o que a migração criou
 # --------------------------------------------------------------------------
-@pytest.mark.parametrize("chave", ["demonstracao_financeira", "empresa"])
-def test_gerador_reproduz_o_schema_da_migracao(tmp_path, chave):
-    """Compara a tabela que a migração 0004 cria com a que o gerador cria a
-    partir da configuração, em bancos separados. Divergir aqui significa que
-    a Etapa 3 trocaria a tabela de produção por outra coisa."""
-    de_migracao = SinkDuckDB(str(tmp_path / "migracao.duckdb"))
-    bootstrap.preparar(de_migracao)
-    seed_cvm.aplicar(de_migracao)
-    classe = repo.classe_vigente(de_migracao, chave)
-    atributos = repo.atributos_de(de_migracao, classe["id"])
-    esperado = ddl.colunas_fisicas(de_migracao, classe["tabela"])
-    de_migracao.fechar()
+@pytest.mark.parametrize("chave,tabela", [("demonstracao_financeira", "fato_conta"),
+                                          ("empresa", "dim_empresa")])
+def test_gerador_reproduz_o_schema_de_producao(tmp_path, chave, tabela):
+    """Compara o que o gerador produz com o DDL que a base de produção tem.
 
-    # Banco limpo, sem a migração de silver: só o gerador escreve a tabela.
+    `DDL_HISTORICO_SILVER` é literalmente o que a migração `0004` aplicou
+    antes da virada — é o schema que existe hoje no Postgres do Railway.
+    Divergir aqui significa que a configuração descreve outra tabela.
+    """
     from app import migracoes
+    from app.sinks import render
 
-    do_gerador = SinkDuckDB(str(tmp_path / "gerador.duckdb"))
-    migracoes.aplicar(do_gerador, ate="0003_bronze")
-    ddl.garantir_tabela(do_gerador, classe, atributos)
-    obtido = ddl.colunas_fisicas(do_gerador, classe["tabela"])
-    do_gerador.fechar()
+    # Banco A: só o DDL histórico, aplicado à mão.
+    producao = SinkDuckDB(str(tmp_path / "producao.duckdb"))
+    for sentenca in migracoes.DDL_HISTORICO_SILVER:
+        producao.executar(render(sentenca, producao.dialeto))
+    esperado = ddl.colunas_fisicas(producao, tabela)
+    producao.fechar()
+    assert esperado, "o DDL histórico tem de criar a tabela"
+
+    # Banco B: só o gerador, a partir da configuração.
+    gerado = SinkDuckDB(str(tmp_path / "gerado.duckdb"))
+    bootstrap.preparar(gerado)
+    seed_cvm.aplicar(gerado)
+    obtido = ddl.colunas_fisicas(gerado, tabela)
+    gerado.fechar()
 
     assert obtido == esperado
 

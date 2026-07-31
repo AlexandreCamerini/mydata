@@ -8,9 +8,14 @@ Trocar isto por outra fonte é cadastrar outras linhas — não é editar o moto
 """
 from __future__ import annotations
 
+import hashlib
+import json
+from dataclasses import asdict
+
 from .repositorio import (
     Atributo, CampoCalculado, Classe, Coluna, Dataset, Fonte, RegraQualidade,
-    salvar_agendamento, salvar_classe, salvar_dataset, salvar_fonte,
+    Vista, salvar_agendamento, salvar_classe, salvar_dataset, salvar_fonte,
+    salvar_vista,
 )
 from .motor import ddl
 from .sinks import Sink
@@ -242,6 +247,74 @@ CLASSE_EMPRESA = Classe(
 
 CLASSES = [CLASSE_DEMONSTRACAO, CLASSE_EMPRESA]
 
+# --------------------------------------------------------------------------
+# Vistas de gold — o contrato que o consumidor lê
+# --------------------------------------------------------------------------
+# `{V}` é a publicação: sem esse filtro, linha carregada e reprovada no gate
+# apareceria para o consumidor no instante da carga.
+VISTAS = [
+    Vista(
+        chave="gold_demonstracoes",
+        classe_chave="demonstracao_financeira",
+        descricao="Só o dado correto: última versão do documento, exercício "
+                  "de referência. Armadilhas 1 e 2 resolvidas no filtro.",
+        ordem=1,
+        corpo="""
+        SELECT cd_cvm, denom_cia, cnpj, tipo_doc, grupo, consolidado,
+               dt_refer, dt_ini_exerc, dt_fim_exerc, versao,
+               cd_conta, ds_conta, st_conta_fixa, escala_moeda, moeda,
+               vl_conta, vl_conta_norm, itr_acumulado,
+               captura_id, fonte_arquivo, publicado_em_versao
+        FROM fato_conta
+        WHERE is_latest AND ordem_exerc = 'ÚLTIMO'
+          AND publicado_em_versao IS NOT NULL AND publicado_em_versao <= {V}
+    """,
+    ),
+    Vista(
+        chave="gold_itr_trimestre",
+        classe_chave="demonstracao_financeira",
+        descricao="Armadilha 5: no ITR a conta de fluxo vem acumulada no ano. "
+                  "Trimestre isolado = acumulado menos o período anterior do "
+                  "mesmo exercício; no primeiro trimestre os dois coincidem.",
+        ordem=2,
+        corpo="""
+        WITH acumulado AS (
+          SELECT cd_cvm, denom_cia, grupo, consolidado, cd_conta, ds_conta,
+                 dt_refer, vl_conta_norm, substr(dt_refer, 1, 4) AS exercicio,
+                 captura_id, fonte_arquivo, publicado_em_versao
+          FROM fato_conta
+          WHERE is_latest AND ordem_exerc = 'ÚLTIMO'
+            AND upper(tipo_doc) = 'ITR' AND itr_acumulado
+            AND publicado_em_versao IS NOT NULL AND publicado_em_versao <= {V}
+        )
+        SELECT a.cd_cvm, a.denom_cia, a.grupo, a.consolidado, a.cd_conta,
+               a.ds_conta, a.dt_refer, a.exercicio,
+               a.vl_conta_norm AS vl_acumulado,
+               a.vl_conta_norm - COALESCE(
+                 LAG(a.vl_conta_norm) OVER (
+                   PARTITION BY a.cd_cvm, a.grupo, a.consolidado, a.cd_conta,
+                                a.exercicio
+                   ORDER BY a.dt_refer
+                 ), 0) AS vl_trimestre,
+               a.captura_id, a.fonte_arquivo, a.publicado_em_versao
+        FROM acumulado a
+    """,
+    ),
+    Vista(
+        chave="gold_empresa",
+        classe_chave="empresa",
+        descricao="Cadastro das companhias abertas.",
+        ordem=3,
+        corpo="""
+        SELECT cd_cvm, cnpj, denom_social, denom_comerc, setor_atividade,
+               situacao, controle_acionario, uf, municipio, dt_registro,
+               captura_id, fonte_arquivo, publicado_em_versao
+        FROM dim_empresa
+        WHERE publicado_em_versao IS NOT NULL AND publicado_em_versao <= {V}
+    """,
+    ),
+]
+
 COLUNAS_CADASTRO = [
     Coluna("CD_CVM", "cd_cvm", "inteiro", obrigatoria=True, ordem=1),
     Coluna("CNPJ_CIA", "cnpj", "texto", ordem=2),
@@ -320,6 +393,13 @@ METRICAS = [
 ]
 
 
+AGENDAMENTOS = [
+    ("cvm_dfp_anual", "cvm_dfp", "0 6 1 4 *"),
+    ("cvm_itr_trimestral", "cvm_itr", "0 6 15 2,5,8,11 *"),
+    ("cvm_cadastro_semanal", "cvm_cadastro", "0 5 * * 1"),
+]
+
+
 def aplicar_metricas(sink: Sink) -> None:
     from .repositorio import _aposentar
 
@@ -335,16 +415,54 @@ def aplicar_metricas(sink: Sink) -> None:
         )
 
 
-def aplicar(sink: Sink) -> None:
-    """Cadastra (ou reversiona) a configuração da CVM."""
+def impressao() -> str:
+    """Digest do conteúdo pretendido do seed.
+
+    O boot do Railway roda `migrar --seed`. Sem isto, cada deploy criaria uma
+    versão nova de cada fonte, classe, dataset e métrica sem nenhuma mudança
+    real — o histórico de configuração viraria ruído de deploy.
+    """
+    corpo = json.dumps(
+        {
+            "classes": [asdict(c) for c in CLASSES],
+            "vistas": [asdict(v) for v in VISTAS],
+            "fontes": [asdict(FONTE), asdict(FONTE_CADASTRO)],
+            "datasets": [asdict(d) for d in datasets()],
+            "metricas": METRICAS,
+            "agendamentos": AGENDAMENTOS,
+        },
+        ensure_ascii=False, sort_keys=True, default=str,
+    )
+    return hashlib.sha256(corpo.encode()).hexdigest()
+
+
+def aplicar(sink: Sink, forcar: bool = False) -> bool:
+    """Cadastra (ou reversiona) a configuração da CVM.
+
+    Devolve `True` se gravou. Configuração idêntica à vigente é no-op: o
+    marcador em `cfg_seed` é o que torna `migrar --seed` seguro a cada boot.
+    """
+    digest = impressao()
+    ja = sink.um("SELECT sha256 FROM cfg_seed WHERE chave = 'cvm'")
+    if ja and ja["sha256"] == digest and not forcar:
+        ddl.garantir_classes(sink)   # a tabela pode faltar mesmo com config igual
+        return False
+
     for c in CLASSES:
         salvar_classe(sink, c, autor="seed")
     ddl.garantir_classes(sink)
+    for v in VISTAS:
+        salvar_vista(sink, v, autor="seed")
     salvar_fonte(sink, FONTE, autor="seed")
     salvar_fonte(sink, FONTE_CADASTRO, autor="seed")
     for d in datasets():
         salvar_dataset(sink, d, autor="seed")
-    salvar_agendamento(sink, "cvm_dfp_anual", "cvm_dfp", "0 6 1 4 *", autor="seed")
-    salvar_agendamento(sink, "cvm_itr_trimestral", "cvm_itr", "0 6 15 2,5,8,11 *", autor="seed")
-    salvar_agendamento(sink, "cvm_cadastro_semanal", "cvm_cadastro", "0 5 * * 1", autor="seed")
+    for chave, dataset_chave, cron in AGENDAMENTOS:
+        salvar_agendamento(sink, chave, dataset_chave, cron, autor="seed")
     aplicar_metricas(sink)
+
+    sink.executar("DELETE FROM cfg_seed WHERE chave = 'cvm'")
+    sink.executar(
+        "INSERT INTO cfg_seed (chave, sha256) VALUES ('cvm', ?)", (digest,)
+    )
+    return True

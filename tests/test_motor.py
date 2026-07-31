@@ -221,15 +221,17 @@ def test_recomputar_do_bronze_reproduz_a_carga(sink_cvm, zip_dfp_2023):
         sink_cvm, "cvm_dfp", "2023",
         baixar=baixador({"dfp_cia_aberta_2023.zip": zip_dfp_2023}),
     )
-    antes = sink_cvm.consultar(
-        "SELECT cd_cvm, cd_conta, consolidado, versao, vl_conta, vl_conta_norm, "
-        "is_latest FROM fato_conta ORDER BY cd_cvm, cd_conta, consolidado, versao"
+    # A ordenação repete a chave natural inteira: `ordem_exerc` faz parte
+    # dela, e sem ele as linhas ÚLTIMO e PENÚLTIMO da mesma conta empatam —
+    # a comparação passaria a depender da ordem física da tabela.
+    consulta = (
+        "SELECT cd_cvm, cd_conta, consolidado, ordem_exerc, versao, vl_conta, "
+        "vl_conta_norm, is_latest FROM fato_conta "
+        "ORDER BY cd_cvm, cd_conta, consolidado, ordem_exerc, versao"
     )
+    antes = sink_cvm.consultar(consulta)
     res = ingestao.recomputar(sink_cvm, "cvm_dfp", "2023")   # baixar=None
-    depois = sink_cvm.consultar(
-        "SELECT cd_cvm, cd_conta, consolidado, versao, vl_conta, vl_conta_norm, "
-        "is_latest FROM fato_conta ORDER BY cd_cvm, cd_conta, consolidado, versao"
-    )
+    depois = sink_cvm.consultar(consulta)
     assert res.status == "publicado"
     assert antes == depois and len(antes) > 0
 

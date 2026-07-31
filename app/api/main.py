@@ -145,6 +145,28 @@ def _decorar(sink: Sink, linhas: list[dict]) -> list[dict]:
     return saida
 
 
+def exigir_vista(sink: Sink, nome: str) -> None:
+    """Recusa com mensagem útil quando a vista de gold ainda não existe.
+
+    Vista de gold passou a vir de `cfg_vista`. Um banco migrado e sem
+    configuração — deploy novo antes do primeiro seed — não tem gold nenhuma;
+    sem esta checagem o consumidor receberia um 500 sobre relação ausente.
+    """
+    if sink.um(
+        "SELECT 1 AS ok FROM information_schema.tables WHERE table_name = ?",
+        (nome,),
+    ):
+        return
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "codigo": "gold_indisponivel",
+            "mensagem": f"A vista '{nome}' ainda não foi publicada. "
+                        f"Rode `python -m app.cli migrar --seed` e uma ingestão.",
+        },
+    )
+
+
 def _cursor_codificar(valores: dict) -> str:
     return base64.urlsafe_b64encode(json.dumps(valores).encode()).decode().rstrip("=")
 
@@ -193,6 +215,7 @@ async def listar_empresas(
     _chave: dict = Depends(exigir_chave),
 ) -> Any:
     sink = obter_sink(request)
+    exigir_vista(sink, "gold_empresa")
     etag = _etag(sink, f"empresas:{q}:{setor}:{limite}:{cursor}")
     if (r := _talvez_304(request, etag)):
         return r
@@ -230,6 +253,7 @@ async def obter_empresa(
     _chave: dict = Depends(exigir_chave),
 ) -> Any:
     sink = obter_sink(request)
+    exigir_vista(sink, "gold_empresa")
     linha = sink.um("SELECT * FROM gold_empresa WHERE cd_cvm = ?", (cd_cvm,))
     if linha is None:
         raise HTTPException(
@@ -285,6 +309,7 @@ async def demonstracoes(
         onde.append("(dt_refer, cd_conta) > (?, ?)")
         params += [desloc["dt_refer"], desloc["cd_conta"]]
 
+    exigir_vista(sink, "gold_demonstracoes")
     linhas = sink.consultar(
         f"SELECT * FROM gold_demonstracoes WHERE {' AND '.join(onde)} "
         f"ORDER BY dt_refer, cd_conta LIMIT ?",
@@ -321,6 +346,7 @@ async def trimestres(
     if exercicio:
         onde.append("exercicio = ?")
         params.append(exercicio)
+    exigir_vista(sink, "gold_itr_trimestre")
     linhas = sink.consultar(
         f"SELECT * FROM gold_itr_trimestre WHERE {' AND '.join(onde)} "
         f"ORDER BY dt_refer, cd_conta LIMIT ?",

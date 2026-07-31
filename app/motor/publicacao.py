@@ -22,66 +22,48 @@ from __future__ import annotations
 
 import logging
 
+from .. import repositorio as repo
 from ..migracoes import TABELAS_SILVER
 from ..sinks import Sink
+from . import ddl
 
 log = logging.getLogger("portal.publicacao")
 
-# `{V}` é substituído pelo número da publicação.
-VIEWS: dict[str, str] = {
-    # Só o dado correto: última versão do documento, exercício de referência.
-    "gold_demonstracoes": """
-        SELECT cd_cvm, denom_cia, cnpj, tipo_doc, grupo, consolidado,
-               dt_refer, dt_ini_exerc, dt_fim_exerc, versao,
-               cd_conta, ds_conta, st_conta_fixa, escala_moeda, moeda,
-               vl_conta, vl_conta_norm, itr_acumulado,
-               captura_id, fonte_arquivo, publicado_em_versao
-        FROM fato_conta
-        WHERE is_latest AND ordem_exerc = 'ÚLTIMO'
-          AND publicado_em_versao IS NOT NULL AND publicado_em_versao <= {V}
-    """,
-    # Trimestre isolado das contas de fluxo do ITR: acumulado menos acumulado
-    # do período anterior do mesmo exercício. Q1 isolado = Q1 acumulado.
-    "gold_itr_trimestre": """
-        WITH acumulado AS (
-          SELECT cd_cvm, denom_cia, grupo, consolidado, cd_conta, ds_conta,
-                 dt_refer, vl_conta_norm, substr(dt_refer, 1, 4) AS exercicio,
-                 captura_id, fonte_arquivo, publicado_em_versao
-          FROM fato_conta
-          WHERE is_latest AND ordem_exerc = 'ÚLTIMO'
-            AND upper(tipo_doc) = 'ITR' AND itr_acumulado
-            AND publicado_em_versao IS NOT NULL AND publicado_em_versao <= {V}
-        )
-        SELECT a.cd_cvm, a.denom_cia, a.grupo, a.consolidado, a.cd_conta,
-               a.ds_conta, a.dt_refer, a.exercicio,
-               a.vl_conta_norm AS vl_acumulado,
-               a.vl_conta_norm - COALESCE(
-                 LAG(a.vl_conta_norm) OVER (
-                   PARTITION BY a.cd_cvm, a.grupo, a.consolidado, a.cd_conta,
-                                a.exercicio
-                   ORDER BY a.dt_refer
-                 ), 0) AS vl_trimestre,
-               a.captura_id, a.fonte_arquivo, a.publicado_em_versao
-        FROM acumulado a
-    """,
-    "gold_empresa": """
-        SELECT cd_cvm, cnpj, denom_social, denom_comerc, setor_atividade,
-               situacao, controle_acionario, uf, municipio, dt_registro,
-               captura_id, fonte_arquivo, publicado_em_versao
-        FROM dim_empresa
-        WHERE publicado_em_versao IS NOT NULL AND publicado_em_versao <= {V}
-    """,
-}
-
-
 def vistas(sink: Sink) -> dict[str, str]:
-    """As vistas de gold e seus corpos, com `{V}` ainda por substituir."""
-    return dict(VIEWS)
+    """As vistas de gold e seus corpos, com `{V}` ainda por substituir.
+
+    Vem de `cfg_vista`, não mais de um dicionário em Python: é o que permite
+    publicar uma classe nova sem editar este arquivo. Vista cuja classe ainda
+    não foi materializada é pulada — banco recém-migrado e sem configuração
+    responde vazio em vez de quebrar no boot.
+    """
+    saida: dict[str, str] = {}
+    for v in repo.listar_vistas(sink):
+        classe = repo.classe_vigente(sink, v["classe_chave"])
+        if classe is None or not ddl.colunas_fisicas(sink, classe["tabela"]):
+            log.warning(
+                "vista %s ignorada: classe '%s' não está materializada",
+                v["chave"], v["classe_chave"],
+            )
+            continue
+        saida[v["chave"]] = v["corpo"]
+    return saida
 
 
 def tabelas_publicaveis(sink: Sink) -> tuple[str, ...]:
-    """As tabelas silver que participam do rótulo de publicação."""
-    return TABELAS_SILVER
+    """As tabelas que participam do rótulo de publicação.
+
+    São as tabelas das classes ativas. `TABELAS_SILVER` permanece como piso
+    para uma base anterior à Etapa 1, migrada e ainda sem classe cadastrada:
+    sem isso, um deploy que rodasse a migração antes do seed pararia de
+    publicar em silêncio.
+    """
+    tabelas = [c["tabela"] for c in repo.listar_classes(sink, so_ativas=True)]
+    if not tabelas:
+        tabelas = list(TABELAS_SILVER)
+    return tuple(
+        dict.fromkeys(t for t in tabelas if ddl.colunas_fisicas(sink, t))
+    )
 
 
 def versao_atual(sink: Sink) -> int:

@@ -261,6 +261,50 @@ def datasets_da_classe(sink: Sink, classe_chave: str) -> list[dict]:
     )
 
 
+@dataclass
+class Vista:
+    """Uma vista de gold — o contrato que o consumidor lê.
+
+    Fica ligada a uma classe porque é da tabela dela que a vista sai: é isso
+    que permite publicar classe nova sem editar código de publicação.
+    """
+
+    chave: str
+    classe_chave: str
+    corpo: str                     # SQL com `{V}` no lugar da publicação
+    descricao: str | None = None
+    ordem: int = 0
+    ativo: bool = True
+
+
+def salvar_vista(sink: Sink, v: Vista, autor: str = "sistema") -> int:
+    if "{V}" not in v.corpo:
+        raise ErroConfiguracao(
+            f"vista '{v.chave}' não usa o marcador {{V}}: sem ele a vista não "
+            f"filtra por publicação e o gate de qualidade deixa de valer"
+        )
+    if not v.chave.replace("_", "").isalnum():
+        raise ErroConfiguracao(f"nome de vista inválido: {v.chave}")
+    versao = _aposentar(sink, "cfg_vista", v.chave)
+    novo_id = sink.proximo_id("cfg_vista")
+    sink.executar(
+        """INSERT INTO cfg_vista
+           (id, classe_chave, corpo, descricao, ordem, ativo, chave, versao,
+            vigente, vigente_chave, criado_por)
+           VALUES (?,?,?,?,?,?,?,?,TRUE,?,?)""",
+        (novo_id, v.classe_chave, v.corpo, v.descricao, v.ordem, v.ativo,
+         v.chave, versao, v.chave, autor),
+    )
+    return novo_id
+
+
+def listar_vistas(sink: Sink, so_ativas: bool = True) -> list[dict]:
+    sql = "SELECT * FROM cfg_vista WHERE vigente"
+    if so_ativas:
+        sql += " AND ativo"
+    return sink.consultar(sql + " ORDER BY ordem, chave")
+
+
 def indices_de(classe: dict) -> list[list[str]]:
     bruto = classe.get("indices") or ""
     return [
