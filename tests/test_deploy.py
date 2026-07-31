@@ -23,9 +23,22 @@ def test_railway_json_e_valido_e_aponta_para_o_healthcheck():
     cfg = json.loads((RAIZ / "railway.json").read_text())
     assert cfg["build"]["builder"] == "DOCKERFILE"
     assert cfg["deploy"]["healthcheckPath"] == "/health"
-    assert "$PORT" in cfg["deploy"]["startCommand"]
-    # Migrar antes de servir: senão o primeiro request encontra tabela ausente.
-    assert "app.cli migrar" in cfg["deploy"]["startCommand"]
+    assert "scripts/entrada.sh" in cfg["deploy"]["startCommand"]
+
+
+def test_entrada_migra_antes_de_servir_e_separa_os_papeis():
+    """Web e cron rodam a mesma imagem e diferem por variável.
+
+    Migrar antes de servir: senão o primeiro request encontra tabela ausente.
+    O papel desconhecido tem de falhar alto — um typo em PORTAL_PAPEL que
+    caísse silenciosamente em `web` colocaria um segundo servidor no ar,
+    ligado 24x7, no lugar do cron.
+    """
+    texto = (RAIZ / "scripts" / "entrada.sh").read_text()
+    assert "app.cli migrar" in texto
+    assert "app.cli agendados" in texto
+    assert "${PORT:-8000}" in texto
+    assert "exit 64" in texto
 
 
 def test_dockerfile_nao_fixa_porta_e_nao_roda_como_root():

@@ -5,7 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "sh -c 'python -m app.cli migrar --seed && uvicorn app.api.main:app --host 0.0.0.0 --port $PORT'",
+    "startCommand": "sh scripts/entrada.sh",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 30,
     "restartPolicyType": "ON_FAILURE",
