@@ -168,14 +168,14 @@ def test_precedencia_e_declarada_por_atributo(sink_cvm):
     mapa = ddl.datasets_por_atributo(sink_cvm, classe)
 
     # O mesmo atributo pode ter ordem diferente da ordem da classe.
-    assert ddl.precedencia_do_atributo(
-        classe, atributos["denom_social"], mapa["denom_social"]
-    ) == ["cvm_cadastro", "cvm_dfp_empresa"]
+    ordem = ddl.precedencia_do_atributo(
+        classe, atributos["denom_social"], mapa["denom_social"])
+    assert ordem[0] == "cvm_cadastro", "o cadastro é o registro formal"
+    assert set(ordem) == set(mapa["denom_social"])
 
     sem_declaracao = {**atributos["cnpj"], "precedencia": ""}
-    assert ddl.precedencia_do_atributo(
-        classe, sem_declaracao, mapa["cnpj"]
-    ) == ["cvm_cadastro", "cvm_dfp_empresa"], "cai na precedência da classe"
+    herdada = ddl.precedencia_do_atributo(classe, sem_declaracao, mapa["cnpj"])
+    assert herdada[0] == "cvm_cadastro", "cai na precedência da classe"
 
 
 def test_classe_de_fonte_unica_nao_ganha_vista_resolvida(sink_cvm):

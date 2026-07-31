@@ -150,7 +150,7 @@ def _aposentar(sink: Sink, tabela: str, chave: str) -> int:
 # Fonte
 # --------------------------------------------------------------------------
 def salvar_fonte(sink: Sink, f: Fonte, autor: str = "sistema") -> int:
-    if f.tipo_transporte not in ("http_zip", "http_csv"):
+    if f.tipo_transporte not in ("http_zip", "http_csv", "http_json"):
         raise ErroConfiguracao(f"tipo_transporte desconhecido: {f.tipo_transporte}")
     versao = _aposentar(sink, "cfg_fonte", f.chave)
     novo_id = sink.proximo_id("cfg_fonte")

@@ -260,13 +260,17 @@ async def listar_empresas(
     response: Response,
     q: str | None = Query(None, description="Busca por denominação ou CNPJ"),
     setor: str | None = None,
+    listada_b3: bool | None = Query(
+        None, description="Só companhias com registro de negociação na B3"),
+    com_balanco: bool | None = Query(
+        None, description="Só companhias que publicaram DFP ou ITR"),
     limite: int = Query(50, ge=1, le=500),
     cursor: str | None = None,
     _chave: dict = Depends(exigir_chave),
 ) -> Any:
     sink = obter_sink(request)
     exigir_vista(sink, "gold_empresa", _chave)
-    etag = _etag(sink, f"empresas:{q}:{setor}:{limite}:{cursor}")
+    etag = _etag(sink, f"empresas:{q}:{setor}:{listada_b3}:{com_balanco}:{limite}:{cursor}")
     if (r := _talvez_304(request, etag)):
         return r
 
@@ -277,6 +281,17 @@ async def listar_empresas(
     if setor:
         onde.append("lower(setor_atividade) LIKE ?")
         params.append(f"%{setor.lower()}%")
+    # A CVM registra companhia que nunca teve ação em bolsa, e a B3 lista ETF
+    # e BDR que não publicam balanço. Os dois filtros juntos dão o universo
+    # que interessa a quem faz análise fundamentalista.
+    if listada_b3 is not None:
+        onde.append("COALESCE(listada_b3, FALSE) = ?")
+        params.append(listada_b3)
+    if com_balanco is not None:
+        onde.append(
+            ("cd_cvm IN" if com_balanco else "cd_cvm NOT IN")
+            + " (SELECT cd_cvm FROM gold_demonstracoes)"
+        )
     desloc = _cursor_decodificar(cursor)
     if desloc:
         onde.append("cd_cvm > ?")

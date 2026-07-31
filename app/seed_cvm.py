@@ -43,6 +43,48 @@ FONTE_CADASTRO = Fonte(
     separador=";",
 )
 
+# --------------------------------------------------------------------------
+# B3 — quem realmente negocia em bolsa
+# --------------------------------------------------------------------------
+# A CVM registra ~2.600 companhias abertas; só uma fração delas tem ação
+# negociada. Nada nos arquivos da CVM diz quais — a B3 é que diz, e traz
+# `codeCVM`, que liga as duas bases sem heurística de nome.
+#
+# Esta é a primeira dependência de terceiro do sistema. Fica isolada como
+# fonte: se a B3 mudar o endpoint, quebra a captura desta fonte e nada mais.
+FONTE_B3 = Fonte(
+    chave="b3",
+    nome="B3 — companhias listadas",
+    descricao="Empresas com registro de negociação na B3, com ticker, "
+              "segmento de listagem e o código CVM que faz a ligação.",
+    tipo_transporte="http_json",
+    url_template=(
+        "https://sistemaswebb3-listados.b3.com.br/listedCompaniesProxy/"
+        "CompanyCall/GetInitialCompanies/{parametros}"
+    ),
+    encoding="utf-8",
+)
+
+# A API pagina em 100 e recusa páginas maiores; os parâmetros vão em JSON
+# codificado em base64 dentro do caminho, não em query string.
+PARAMETROS_B3 = {
+    "modelo": {"language": "pt-br", "pageNumber": "{pagina}", "pageSize": 100},
+    "codificacao": "base64_json",
+    "paginacao": {"tamanho": 100, "caminho_total_paginas": "page.totalPages"},
+    "caminho_registros": "results",
+}
+
+COLUNAS_B3 = [
+    Coluna("codeCVM", "cd_cvm", "inteiro", obrigatoria=True, ordem=1),
+    Coluna("issuingCompany", "ticker", "texto", obrigatoria=True, ordem=2),
+    Coluna("companyName", "denom_social", "texto", ordem=3),
+    Coluna("tradingName", "nome_pregao", "texto", ordem=4),
+    Coluna("cnpj", "cnpj", "texto", ordem=5),
+    Coluna("segment", "setor_b3", "texto", ordem=6),
+    Coluna("market", "segmento_listagem", "texto", ordem=7),
+    Coluna("dateListing", "dt_listagem", "data", ordem=8),
+]
+
 # Grupos nomeados do regex viram colunas via `$nome`. É por isso que tipo_doc,
 # grupo e con/ind não precisam de código: saem do nome do arquivo.
 PADRAO_CONTA = (
@@ -248,7 +290,7 @@ CLASSE_EMPRESA = Classe(
     # fonte de registro; a DFP cobre companhia que publicou balanço e ainda
     # não apareceu no cadastro do dia.
     resolucao="precedencia",
-    precedencia=["cvm_cadastro", "cvm_dfp_empresa"],
+    precedencia=["cvm_cadastro", "b3", "cvm_dfp_empresa"],
     atributos=[
         _atr("cd_cvm", "inteiro", obrigatorio=True, ordem=1),
         _atr("cnpj", ordem=2),
@@ -263,6 +305,22 @@ CLASSE_EMPRESA = Classe(
         _atr("uf", ordem=8),
         _atr("municipio", ordem=9),
         _atr("dt_registro", "data", ordem=10),
+        # Vindos da B3. `listada_b3` é calculado: a presença de ticker é o
+        # que responde "negocia em bolsa", e derivar disso evita um campo
+        # que possa discordar da própria evidência.
+        _atr("ticker", ordem=11, precedencia=["b3"],
+             descricao="Código de negociação na B3, sem o dígito da espécie."),
+        _atr("nome_pregao", ordem=12, precedencia=["b3"],
+             descricao="Nome curto usado no pregão."),
+        _atr("setor_b3", ordem=13, precedencia=["b3"],
+             descricao="Setor de atuação segundo a B3, ex.: Bancos."),
+        _atr("segmento_listagem", ordem=14, precedencia=["b3"],
+             descricao="Nível de governança: NM (Novo Mercado), N1, N2, MB, "
+                       "DR* (BDR). Vazio é o segmento básico."),
+        _atr("dt_listagem", "data", ordem=15, precedencia=["b3"]),
+        _atr("listada_b3", "booleano", origem="calculado", ordem=16,
+             descricao="Tem registro de negociação na B3. Derivado da "
+                       "presença de ticker, não declarado à parte."),
     ],
 )
 
@@ -394,6 +452,42 @@ def datasets() -> list[Dataset]:
             ],
         ),
         Dataset(
+            chave="b3_listadas",
+            fonte_chave="b3",
+            nome="Companhias listadas na B3",
+            descricao="Quem realmente negocia em bolsa, com ticker e segmento. "
+                      "`codeCVM` liga ao cadastro da CVM sem heurística de nome.",
+            padrao_arquivo=r"^b3_listadas\.json$",
+            tabela_destino="dim_empresa",
+            classe_chave="empresa",
+            chave_natural=["cd_cvm"],
+            parametros=PARAMETROS_B3,
+            colunas=COLUNAS_B3,
+            calculados=[
+                CampoCalculado(
+                    nome="listada_b3",
+                    expressao="ticker IS NOT NULL AND ticker <> ''",
+                    colunas_origem=["ticker"],
+                    tipo_retorno="boolean",
+                    descricao="Derivado da presença de ticker: a evidência de "
+                              "que negocia é o próprio código de negociação.",
+                    ordem=1,
+                ),
+            ],
+            regras=[
+                RegraQualidade(
+                    nome="listada_sem_codigo_cvm",
+                    expressao_sql=(
+                        "SELECT 1 FROM dim_empresa "
+                        "WHERE origem_dataset = 'b3_listadas' AND cd_cvm IS NULL"
+                    ),
+                    severidade="bloqueia",
+                    descricao="Sem cd_cvm a linha da B3 não liga a nada: viraria "
+                              "empresa fantasma, sem balanço e sem cadastro.",
+                ),
+            ],
+        ),
+        Dataset(
             chave="cvm_dfp_empresa",
             fonte_chave="cvm",
             nome="Empresas citadas nas DFPs",
@@ -436,6 +530,9 @@ AGENDAMENTOS = [
     ("cvm_dfp_empresa_anual", "cvm_dfp_empresa", "0 7 1 4 *"),
     ("cvm_itr_trimestral", "cvm_itr", "0 6 15 2,5,8,11 *"),
     ("cvm_cadastro_semanal", "cvm_cadastro", "0 5 * * 1"),
+    # A composição da bolsa muda com IPO, fusão e saída de listagem —
+    # semanal é frequente o bastante e barato (35 requisições).
+    ("b3_listadas_semanal", "b3_listadas", "0 4 * * 1"),
 ]
 
 
@@ -465,7 +562,7 @@ def impressao() -> str:
         {
             "classes": [asdict(c) for c in CLASSES],
             "vistas": [asdict(v) for v in VISTAS],
-            "fontes": [asdict(FONTE), asdict(FONTE_CADASTRO)],
+            "fontes": [asdict(FONTE), asdict(FONTE_CADASTRO), asdict(FONTE_B3)],
             "datasets": [asdict(d) for d in datasets()],
             "metricas": METRICAS,
             "agendamentos": AGENDAMENTOS,
@@ -494,6 +591,7 @@ def aplicar(sink: Sink, forcar: bool = False) -> bool:
         salvar_vista(sink, v, autor="seed")
     salvar_fonte(sink, FONTE, autor="seed")
     salvar_fonte(sink, FONTE_CADASTRO, autor="seed")
+    salvar_fonte(sink, FONTE_B3, autor="seed")
     for d in datasets():
         salvar_dataset(sink, d, autor="seed")
     for chave, dataset_chave, cron in AGENDAMENTOS:

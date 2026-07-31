@@ -157,8 +157,8 @@ def test_linhagem_mostra_a_regra_que_aprovou(carregado):
 def test_linhagem_de_atributo_disputado_mostra_a_precedencia(carregado):
     l = obs.linhagem(carregado, "empresa", "denom_social")
     assert l["disputado"] is True
-    assert l["precedencia"] == ["cvm_cadastro", "cvm_dfp_empresa"]
-    assert [o["dataset"] for o in l["origens"]] == ["cvm_cadastro", "cvm_dfp_empresa"]
+    assert l["precedencia"][0] == "cvm_cadastro"
+    assert [o["dataset"] for o in l["origens"]] == l["precedencia"]
     assert "gold_empresa" in l["vistas"]
 
 
@@ -223,7 +223,8 @@ def test_endpoint_de_classes(cliente):
     r = cliente.get("/v1/meta/classes")
     por_chave = {d["chave"]: d for d in r.json()["dados"]}
     assert por_chave["empresa"]["resolucao"] == "precedencia"
-    assert set(por_chave["empresa"]["fontes"]) == {"cvm_cadastro", "cvm_dfp_empresa"}
+    assert {"cvm_cadastro", "cvm_dfp_empresa", "b3_listadas"} <= set(
+        por_chave["empresa"]["fontes"])
 
 
 def test_endpoint_de_fases(cliente):

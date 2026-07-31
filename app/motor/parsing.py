@@ -82,6 +82,81 @@ def converter(valor: str, tipo: str, formato: str | None) -> Any:
     return v if v else None
 
 
+def mapear(
+    linhas: Iterator[dict[str, Any]],
+    colunas: list[dict],
+    cabecalho: set[str],
+    contexto: dict[str, str] | None = None,
+    extras: dict[str, Any] | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Aplica `cfg_coluna` a registros já lidos, venham de onde vierem.
+
+    Separado do leitor de CSV para que uma fonte JSON use exatamente o mesmo
+    mapeamento — tipo, formato, coluna sombra `_txt` e pseudo-colunas `$grupo`.
+    Se o mapeamento fosse reescrito por transporte, cada fonte nova traria de
+    volta o parsing específico que o produto existe para eliminar.
+    """
+    contexto = {k.upper(): v for k, v in (contexto or {}).items()}
+    do_arquivo = [c for c in colunas if c["nome_origem"].startswith("$")]
+    do_registro = [c for c in colunas if not c["nome_origem"].startswith("$")]
+
+    ausentes = [
+        c["nome_origem"] for c in do_registro
+        if c["obrigatoria"] and c["nome_origem"].strip().upper() not in cabecalho
+    ]
+    if ausentes:
+        raise ErroParse(
+            "a fonte não traz campo obrigatório declarado: " + ", ".join(ausentes)
+        )
+    sem_grupo = [
+        c["nome_origem"] for c in do_arquivo
+        if c["obrigatoria"] and c["nome_origem"][1:].upper() not in contexto
+    ]
+    if sem_grupo:
+        raise ErroParse(
+            "padrao_arquivo não captura grupo nomeado exigido: " + ", ".join(sem_grupo)
+        )
+
+    mapa = [
+        (c["nome_origem"].strip().upper(), c["nome_destino"], c["tipo"], c["formato"])
+        for c in do_registro
+    ]
+    fixos: dict[str, Any] = dict(extras or {})
+    for c in do_arquivo:
+        fixos[c["nome_destino"]] = converter(
+            contexto.get(c["nome_origem"][1:].upper(), ""), c["tipo"], c["formato"]
+        )
+    guardar_txt = {
+        c["nome_destino"] for c in do_registro if c["tipo"] in ("numero", "inteiro")
+    }
+
+    for linha in linhas:
+        normalizada = {(k or "").strip().upper(): v for k, v in linha.items()}
+        saida: dict[str, Any] = dict(fixos)
+        for origem, destino, tipo, formato in mapa:
+            bruto = normalizada.get(origem)
+            bruto = "" if bruto is None else str(bruto)
+            saida[destino] = converter(bruto, tipo, formato)
+            if destino in guardar_txt:
+                saida[f"{destino}_txt"] = bruto.strip() or None
+        yield saida
+
+
+def ler_json(
+    raw: bytes,
+    colunas: list[dict],
+    caminho_registros: str | None = None,
+    contexto: dict[str, str] | None = None,
+    extras: dict[str, Any] | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Lê registros de uma captura JSON paginada, com o mesmo mapeamento do CSV."""
+    from .paginacao import registros_do_bronze
+
+    registros = registros_do_bronze(raw, caminho_registros)
+    cabecalho = {str(k).strip().upper() for r in registros[:50] for k in r}
+    return mapear(iter(registros), colunas, cabecalho, contexto, extras)
+
+
 def ler_csv(
     raw: bytes,
     colunas: list[dict],
@@ -99,54 +174,10 @@ def ler_csv(
 
     `extras` são constantes do carregamento (id da captura, nome do arquivo).
     """
-    contexto = {k.upper(): v for k, v in (contexto or {}).items()}
     texto = raw.decode(encoding, errors="strict")
     leitor = csv.DictReader(io.StringIO(texto), delimiter=separador)
     cabecalho = {(c or "").strip().upper() for c in (leitor.fieldnames or [])}
-
-    do_arquivo = [c for c in colunas if c["nome_origem"].startswith("$")]
-    do_csv = [c for c in colunas if not c["nome_origem"].startswith("$")]
-
-    ausentes = [
-        c["nome_origem"] for c in do_csv
-        if c["obrigatoria"] and c["nome_origem"].strip().upper() not in cabecalho
-    ]
-    if ausentes:
-        raise ErroParse(
-            "arquivo não traz coluna obrigatória declarada: " + ", ".join(ausentes)
-        )
-    sem_grupo = [
-        c["nome_origem"] for c in do_arquivo
-        if c["obrigatoria"] and c["nome_origem"][1:].upper() not in contexto
-    ]
-    if sem_grupo:
-        raise ErroParse(
-            "padrao_arquivo não captura grupo nomeado exigido: " + ", ".join(sem_grupo)
-        )
-
-    mapa_csv = [
-        (c["nome_origem"].strip().upper(), c["nome_destino"], c["tipo"], c["formato"])
-        for c in do_csv
-    ]
-    fixos: dict[str, Any] = dict(extras or {})
-    for c in do_arquivo:
-        fixos[c["nome_destino"]] = converter(
-            contexto.get(c["nome_origem"][1:].upper(), ""), c["tipo"], c["formato"]
-        )
-
-    guardar_txt = {
-        c["nome_destino"] for c in do_csv if c["tipo"] in ("numero", "inteiro")
-    }
-
-    for linha in leitor:
-        normalizada = {(k or "").strip().upper(): (v or "") for k, v in linha.items()}
-        saida: dict[str, Any] = dict(fixos)
-        for origem, destino, tipo, formato in mapa_csv:
-            bruto = normalizada.get(origem, "")
-            saida[destino] = converter(bruto, tipo, formato)
-            if destino in guardar_txt:
-                saida[f"{destino}_txt"] = bruto.strip() or None
-        yield saida
+    return mapear(iter(leitor), colunas, cabecalho, contexto, extras)
 
 
 def membros_do_zip(

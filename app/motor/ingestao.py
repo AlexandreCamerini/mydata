@@ -17,6 +17,7 @@ from .. import repositorio as repo
 from ..sinks import Sink
 from . import calculados as calc
 from . import observabilidade as obs
+from . import paginacao
 from . import parsing
 from . import publicacao as pub
 from . import qualidade as qa
@@ -128,12 +129,19 @@ def carregar_arquivo(
     if "origem_dataset" in fisicas:
         chave_natural = [*chave_natural, "origem_dataset"]
 
-    linhas = parsing.ler_csv(
-        payload, colunas, fonte["encoding"], fonte["separador"],
-        contexto=contexto,
-        extras={"captura_id": captura_id, "fonte_arquivo": nome_arquivo,
-                "origem_dataset": ds["chave"]},
-    )
+    extras = {"captura_id": captura_id, "fonte_arquivo": nome_arquivo,
+              "origem_dataset": ds["chave"]}
+    if fonte["tipo_transporte"] == "http_json":
+        linhas = parsing.ler_json(
+            payload, colunas,
+            caminho_registros=_parametros(ds).get("caminho_registros"),
+            contexto=contexto, extras=extras,
+        )
+    else:
+        linhas = parsing.ler_csv(
+            payload, colunas, fonte["encoding"], fonte["separador"],
+            contexto=contexto, extras=extras,
+        )
 
     primeira = next(iter(linhas), None)
     if primeira is None:
@@ -159,6 +167,12 @@ def carregar_arquivo(
 # --------------------------------------------------------------------------
 # Execução
 # --------------------------------------------------------------------------
+def _parametros(ds: dict) -> dict:
+    import json as _json
+
+    return _json.loads(ds.get("parametros") or "{}")
+
+
 def _urls_da_janela(fonte: dict, ds: dict, janela: str) -> list[str]:
     """Expande o template da fonte para a janela pedida."""
     import json as _json
@@ -204,13 +218,25 @@ def executar(
         repo.atualizar_execucao(sink, exec_id, status="baixando")
         with obs.fase(sink, exec_id, "baixar"):
             if baixar is not None:
-                for url in _urls_da_janela(fonte, ds, janela):
-                    nome = url.rsplit("/", 1)[-1]
-                    payload = baixar(url)
+                if fonte["tipo_transporte"] == "http_json":
+                    # Uma API paginada não entrega tudo numa requisição; o
+                    # bronze guarda todas as páginas, cruas e na ordem.
+                    payload = paginacao.capturar(
+                        fonte["url_template"], _parametros(ds), baixar
+                    )
                     _, nova = gravar_bronze(
-                        sink, dataset_chave, janela, url, nome, payload
+                        sink, dataset_chave, janela, fonte["url_template"],
+                        f"{dataset_chave}.json", payload,
                     )
                     res.capturas_novas += int(nova)
+                else:
+                    for url in _urls_da_janela(fonte, ds, janela):
+                        nome = url.rsplit("/", 1)[-1]
+                        payload = baixar(url)
+                        _, nova = gravar_bronze(
+                            sink, dataset_chave, janela, url, nome, payload
+                        )
+                        res.capturas_novas += int(nova)
         repo.atualizar_execucao(sink, exec_id, status="capturado")
 
         capturas = capturas_da_janela(sink, dataset_chave, janela)
@@ -235,6 +261,8 @@ def executar(
                 payload = payload_de(sink, captura["id"])
                 if fonte["tipo_transporte"] == "http_zip":
                     membros = parsing.membros_do_zip(payload, ds["padrao_arquivo"])
+                elif fonte["tipo_transporte"] == "http_json":
+                    membros = [(captura["nome_arquivo"], payload, {})]
                 else:
                     import re as _re
 

@@ -197,10 +197,17 @@ def test_gerador_reproduz_o_schema_de_producao(tmp_path, chave, tabela):
 
     faltando = {c: t for c, t in esperado.items() if obtido.get(c) != t}
     assert not faltando, f"a configuração perdeu ou mudou colunas: {faltando}"
-    # `origem_dataset` é acréscimo consciente da Etapa 4: sem ele, duas fontes
-    # na mesma classe se sobrescreveriam. Nenhuma outra coluna pode aparecer
-    # sem que alguém tenha decidido.
-    assert set(obtido) - set(esperado) == {"origem_dataset"}
+
+    # Coluna nova é acréscimo consciente, e cada uma tem motivo registrado.
+    # O que este teste protege é a direção: a configuração pode acrescentar,
+    # nunca perder nem mudar o que produção já tem.
+    acrescimos = {
+        "origem_dataset",                                    # Etapa 4, multi-fonte
+        "ticker", "nome_pregao", "setor_b3",                  # fonte B3
+        "segmento_listagem", "dt_listagem", "listada_b3",
+    }
+    inesperadas = set(obtido) - set(esperado) - acrescimos
+    assert not inesperadas, f"coluna sem decisão registrada: {inesperadas}"
 
 
 def test_gerador_cria_o_indice_de_identidade(tmp_path):
