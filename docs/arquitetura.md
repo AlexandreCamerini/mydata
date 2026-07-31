@@ -1,6 +1,6 @@
 # Portal de Dados — definição do sistema e arquitetura proposta
 
-**Status:** implementado (fases 1–5) · **Versão:** 1.1 · **Data:** 2026-07-30
+**Status:** implementado (fases 1–5, etapas 0–7) · **Versão:** 2.0 · **Data:** 2026-07-30
 **Escopo deste documento:** o que o sistema é, que garantias oferece, como é
 construído e por quê. Decisões com alternativa descartada estão registradas em
 [Decisões arquiteturais](#11-decisões-arquiteturais); o que ainda não foi
@@ -508,6 +508,50 @@ do domínio:
 | 8 | Cron do Railway | Celery/Redis, ou GitHub Actions | fila é serviço a mais; runner externo tira a ingestão de onde o banco está |
 | 9 | CVM como fonte canônica | brapi/dadosdemercado | só a CVM é o dado auditado; terceiro entra como atalho validado contra ela |
 | 10 | Bronze como `bytea` em tabela Postgres | volume do Railway | ver ADR-10 abaixo |
+| 11 | Classe de informação acima do dataset; tabela gerada da configuração | `CREATE TABLE` por migração escrita à mão | enquanto o DDL estiver no código, criar classe pela interface exige deploy — o oposto do produto |
+| 12 | Multi-fonte por derivação, com `origem_dataset` na identidade física | upsert com a última carga vencendo | sobrescrever apaga a divergência antes de alguém poder decidir; derivar mantém as duas e torna a escolha reversível |
+| 13 | Precedência declarada por atributo | precedência por fonte inteira | o cadastro da CVM é a melhor fonte para a razão social e não diz nada sobre o resto |
+| 14 | Escopo de chave de API em classe de informação | escopo por rota ou por vista | rota é detalhe de implementação; a classe é o que o consumidor entende, e app novo vira chave nova |
+| 15 | Carga por staging sem índice + upsert em uma instrução | upsert linha a linha | 300 linhas/s tornava o recomputo do bronze — o plano de volta de toda migração — lento demais para alguém acionar |
+
+### ADR-11 — a tabela como consequência da classe
+
+**Contexto.** Até a etapa 3, `fato_conta` e `dim_empresa` eram `CREATE TABLE`
+escritos na migração `0004`, e as vistas de gold eram um dicionário em Python.
+`cfg_dataset.tabela_destino` apontava para tabela que já tinha de existir.
+
+**Decisão.** `cfg_classe` e `cfg_atributo` passam a ser a origem do DDL.
+`motor.ddl` gera tabela, índice de identidade e ALTERs; `cfg_vista` guarda o
+corpo das vistas de gold. A migração `0004` fica só com `publicacao`, que é do
+sistema e não de classe nenhuma.
+
+**Consequência.** Criar uma classe de informação nova é um POST em
+`/admin/api/classes` — a tabela nasce na mesma chamada. O DDL histórico
+permanece em `migracoes.DDL_HISTORICO_SILVER` como referência de regressão: é
+contra ele, e não contra o próprio gerador, que o teste compara.
+
+**O que a decisão custa.** A configuração passa a poder quebrar o banco. Três
+guardas: nome de tabela validado antes de entrar em DDL, `ALTER ADD COLUMN`
+mas nunca `DROP COLUMN` (coluna órfã vira divergência para alguém decidir, não
+perda de dado), e um digest em `cfg_seed` que evita refazer índice a cada boot.
+
+### ADR-12 — resolução multi-fonte é derivação, não sobrescrita
+
+**Contexto.** Duas fontes descrevem a mesma empresa e discordam: o cadastro da
+CVM traz `DENOM_SOCIAL`, o arquivo de DFP traz `DENOM_CIA`.
+
+**Decisão.** `origem_dataset` entra na identidade física da tabela. As duas
+linhas coexistem; a linha publicada sai de uma vista gerada que escolhe, por
+atributo, o valor da fonte de maior precedência.
+
+**Consequência.** Inverter precedência é republicar, não recarregar. Desligar
+uma fonte não apaga o que ela trouxe. Só atributo realmente disputado ganha
+coluna de origem, e ela chega ao consumidor dentro de `proveniencia.por_atributo`.
+
+**Limite.** A vista resolvida agrupa por identidade. Numa classe de fonte
+única isso seria um `GROUP BY` sobre centenas de milhares de linhas para não
+decidir nada — por isso ela só é gerada para classe com `resolucao =
+'precedencia'`.
 
 ### ADR-10 — bronze em tabela, não em volume
 
@@ -580,9 +624,14 @@ e cai na regra de aprovação; a migração custa uma coluna `payload_ref`.
 1. **Origem do mapa ticker → `cd_cvm`** — a CVM não publica ticker. A B3
    publica, mas não como dado aberto estável. Qualquer escolha aqui é a
    primeira dependência de terceiro do sistema, e precisa ficar isolada.
-2. **Multi-consumidor** — hoje o BOLSIA é o único. Se surgir um segundo com
-   necessidade de isolamento, `cfg_chave_api` já suporta escopos, mas o modelo
-   de dados não é multi-tenant.
+2. **Multi-tenant** — o escopo por classe (etapa 7) resolve *quais* classes um
+   app lê. Não resolve isolamento de dado dentro da classe: se um dia dois
+   consumidores precisarem ver linhas diferentes da mesma classe, o modelo não
+   suporta e a decisão é nova.
+3. **Gate de publicação sobre linha já publicada** — um upsert que altere linha
+   já rotulada muda gold sem passar pelo gate. Uma área de staging fecharia o
+   buraco; a Etapa 3 reescreveu as tabelas e seria o momento certo, mas o custo
+   não se justificou sem um caso concreto.
 
 ---
 
