@@ -41,15 +41,27 @@ def avaliar(sink: Sink, regras: list[dict]) -> list[dict]:
             })
             continue
 
-        if achadas > float(regra["tolerancia"] or 0):
-            violacoes.append({
-                "nome": regra["nome"],
-                "severidade": regra["severidade"],
-                "linhas": achadas,
-                "erro": None,
-            })
-            log.warning(
-                "regra '%s' (%s): %d linhas fora do esperado",
-                regra["nome"], regra["severidade"], achadas,
-            )
+        if not achadas:
+            continue
+
+        # Dentro da tolerância a violação continua sendo reportada — só deixa
+        # de barrar. Silenciar seria pior que não ter regra: o operador
+        # perderia de vista o caso isolado justamente porque ele é raro, e a
+        # tolerância existe para não reter um ano inteiro por causa de uma
+        # declaração torta na origem, não para esconder que ela existe.
+        tolerada = achadas <= float(regra["tolerancia"] or 0)
+        severidade = "alerta" if tolerada else regra["severidade"]
+        violacoes.append({
+            "nome": regra["nome"],
+            "severidade": severidade,
+            "linhas": achadas,
+            "tolerada": tolerada,
+            "tolerancia": float(regra["tolerancia"] or 0),
+            "erro": None,
+        })
+        log.warning(
+            "regra '%s' (%s): %d linhas fora do esperado%s",
+            regra["nome"], severidade, achadas,
+            f" — dentro da tolerância de {regra['tolerancia']:.0f}" if tolerada else "",
+        )
     return violacoes

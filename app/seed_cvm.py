@@ -160,10 +160,22 @@ REGRAS_CONTA = [
             "      GROUP BY cd_cvm, dt_refer, consolidado) p "
             "ON a.cd_cvm = p.cd_cvm AND a.dt_refer = p.dt_refer "
             "AND a.consolidado = p.consolidado "
-            "WHERE abs(a.total - p.total) > 1.0"
+            # Tolerância relativa, não absoluta. A CVM publica em milhares ou
+            # milhões, então a menor diferença representável na fonte é
+            # R$ 1.000 — com limite de R$ 1,00 um único arredondamento de
+            # milésimo derrubava a carga de um ano inteiro. Medido: a RGE Sul
+            # diferia R$ 1.000 sobre R$ 15,5 bilhões.
+            "WHERE abs(a.total - p.total) > greatest(1000.0, 0.0001 * abs(a.total))"
         ),
         severidade="bloqueia",
-        descricao="Ativo = Passivo + PL. Diferença acima de R$1 é erro de carga.",
+        # A regra existe para pegar erro sistêmico *do pipeline* — escala
+        # trocada, filtro errado —, que quebraria centenas de empresas de uma
+        # vez. Uma declaração inconsistente na origem é assunto da companhia,
+        # não motivo para reter o ano inteiro: fica registrada na violação e o
+        # operador decide. Acima de dez, é o pipeline que está errado.
+        tolerancia=10,
+        descricao="Ativo = Passivo + PL, com folga de 0,01% ou R$ 1.000. "
+                  "Acima de dez companhias fora, o erro é da carga.",
     ),
 ]
 

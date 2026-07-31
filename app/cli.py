@@ -12,7 +12,7 @@ import logging
 import sys
 from datetime import datetime, timezone
 
-from . import bootstrap, repositorio as repo, seed_cvm
+from . import agenda, bootstrap, repositorio as repo, seed_cvm
 from .motor import download, ingestao, publicacao, verificacao
 from .sinks import criar_sink
 
@@ -83,6 +83,21 @@ def cmd_agendados(args) -> int:
         if args.chave and ag["chave"] != args.chave:
             continue
         janela = janela_corrente(ag["janela_padrao"])
+
+        # O Railway acorda o processo; é aqui que se decide o que fazer.
+        # Sem esta checagem um gatilho diário reingeriria tudo todo dia, e o
+        # cron do painel viraria a única frequência do sistema.
+        ultima = sink.um(
+            "SELECT max(terminado_em) AS q FROM log_execucao "
+            "WHERE dataset_chave = ? AND status = 'publicado'",
+            (ag["dataset_chave"],),
+        )
+        vencido, motivo = agenda.esta_vencido(ag["cron"], (ultima or {}).get("q"))
+        if not vencido and not args.forcar:
+            saida.append({"agendamento": ag["chave"], "janela": janela,
+                          "status": "nao_vencido", "motivo": motivo})
+            continue
+
         try:
             res = ingestao.executar(
                 sink, ag["dataset_chave"], janela,
@@ -185,6 +200,8 @@ def main(argv: list[str] | None = None) -> int:
 
     a = sub.add_parser("agendados", help="roda os agendamentos ativos (cron)")
     a.add_argument("--chave", help="roda só um agendamento")
+    a.add_argument("--forcar", action="store_true",
+                   help="roda mesmo o que não está vencido")
     a.set_defaults(func=cmd_agendados)
 
     r = sub.add_parser(

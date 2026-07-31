@@ -295,23 +295,69 @@ def test_reconciliacao_ativo_passivo_passa_com_dado_coerente(sink_cvm, zip_dfp_2
     assert res.status == "publicado"
 
 
-def test_reconciliacao_pega_ativo_diferente_de_passivo(sink_cvm):
+def _zip_desbalanceado(quantas: int):
+    """`quantas` companhias com Ativo != Passivo, cada uma 30% fora."""
     from tests.conftest import csv_conta, linha, zip_cvm
 
-    desbalanceado = zip_cvm({
+    return zip_cvm({
         "dfp_cia_aberta_BPA_con_2023.csv": csv_conta([
-            linha(cd_conta="1", vl="1000,00"),
+            linha(cd_cvm=5000 + i, cd_conta="1", vl="1000,00")
+            for i in range(quantas)
         ]),
         "dfp_cia_aberta_BPP_con_2023.csv": csv_conta([
-            linha(cd_conta="2", vl="700,00", grupo_dfp="DF Consolidado - BPP"),
+            linha(cd_cvm=5000 + i, cd_conta="2", vl="700,00",
+                  grupo_dfp="DF Consolidado - BPP")
+            for i in range(quantas)
+        ]),
+    })
+
+
+def test_reconciliacao_barra_quando_o_erro_e_sistemico(sink_cvm):
+    """Muitas companhias fora significa erro do pipeline — escala trocada,
+    filtro errado —, e aí a carga não pode publicar."""
+    res = ingestao.executar(
+        sink_cvm, "cvm_dfp", "2023",
+        baixar=baixador({"dfp_cia_aberta_2023.zip": _zip_desbalanceado(15)}),
+    )
+    assert res.status == "bloqueada"
+    v = next(v for v in res.violacoes if v["nome"] == "reconciliacao_ativo_passivo")
+    assert v["linhas"] == 15 and v["tolerada"] is False
+
+
+def test_caso_isolado_nao_barra_mas_continua_reportado(sink_cvm):
+    """Uma declaração inconsistente na origem é assunto da companhia, não
+    motivo para reter o ano inteiro. Mas some do radar se não for reportada —
+    e é justamente por ser rara que ninguém a encontraria depois."""
+    res = ingestao.executar(
+        sink_cvm, "cvm_dfp", "2023",
+        baixar=baixador({"dfp_cia_aberta_2023.zip": _zip_desbalanceado(1)}),
+    )
+    assert res.status == "publicado"
+    v = next(v for v in res.violacoes if v["nome"] == "reconciliacao_ativo_passivo")
+    assert v["linhas"] == 1 and v["tolerada"] is True and v["severidade"] == "alerta"
+
+
+def test_arredondamento_da_escala_nao_conta_como_violacao(sink_cvm):
+    """A CVM publica em milhares: a menor diferença representável é R$ 1.000.
+    Com limite absoluto de R$ 1,00, um milésimo derrubava o ano inteiro —
+    medido na RGE Sul, R$ 1.000 sobre R$ 15,5 bilhões."""
+    from tests.conftest import csv_conta, linha, zip_cvm
+
+    quase = zip_cvm({
+        "dfp_cia_aberta_BPA_con_2023.csv": csv_conta([
+            linha(cd_conta="1", vl="15479988,00"),
+        ]),
+        "dfp_cia_aberta_BPP_con_2023.csv": csv_conta([
+            linha(cd_conta="2", vl="15479987,00", grupo_dfp="DF Consolidado - BPP"),
         ]),
     })
     res = ingestao.executar(
         sink_cvm, "cvm_dfp", "2023",
-        baixar=baixador({"dfp_cia_aberta_2023.zip": desbalanceado}),
+        baixar=baixador({"dfp_cia_aberta_2023.zip": quase}),
     )
-    assert res.status == "bloqueada"
-    assert any(v["nome"] == "reconciliacao_ativo_passivo" for v in res.violacoes)
+    assert res.status == "publicado"
+    assert not any(v["nome"] == "reconciliacao_ativo_passivo"
+                   for v in res.violacoes), "arredondamento não é violação"
 
 
 # --------------------------------------------------------------------------
