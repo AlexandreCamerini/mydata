@@ -13,4 +13,7 @@ dist/
 node_modules/
 venv/
 web/dist/
+web/tsconfig.tsbuildinfo
+
+# artefatos que já entraram por engano uma vez
 web/dist/axe.min.js
