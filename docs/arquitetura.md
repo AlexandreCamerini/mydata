@@ -632,6 +632,16 @@ e cai na regra de aprovação; a migração custa uma coluna `payload_ref`.
    já rotulada muda gold sem passar pelo gate. Uma área de staging fecharia o
    buraco; a Etapa 3 reescreveu as tabelas e seria o momento certo, mas o custo
    não se justificou sem um caso concreto.
+4. **Bronze duplicado entre mapeamentos** — a captura é por dataset, então dois
+   mapeamentos sobre o mesmo arquivo guardam duas cópias. Medido na carga real
+   de 2023: o ZIP de 13 MB da DFP está duas vezes em `bronze_captura`, uma para
+   `cvm_dfp` e outra para `cvm_dfp_empresa`. Deduplicar por `sha256` entre
+   datasets economizaria o espaço, ao custo de a captura deixar de pertencer a
+   um mapeamento só — o que complica descartar carga reprovada de um deles.
+5. **Mapeamento lê mais do que precisa** — `cvm_dfp_empresa` parseia 1.276.157
+   linhas para extrair 732. O `padrao_arquivo` já filtra quais membros do ZIP
+   entram; falta poder declarar que um mapeamento só quer alguns deles. Hoje é
+   trabalho jogado fora, não erro.
 
 ---
 
