@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import bootstrap, repositorio as repo
-from ..motor import publicacao
+from ..motor import observabilidade, publicacao
 from ..motor.ddl import SUFIXO_ORIGEM
 from ..sinks import Sink, criar_sink
 from . import admin, auth
@@ -430,6 +430,57 @@ async def meta_publicacoes(request: Request, _chave: dict = Depends(exigir_chave
         "SELECT versao, publicado_em, execucao_id, observacao FROM publicacao "
         "ORDER BY versao DESC LIMIT 50"
     )}
+
+
+@app.get("/v1/meta/classes", tags=["catálogo"])
+async def meta_classes(request: Request, _chave: dict = Depends(exigir_chave)) -> Any:
+    """As classes de informação e quem as alimenta."""
+    sink = obter_sink(request)
+    saida = []
+    for c in repo.listar_classes(sink, so_ativas=True):
+        saida.append({
+            "chave": c["chave"], "nome": c["nome"], "descricao": c["descricao"],
+            "identidade": c["chave_identidade"].split(","),
+            "resolucao": c["resolucao"],
+            "fontes": [d["chave"] for d in repo.datasets_da_classe(sink, c["chave"])],
+            "atributos": [
+                {"nome": a["nome"], "tipo": a["tipo"], "origem": a["origem"],
+                 "unidade": a["unidade"], "descricao": a["descricao"]}
+                for a in repo.atributos_de(sink, c["id"])
+            ],
+        })
+    return {"dados": saida}
+
+
+@app.get("/v1/meta/frescor", tags=["catálogo"])
+async def meta_frescor(request: Request, _chave: dict = Depends(exigir_chave)) -> Any:
+    """Quão velho está o dado de cada classe, contra o SLA declarado."""
+    return {"dados": observabilidade.frescor(obter_sink(request))}
+
+
+@app.get("/v1/meta/linhagem", tags=["catálogo"])
+async def meta_linhagem(
+    request: Request,
+    classe: str = Query(..., description="chave da classe de informação"),
+    atributo: str = Query(..., description="nome do atributo"),
+    _chave: dict = Depends(exigir_chave),
+) -> Any:
+    """De onde veio este número: fonte, captura, regra que aprovou, publicação."""
+    try:
+        return {"dados": observabilidade.linhagem(obter_sink(request), classe, atributo)}
+    except repo.ErroConfiguracao as e:
+        raise HTTPException(
+            status_code=404,
+            detail={"codigo": "linhagem_nao_encontrada", "mensagem": str(e)},
+        ) from e
+
+
+@app.get("/v1/meta/execucoes/{execucao_id}/fases", tags=["catálogo"])
+async def meta_fases(
+    execucao_id: int, request: Request, _chave: dict = Depends(exigir_chave)
+) -> Any:
+    """Onde a carga gastou o tempo — não só que ela demorou."""
+    return {"dados": observabilidade.linha_do_tempo(obter_sink(request), execucao_id)}
 
 
 # --------------------------------------------------------------------------

@@ -332,6 +332,30 @@ MIGRACOES: list[Migracao] = [
             "ALTER TABLE cfg_dataset ADD COLUMN parametros {TEXTO}",
         ],
     ),
+    Migracao(
+        # Observabilidade. O operador precisa responder três perguntas sem
+        # abrir o banco: o que está desatualizado, o que quebrou, e de onde
+        # veio este número. As duas primeiras já dão para responder com
+        # log_execucao; a duração por fase é o que falta para saber *onde* a
+        # carga demora, em vez de só que ela demorou.
+        nome="0010_observabilidade",
+        sql=[
+            "CREATE SEQUENCE IF NOT EXISTS seq_log_fase START 1",
+            """CREATE TABLE IF NOT EXISTS log_fase (
+                 id           {INT} PRIMARY KEY,
+                 execucao_id  {INT} NOT NULL,
+                 fase         {TEXTO} NOT NULL,
+                 iniciado_em  {TSTZ} NOT NULL DEFAULT {AGORA},
+                 terminado_em {TSTZ},
+                 duracao_ms   {INT}
+               )""",
+            "CREATE INDEX IF NOT EXISTS ix_log_fase_exec ON log_fase (execucao_id)",
+        ],
+        so_postgres=[
+            """ALTER TABLE log_fase ADD CONSTRAINT fk_log_fase_execucao
+                 FOREIGN KEY (execucao_id) REFERENCES log_execucao(id)""",
+        ],
+    ),
 ]
 
 # Tabelas silver que participam do ciclo de publicação. A partir da Etapa 3

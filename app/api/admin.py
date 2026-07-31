@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import repositorio as repo
-from ..motor import ddl, ingestao, publicacao
+from ..motor import ddl, ingestao, observabilidade, publicacao
 from ..repositorio import (
     CampoCalculado, Coluna, Dataset, ErroConfiguracao, Fonte, RegraQualidade,
 )
@@ -315,6 +315,16 @@ async def post_execucao(entrada: ExecucaoEntrada, request: Request) -> Any:
         "linhas_silver": res.linhas_silver, "delta_linhas": res.delta_linhas,
         "publicacao": res.publicacao, "violacoes": res.violacoes,
     }}
+
+
+@router.get("/frescor")
+async def get_frescor(request: Request) -> Any:
+    return {"dados": observabilidade.frescor(obter_sink(request))}
+
+
+@router.get("/execucoes/{execucao_id}/fases")
+async def get_fases(execucao_id: int, request: Request) -> Any:
+    return {"dados": observabilidade.linha_do_tempo(obter_sink(request), execucao_id)}
 
 
 @router.get("/publicacoes")

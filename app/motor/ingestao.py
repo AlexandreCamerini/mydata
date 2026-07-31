@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from .. import repositorio as repo
 from ..sinks import Sink
 from . import calculados as calc
+from . import observabilidade as obs
 from . import parsing
 from . import publicacao as pub
 from . import qualidade as qa
@@ -201,14 +202,15 @@ def executar(
     try:
         # ---------- baixar + bronze ----------
         repo.atualizar_execucao(sink, exec_id, status="baixando")
-        if baixar is not None:
-            for url in _urls_da_janela(fonte, ds, janela):
-                nome = url.rsplit("/", 1)[-1]
-                payload = baixar(url)
-                _, nova = gravar_bronze(
-                    sink, dataset_chave, janela, url, nome, payload
-                )
-                res.capturas_novas += int(nova)
+        with obs.fase(sink, exec_id, "baixar"):
+            if baixar is not None:
+                for url in _urls_da_janela(fonte, ds, janela):
+                    nome = url.rsplit("/", 1)[-1]
+                    payload = baixar(url)
+                    _, nova = gravar_bronze(
+                        sink, dataset_chave, janela, url, nome, payload
+                    )
+                    res.capturas_novas += int(nova)
         repo.atualizar_execucao(sink, exec_id, status="capturado")
 
         capturas = capturas_da_janela(sink, dataset_chave, janela)
@@ -228,28 +230,33 @@ def executar(
 
         # ---------- silver ----------
         repo.atualizar_execucao(sink, exec_id, status="carregando")
-        for captura in capturas:
-            payload = payload_de(sink, captura["id"])
-            if fonte["tipo_transporte"] == "http_zip":
-                membros = parsing.membros_do_zip(payload, ds["padrao_arquivo"])
-            else:
-                import re as _re
+        with obs.fase(sink, exec_id, "carregar"):
+            for captura in capturas:
+                payload = payload_de(sink, captura["id"])
+                if fonte["tipo_transporte"] == "http_zip":
+                    membros = parsing.membros_do_zip(payload, ds["padrao_arquivo"])
+                else:
+                    import re as _re
 
-                base = captura["nome_arquivo"]
-                m = _re.match(ds["padrao_arquivo"], base, _re.IGNORECASE)
-                membros = [(base, payload, m.groupdict() if m else {})] if m else []
-            for nome, raw, contexto in membros:
-                res.linhas_silver += carregar_arquivo(
-                    sink, ds, colunas, fonte, captura["id"], nome, raw, contexto
-                )
+                    base = captura["nome_arquivo"]
+                    m = _re.match(ds["padrao_arquivo"], base, _re.IGNORECASE)
+                    membros = (
+                        [(base, payload, m.groupdict() if m else {})] if m else []
+                    )
+                for nome, raw, contexto in membros:
+                    res.linhas_silver += carregar_arquivo(
+                        sink, ds, colunas, fonte, captura["id"], nome, raw, contexto
+                    )
 
         # ---------- calculados ----------
         repo.atualizar_execucao(sink, exec_id, status="recomputando")
-        calc.aplicar(sink, ds, repo.calculados_do(sink, ds["id"]))
+        with obs.fase(sink, exec_id, "calcular"):
+            calc.aplicar(sink, ds, repo.calculados_do(sink, ds["id"]))
 
         # ---------- qualidade ----------
         repo.atualizar_execucao(sink, exec_id, status="validando")
-        res.violacoes = qa.avaliar(sink, repo.regras_do(sink, ds["id"]))
+        with obs.fase(sink, exec_id, "validar"):
+            res.violacoes = qa.avaliar(sink, repo.regras_do(sink, ds["id"]))
         bloqueia = [v for v in res.violacoes if v["severidade"] == "bloqueia"]
 
         depois = _contar(sink, ds["tabela_destino"])
@@ -275,7 +282,8 @@ def executar(
 
         # ---------- publicação ----------
         if publicar:
-            res.publicacao = pub.publicar(sink, exec_id)
+            with obs.fase(sink, exec_id, "publicar"):
+                res.publicacao = pub.publicar(sink, exec_id)
         res.status = "publicado"
         repo.atualizar_execucao(
             sink, exec_id, status="publicado", capturas=res.capturas,
