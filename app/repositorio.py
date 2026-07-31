@@ -71,6 +71,8 @@ class Dataset:
     regras: list[RegraQualidade] = field(default_factory=list)
     politica_versao: str = "max_versao"
     particao: str = "ano"
+    # Valores que o template de URL da fonte pede além de {ano} e {janela}.
+    parametros: dict[str, str] = field(default_factory=dict)
     descricao: str | None = None
     ativo: bool = True
 
@@ -87,6 +89,10 @@ class Atributo:
     unidade: str | None = None
     descricao: str | None = None
     ordem: int = 0
+    # Ordem em que as fontes são consultadas para *este* atributo. Vazio
+    # significa "usa a da classe" — precedência por fonte inteira é grosseira
+    # demais: a melhor fonte para a razão social não é a melhor para o resto.
+    precedencia: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -102,6 +108,8 @@ class Classe:
     atributos: list[Atributo] = field(default_factory=list)
     indices: list[list[str]] = field(default_factory=list)
     sla_horas: int | None = None
+    resolucao: str = "unica"       # unica | precedencia
+    precedencia: list[str] = field(default_factory=list)
     descricao: str | None = None
     ativo: bool = True
 
@@ -206,6 +214,10 @@ def validar_classe(c: Classe) -> None:
                 f"índice da classe '{c.chave}' cita atributo inexistente: "
                 f"{', '.join(fora)}"
             )
+    if c.resolucao not in ("unica", "precedencia"):
+        raise ErroConfiguracao(
+            f"classe '{c.chave}' declara resolução desconhecida: {c.resolucao}"
+        )
     if not c.tabela.replace("_", "").isalnum():
         raise ErroConfiguracao(
             f"nome de tabela inválido para a classe '{c.chave}': {c.tabela}"
@@ -219,19 +231,22 @@ def salvar_classe(sink: Sink, c: Classe, autor: str = "sistema") -> int:
     sink.executar(
         """INSERT INTO cfg_classe
            (id, nome, descricao, tabela, chave_identidade, indices, sla_horas,
-            ativo, chave, versao, vigente, vigente_chave, criado_por)
-           VALUES (?,?,?,?,?,?,?,?,?,?,TRUE,?,?)""",
+            resolucao, precedencia, ativo, chave, versao, vigente,
+            vigente_chave, criado_por)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,TRUE,?,?)""",
         (novo_id, c.nome, c.descricao, c.tabela, ",".join(c.chave_identidade),
-         ";".join(",".join(i) for i in c.indices), c.sla_horas, c.ativo,
-         c.chave, versao, c.chave, autor),
+         ";".join(",".join(i) for i in c.indices), c.sla_horas, c.resolucao,
+         ",".join(c.precedencia), c.ativo, c.chave, versao, c.chave, autor),
     )
     for a in c.atributos:
         sink.executar(
             """INSERT INTO cfg_atributo
                (id, classe_id, nome, tipo, origem, obrigatorio, guarda_texto,
-                unidade, descricao, ordem) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                unidade, descricao, ordem, precedencia)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (sink.proximo_id("cfg_atributo"), novo_id, a.nome, a.tipo, a.origem,
-             a.obrigatorio, a.guarda_texto, a.unidade, a.descricao, a.ordem),
+             a.obrigatorio, a.guarda_texto, a.unidade, a.descricao, a.ordem,
+             ",".join(a.precedencia)),
         )
     return novo_id
 
@@ -364,11 +379,12 @@ def salvar_dataset(sink: Sink, d: Dataset, autor: str = "sistema") -> int:
         """INSERT INTO cfg_dataset
            (id, fonte_chave, nome, descricao, padrao_arquivo, tabela_destino,
             chave_natural, politica_versao, particao, ativo, classe_chave,
-            chave, versao, vigente, vigente_chave, criado_por)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,TRUE,?,?)""",
+            parametros, chave, versao, vigente, vigente_chave, criado_por)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,TRUE,?,?)""",
         (novo_id, d.fonte_chave, d.nome, d.descricao, d.padrao_arquivo,
          d.tabela_destino, ",".join(d.chave_natural), d.politica_versao,
-         d.particao, d.ativo, d.classe_chave, d.chave, versao, d.chave, autor),
+         d.particao, d.ativo, d.classe_chave, json.dumps(d.parametros),
+         d.chave, versao, d.chave, autor),
     )
     for c in d.colunas:
         sink.executar(

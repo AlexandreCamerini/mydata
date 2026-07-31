@@ -314,6 +314,24 @@ MIGRACOES: list[Migracao] = [
                )""",
         ],
     ),
+    Migracao(
+        # Multi-fonte. `origem_dataset` entra na identidade física: duas
+        # fontes que falem da mesma empresa passam a coexistir como linhas
+        # distintas em vez de uma sobrescrever a outra. Resolver qual valor
+        # publicar vira derivação — reordenar precedência ou remover fonte
+        # nunca destrói dado, só muda o que a vista mostra.
+        nome="0009_multifonte",
+        sql=[
+            "ALTER TABLE cfg_classe ADD COLUMN resolucao {TEXTO} DEFAULT 'unica'",
+            "ALTER TABLE cfg_classe ADD COLUMN precedencia {TEXTO}",
+            "ALTER TABLE cfg_atributo ADD COLUMN precedencia {TEXTO}",
+            # O motor adivinhava o parâmetro `tipo` do template de URL pelo
+            # sufixo do nome do dataset. Bastou existir um segundo dataset
+            # sobre o mesmo arquivo (`cvm_dfp_empresa`) para a heurística
+            # montar uma URL inexistente. Parâmetro de URL vira declaração.
+            "ALTER TABLE cfg_dataset ADD COLUMN parametros {TEXTO}",
+        ],
+    ),
 ]
 
 # Tabelas silver que participam do ciclo de publicação. A partir da Etapa 3

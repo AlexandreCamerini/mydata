@@ -195,7 +195,12 @@ def test_gerador_reproduz_o_schema_de_producao(tmp_path, chave, tabela):
     obtido = ddl.colunas_fisicas(gerado, tabela)
     gerado.fechar()
 
-    assert obtido == esperado
+    faltando = {c: t for c, t in esperado.items() if obtido.get(c) != t}
+    assert not faltando, f"a configuração perdeu ou mudou colunas: {faltando}"
+    # `origem_dataset` é acréscimo consciente da Etapa 4: sem ele, duas fontes
+    # na mesma classe se sobrescreveriam. Nenhuma outra coluna pode aparecer
+    # sem que alguém tenha decidido.
+    assert set(obtido) - set(esperado) == {"origem_dataset"}
 
 
 def test_gerador_cria_o_indice_de_identidade(tmp_path):
@@ -206,12 +211,19 @@ def test_gerador_cria_o_indice_de_identidade(tmp_path):
     classe = repo.classe_vigente(sink, "empresa")
     ddl.garantir_tabela(sink, classe, repo.atributos_de(sink, classe["id"]))
     sink.executar(
-        "INSERT INTO dim_empresa (captura_id, fonte_arquivo, cd_cvm) "
-        "VALUES (1, 'a.csv', 4242)"
+        "INSERT INTO dim_empresa (captura_id, fonte_arquivo, origem_dataset, "
+        "cd_cvm) VALUES (1, 'a.csv', 'cvm_cadastro', 4242)"
     )
     with pytest.raises(Exception):
         sink.executar(
-            "INSERT INTO dim_empresa (captura_id, fonte_arquivo, cd_cvm) "
-            "VALUES (2, 'b.csv', 4242)"
+            "INSERT INTO dim_empresa (captura_id, fonte_arquivo, origem_dataset,"
+            " cd_cvm) VALUES (2, 'b.csv', 'cvm_cadastro', 4242)"
         )
+    # A mesma empresa vinda de outra fonte convive: é isso que permite
+    # comparar as duas em vez de a segunda apagar a primeira.
+    sink.executar(
+        "INSERT INTO dim_empresa (captura_id, fonte_arquivo, origem_dataset, "
+        "cd_cvm) VALUES (3, 'c.csv', 'outra_fonte', 4242)"
+    )
+    assert sink.um("SELECT count(*) AS n FROM dim_empresa")["n"] == 2
     sink.fechar()

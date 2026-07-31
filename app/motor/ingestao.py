@@ -121,11 +121,17 @@ def carregar_arquivo(
     """
     fisicas = _colunas_da_tabela(sink, ds["tabela_destino"])
     chave_natural = [c.strip() for c in ds["chave_natural"].split(",") if c.strip()]
+    # O upsert tem de resolver conflito pelo mesmo critério do índice único.
+    # `origem_dataset` faz parte dele: duas fontes na mesma classe coexistem
+    # em vez de a segunda carga sobrescrever a primeira.
+    if "origem_dataset" in fisicas:
+        chave_natural = [*chave_natural, "origem_dataset"]
 
     linhas = parsing.ler_csv(
         payload, colunas, fonte["encoding"], fonte["separador"],
         contexto=contexto,
-        extras={"captura_id": captura_id, "fonte_arquivo": nome_arquivo},
+        extras={"captura_id": captura_id, "fonte_arquivo": nome_arquivo,
+                "origem_dataset": ds["chave"]},
     )
 
     primeira = next(iter(linhas), None)
@@ -154,12 +160,18 @@ def carregar_arquivo(
 # --------------------------------------------------------------------------
 def _urls_da_janela(fonte: dict, ds: dict, janela: str) -> list[str]:
     """Expande o template da fonte para a janela pedida."""
+    import json as _json
+
     template = fonte["url_template"]
     contexto = {"ano": janela, "janela": janela, "dataset": ds["chave"]}
-    # `tipo` costuma vir do sufixo do nome do dataset (cvm_dfp -> dfp).
-    tipo = ds["chave"].split("_")[-1]
+    # Parâmetro declarado no dataset. O sufixo do nome fica como último
+    # recurso: era a regra antiga, e adivinhava errado assim que dois
+    # datasets passaram a ler o mesmo arquivo com nomes diferentes.
+    declarados = _json.loads(ds.get("parametros") or "{}")
+    tipo = declarados.get("tipo", ds["chave"].split("_")[-1])
     contexto["tipo"] = tipo
     contexto["TIPO"] = tipo.upper()
+    contexto.update(declarados)
     try:
         return [template.format(**contexto)]
     except KeyError as e:

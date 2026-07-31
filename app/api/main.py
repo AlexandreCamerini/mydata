@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .. import bootstrap, repositorio as repo
 from ..motor import publicacao
+from ..motor.ddl import SUFIXO_ORIGEM
 from ..sinks import Sink, criar_sink
 from . import admin, auth
 
@@ -128,19 +129,31 @@ def _proveniencia(sink: Sink, capturas: set[int]) -> dict:
 
 
 def _decorar(sink: Sink, linhas: list[dict]) -> list[dict]:
-    """Anexa proveniência a cada linha e remove colunas internas."""
+    """Anexa proveniência a cada linha e remove colunas internas.
+
+    Numa classe alimentada por mais de uma fonte, dizer "veio da captura X"
+    não basta: atributos diferentes da mesma linha podem ter vindo de fontes
+    diferentes. As colunas `<atributo>_origem` que a vista resolvida produz
+    viram `proveniencia.por_atributo`, em vez de campos soltos no dado.
+    """
     prov = _proveniencia(sink, {r["captura_id"] for r in linhas if r.get("captura_id")})
     saida = []
     for linha in linhas:
         captura = linha.pop("captura_id", None)
         linha.pop("fonte_arquivo", None)
         versao_pub = linha.pop("publicado_em_versao", None)
+        por_atributo = {
+            chave[: -len(SUFIXO_ORIGEM)]: linha.pop(chave)
+            for chave in [c for c in linha if c.endswith(SUFIXO_ORIGEM)]
+        }
         item = dict(linha)
         item["proveniencia"] = {
             **prov.get(captura, {}),
             "versao_documento": linha.get("versao"),
             "publicacao": versao_pub,
         }
+        if por_atributo:
+            item["proveniencia"]["por_atributo"] = por_atributo
         saida.append(item)
     return saida
 

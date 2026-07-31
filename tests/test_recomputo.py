@@ -90,12 +90,12 @@ def test_digital_acusa_quando_o_dado_muda(sink_cvm, zip_dfp_2023):
 def test_carga_em_bloco_deduplica_pela_ordem_de_leitura(sink_cvm):
     """A CVM repete chave natural dentro do mesmo CSV. Vale a primeira
     ocorrência — como valia no laço em Python que a staging substituiu."""
-    campos = ["captura_id", "fonte_arquivo", "cd_cvm", "tipo_doc", "dt_refer",
-              "grupo", "consolidado", "cd_conta", "ordem_exerc", "versao",
-              "ds_conta"]
+    campos = ["captura_id", "fonte_arquivo", "origem_dataset", "cd_cvm",
+              "tipo_doc", "dt_refer", "grupo", "consolidado", "cd_conta",
+              "ordem_exerc", "versao", "ds_conta"]
     chave = ["cd_cvm", "tipo_doc", "dt_refer", "grupo", "consolidado",
-             "cd_conta", "ordem_exerc", "versao"]
-    base = [1, "x.csv", 9512, "dfp", "2023-12-31", "BPA", True, "1", "ÚLTIMO", 1]
+             "cd_conta", "ordem_exerc", "versao", "origem_dataset"]
+    base = [1, "x.csv", "cvm_dfp", 9512, "dfp", "2023-12-31", "BPA", True, "1", "ÚLTIMO", 1]
     total = sink_cvm.carregar_em_lote("fato_conta", campos, chave, [
         [*base, "primeira"],
         [*base, "segunda"],
@@ -107,12 +107,12 @@ def test_carga_em_bloco_deduplica_pela_ordem_de_leitura(sink_cvm):
 
 
 def test_carga_em_bloco_atualiza_linha_existente(sink_cvm):
-    campos = ["captura_id", "fonte_arquivo", "cd_cvm", "tipo_doc", "dt_refer",
-              "grupo", "consolidado", "cd_conta", "ordem_exerc", "versao",
-              "ds_conta"]
+    campos = ["captura_id", "fonte_arquivo", "origem_dataset", "cd_cvm",
+              "tipo_doc", "dt_refer", "grupo", "consolidado", "cd_conta",
+              "ordem_exerc", "versao", "ds_conta"]
     chave = ["cd_cvm", "tipo_doc", "dt_refer", "grupo", "consolidado",
-             "cd_conta", "ordem_exerc", "versao"]
-    base = [1, "x.csv", 9512, "dfp", "2023-12-31", "BPA", True, "1", "ÚLTIMO", 1]
+             "cd_conta", "ordem_exerc", "versao", "origem_dataset"]
+    base = [1, "x.csv", "cvm_dfp", 9512, "dfp", "2023-12-31", "BPA", True, "1", "ÚLTIMO", 1]
     sink_cvm.carregar_em_lote("fato_conta", campos, chave, [[*base, "antes"]])
     sink_cvm.carregar_em_lote("fato_conta", campos, chave, [[*base, "depois"]])
     assert sink_cvm.um("SELECT ds_conta FROM fato_conta")["ds_conta"] == "depois"
@@ -123,10 +123,13 @@ def test_carga_em_bloco_nao_deixa_staging_para_tras(sink_cvm):
     """Staging pendurada faz a próxima carga falhar por tabela já existente."""
     from app.sinks import STAGING
 
-    campos = ["captura_id", "fonte_arquivo", "cd_cvm", "tipo_doc", "dt_refer",
-              "grupo", "consolidado", "cd_conta", "ordem_exerc", "versao"]
-    linha = [1, "x.csv", 9512, "dfp", "2023-12-31", "BPA", True, "1", "ÚLTIMO", 1]
-    sink_cvm.carregar_em_lote("fato_conta", campos, campos[2:], [linha])
+    campos = ["captura_id", "fonte_arquivo", "origem_dataset", "cd_cvm",
+              "tipo_doc", "dt_refer", "grupo", "consolidado", "cd_conta",
+              "ordem_exerc", "versao"]
+    linha = [1, "x.csv", "cvm_dfp", 9512, "dfp", "2023-12-31", "BPA", True,
+             "1", "ÚLTIMO", 1]
+    sink_cvm.carregar_em_lote("fato_conta", campos, campos[3:] + ["origem_dataset"],
+                              [linha])
     existe = sink_cvm.consultar(
         "SELECT table_name FROM information_schema.tables WHERE table_name = ?",
         (STAGING,),
@@ -141,12 +144,13 @@ def test_carga_em_bloco_e_ordens_de_grandeza_mais_rapida(sink_cvm):
     máquina de desenvolvimento, e o teste existe para pegar volta ao upsert
     linha a linha (300 linhas/s), não para cravar desempenho.
     """
-    campos = ["captura_id", "fonte_arquivo", "cd_cvm", "tipo_doc", "dt_refer",
-              "grupo", "consolidado", "cd_conta", "ordem_exerc", "versao"]
-    chave = campos[2:]
+    campos = ["captura_id", "fonte_arquivo", "origem_dataset", "cd_cvm",
+              "tipo_doc", "dt_refer", "grupo", "consolidado", "cd_conta",
+              "ordem_exerc", "versao"]
+    chave = campos[3:] + ["origem_dataset"]
     linhas = [
-        [1, "x.csv", 9000 + (i // 500), "dfp", "2023-12-31", "BPA", True,
-         str(i), "ÚLTIMO", 1]
+        [1, "x.csv", "cvm_dfp", 9000 + (i // 500), "dfp", "2023-12-31", "BPA",
+         True, str(i), "ÚLTIMO", 1]
         for i in range(20_000)
     ]
     inicio = time.monotonic()

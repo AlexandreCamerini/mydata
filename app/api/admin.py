@@ -93,6 +93,7 @@ class DatasetEntrada(BaseModel):
     tabela_destino: str
     chave_natural: list[str]
     classe_chave: str | None = None
+    parametros: dict[str, str] = Field(default_factory=dict)
     colunas: list[ColunaEntrada] = Field(default_factory=list)
     calculados: list[CalculadoEntrada] = Field(default_factory=list)
     regras: list[RegraEntrada] = Field(default_factory=list)
@@ -249,7 +250,8 @@ async def post_dataset(entrada: DatasetEntrada, request: Request) -> Any:
         chave=entrada.chave, fonte_chave=entrada.fonte_chave, nome=entrada.nome,
         padrao_arquivo=entrada.padrao_arquivo, tabela_destino=entrada.tabela_destino,
         chave_natural=entrada.chave_natural, classe_chave=entrada.classe_chave,
-        descricao=entrada.descricao, ativo=entrada.ativo,
+        parametros=entrada.parametros, descricao=entrada.descricao,
+        ativo=entrada.ativo,
         colunas=[Coluna(**c.model_dump()) for c in entrada.colunas],
         calculados=[CampoCalculado(**c.model_dump()) for c in entrada.calculados],
         regras=[RegraQualidade(**r.model_dump()) for r in entrada.regras],

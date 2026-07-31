@@ -231,10 +231,19 @@ CLASSE_EMPRESA = Classe(
     tabela="dim_empresa",
     chave_identidade=["cd_cvm"],
     sla_horas=24 * 14,    # o cadastro é semanal; duas semanas já é atraso.
+    # Duas fontes descrevem a mesma empresa e discordam: o cadastro traz
+    # DENOM_SOCIAL, e o próprio arquivo de DFP traz DENOM_CIA. O cadastro é a
+    # fonte de registro; a DFP cobre companhia que publicou balanço e ainda
+    # não apareceu no cadastro do dia.
+    resolucao="precedencia",
+    precedencia=["cvm_cadastro", "cvm_dfp_empresa"],
     atributos=[
         _atr("cd_cvm", "inteiro", obrigatorio=True, ordem=1),
         _atr("cnpj", ordem=2),
-        _atr("denom_social", obrigatorio=True, ordem=3),
+        _atr("denom_social", obrigatorio=True, ordem=3,
+             precedencia=["cvm_cadastro", "cvm_dfp_empresa"],
+             descricao="Razão social. O cadastro vence: é o registro formal, "
+                       "enquanto a DFP repete o nome como estava na entrega."),
         _atr("denom_comerc", ordem=4),
         _atr("setor_atividade", ordem=5),
         _atr("situacao", ordem=6),
@@ -300,19 +309,17 @@ VISTAS = [
         FROM acumulado a
     """,
     ),
-    Vista(
-        chave="gold_empresa",
-        classe_chave="empresa",
-        descricao="Cadastro das companhias abertas.",
-        ordem=3,
-        corpo="""
-        SELECT cd_cvm, cnpj, denom_social, denom_comerc, setor_atividade,
-               situacao, controle_acionario, uf, municipio, dt_registro,
-               captura_id, fonte_arquivo, publicado_em_versao
-        FROM dim_empresa
-        WHERE publicado_em_versao IS NOT NULL AND publicado_em_versao <= {V}
-    """,
-    ),
+    # `gold_empresa` não está aqui: a classe `empresa` resolve por precedência
+    # e sua vista é gerada por `motor.ddl.vistas_resolvidas`. Escrevê-la à mão
+    # duplicaria a regra de precedência em dois lugares que divergiriam.
+]
+
+# Colunas do arquivo de DFP que também descrevem a empresa. É a segunda fonte
+# da classe `empresa` — e discorda do cadastro na razão social.
+COLUNAS_EMPRESA_DFP = [
+    Coluna("CD_CVM", "cd_cvm", "inteiro", obrigatoria=True, ordem=1),
+    Coluna("CNPJ_CIA", "cnpj", "texto", ordem=2),
+    Coluna("DENOM_CIA", "denom_social", "texto", obrigatoria=True, ordem=3),
 ]
 
 COLUNAS_CADASTRO = [
@@ -345,12 +352,14 @@ def datasets() -> list[Dataset]:
             chave="cvm_dfp",
             nome="Demonstrações Financeiras Padronizadas (anual)",
             descricao="DFP — um ZIP por ano, 16 CSVs por grupo e escopo.",
+            parametros={"tipo": "dfp"},
             **comum,
         ),
         Dataset(
             chave="cvm_itr",
             nome="Informações Trimestrais",
             descricao="ITR — contas de fluxo vêm acumuladas no ano.",
+            parametros={"tipo": "itr"},
             **comum,
         ),
         Dataset(
@@ -371,6 +380,23 @@ def datasets() -> list[Dataset]:
                     severidade="alerta",
                 ),
             ],
+        ),
+        Dataset(
+            chave="cvm_dfp_empresa",
+            fonte_chave="cvm",
+            nome="Empresas citadas nas DFPs",
+            descricao="Segunda fonte da classe empresa: o próprio arquivo de "
+                      "demonstrações traz CD_CVM, CNPJ e denominação. Cobre "
+                      "companhia que publicou balanço e ainda não entrou no "
+                      "cadastro do dia.",
+            padrao_arquivo=PADRAO_CONTA,
+            tabela_destino="dim_empresa",
+            classe_chave="empresa",
+            chave_natural=["cd_cvm"],
+            parametros={"tipo": "dfp"},
+            colunas=COLUNAS_EMPRESA_DFP,
+            calculados=[],
+            regras=[],
         ),
     ]
 
@@ -395,6 +421,7 @@ METRICAS = [
 
 AGENDAMENTOS = [
     ("cvm_dfp_anual", "cvm_dfp", "0 6 1 4 *"),
+    ("cvm_dfp_empresa_anual", "cvm_dfp_empresa", "0 7 1 4 *"),
     ("cvm_itr_trimestral", "cvm_itr", "0 6 15 2,5,8,11 *"),
     ("cvm_cadastro_semanal", "cvm_cadastro", "0 5 * * 1"),
 ]

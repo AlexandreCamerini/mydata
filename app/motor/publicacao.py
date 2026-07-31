@@ -37,7 +37,7 @@ def vistas(sink: Sink) -> dict[str, str]:
     não foi materializada é pulada — banco recém-migrado e sem configuração
     responde vazio em vez de quebrar no boot.
     """
-    saida: dict[str, str] = {}
+    saida: dict[str, str] = dict(ddl.vistas_resolvidas(sink))
     for v in repo.listar_vistas(sink):
         classe = repo.classe_vigente(sink, v["classe_chave"])
         if classe is None or not ddl.colunas_fisicas(sink, classe["tabela"]):
