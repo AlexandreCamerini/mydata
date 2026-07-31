@@ -8,10 +8,16 @@ fonte ser sempre a origem oficial, nunca um revendedor.
 Nasce integrado ao BolsIA, mas não é parte dele: BolsIA é um consumidor, o
 primeiro de vários.
 
-**Endereço:** `https://mydata.acamerini.app/`. O ápice `acamerini.app` é do
-BolsIA e não deve ser reivindicado aqui. A URL pública vive só em
-`PORTAL_URL_PUBLICA`; mudar de endereço é trocar a variável e o DNS, sem tocar
-em código.
+**Endereço:** `https://mydata.acamerini.app/` — subdomínio próprio, não o
+ápice. O ápice `acamerini.app` pertence a outro sistema, e um domínio
+customizado no Railway aponta para um serviço só. A URL pública vive apenas em
+`PORTAL_URL_PUBLICA`; mudar de endereço é trocar a variável e o DNS.
+
+**Independência de projeto:** cada sistema do Alex tem seu próprio repositório
+e sua própria sessão de trabalho. Não edite outro repositório a partir daqui.
+O que atravessa a fronteira vira item em
+[docs/contrato-consumidor.md](docs/contrato-consumidor.md), para o Alex
+negociar com o outro projeto.
 
 Primeira fonte de dado: CVM Dados Abertos.
 

@@ -1,8 +1,9 @@
 # Deploy no Railway — `mydata.acamerini.app`
 
-O MyData é sistema independente: serve o BolsIA e outros consumidores, e por
-isso tem endereço próprio. **O ápice `acamerini.app` é do BolsIA** e não deve
-ser reivindicado aqui — reivindicá-lo tiraria o BolsIA do ar.
+O MyData é sistema independente: serve vários consumidores e por isso tem
+endereço próprio. **Não reivindicar o ápice `acamerini.app`** — ele pertence a
+outro sistema, e um domínio customizado no Railway aponta para um serviço só,
+então tomá-lo tiraria aquele sistema do ar.
 
 A URL pública sai de `PORTAL_URL_PUBLICA` e de lugar nenhum mais. Se um dia o
 MyData ganhar domínio registrado à parte, migrar é trocar essa variável e o
@@ -18,9 +19,9 @@ Um serviço só, ocupando a raiz do **seu** domínio:
 | `/health` | healthcheck do Railway, sem tocar no banco |
 | `/docs`, `/openapi.json` | contrato |
 
-Os consumidores — BolsIA no ápice `acamerini.app`, e os demais onde estiverem
-— chamam `/v1` com a chave de API de cada um. O escopo da chave diz quais
-classes de informação aquele consumidor pode ler.
+Cada consumidor chama `/v1` com a chave de API dele, e o escopo da chave diz
+quais classes de informação pode ler. O que cada um precisa informar para ser
+integrado está em [contrato-consumidor.md](contrato-consumidor.md).
 
 ## O que já está no repositório
 
@@ -37,9 +38,9 @@ classes de informação aquele consumidor pode ler.
 1. **Provisionar o Postgres do projeto.** O Railway injeta `DATABASE_URL`
    sozinho; o código escolhe Postgres quando ela existe e DuckDB quando não.
 2. **Apontar o domínio.** Settings → Networking → Custom Domain →
-   `mydata.acamerini.app` — **não** o ápice, que é do BolsIA. O Railway
-   devolve um CNAME; ele entra no DNS do registrador como um registro a mais,
-   sem mexer no que já aponta para o BolsIA. O certificado é emitido pela borda do Railway, e o
+   `mydata.acamerini.app` — **não** o ápice. O Railway devolve um CNAME; ele
+   entra no DNS do registrador como um registro a mais, sem mexer no que já
+   estiver apontando para outro sistema. O certificado é emitido pela borda do Railway, e o
    redirecionamento de `http` para `https` é dela também — não há nada a
    fazer no app.
 3. **Definir as variáveis** no serviço:
@@ -47,7 +48,7 @@ classes de informação aquele consumidor pode ler.
    | Variável | Valor |
    |---|---|
    | `PORTAL_URL_PUBLICA` | `https://mydata.acamerini.app` |
-   | `PORTAL_ORIGENS` | as origens dos consumidores, separadas por vírgula (ex.: `https://acamerini.app`) |
+   | `PORTAL_ORIGENS` | as origens dos consumidores, separadas por vírgula |
    | `PORTAL_ADMIN_TOKEN` | segredo gerado no painel; sem ele o `/admin/api` fica aberto |
 
    `PORTAL_URL_PUBLICA` é o que faz o OpenAPI anunciar o domínio real. Sem

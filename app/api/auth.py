@@ -81,9 +81,10 @@ def verificar(sink: Sink, chave: str | None) -> dict | None:
 def classes_permitidas(chave: dict) -> set[str] | None:
     """Quais classes de informação esta chave pode ler. `None` = todas.
 
-    O escopo é o contrato de cada app consumidor: o BOLSIA lê demonstração
-    financeira e empresa; um app de watchlist não precisa de nada além de
-    empresa. Um app novo é uma chave nova com o escopo dele — não código novo.
+    O escopo é o contrato de cada app consumidor: um app de análise
+    fundamentalista lê demonstração financeira e empresa; um de watchlist não
+    precisa de nada além de empresa. App novo é chave nova com o escopo dele —
+    não código novo.
 
     Sintaxe: `leitura` libera tudo; `classe:empresa` restringe. As duas
     convivem porque a chave antiga já emitida diz `leitura`, e revogar tudo

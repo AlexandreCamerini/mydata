@@ -3,10 +3,9 @@
 Um serviço só ocupa `https://mydata.acamerini.app/`: `/v1` para os apps,
 `/admin` para o plano de controle, `/health` para o Railway.
 
-O MyData não fica no ápice `acamerini.app` — esse endereço é do BolsIA, que é
-o app de quem usa. O MyData serve o BolsIA e outros sistemas, e por isso tem
-endereço próprio. A URL sai de `PORTAL_URL_PUBLICA` e de lugar nenhum mais:
-migrar para um domínio registrado à parte é trocar a variável e o DNS.
+O MyData ocupa subdomínio próprio, nunca o ápice: ele serve vários sistemas e
+o ápice pertence a outro. A URL sai de `PORTAL_URL_PUBLICA` e de lugar nenhum
+mais — migrar para um domínio registrado à parte é trocar a variável e o DNS.
 
 Cada app consumidor tem sua chave, e o escopo dela diz quais classes ele lê.
 App novo é chave nova, não código novo.
@@ -173,20 +172,20 @@ def test_sem_url_publica_o_schema_nao_inventa_servidor(base, monkeypatch):
 
 
 def test_cors_libera_o_subdominio_declarado(base, monkeypatch):
-    monkeypatch.setenv("PORTAL_ORIGENS", "https://bolsia.acamerini.app")
+    monkeypatch.setenv("PORTAL_ORIGENS", "https://consumidor.exemplo.app")
     app = recarregar_app()
     with TestClient(app) as c:
         r = c.options("/v1/empresas", headers={
-            "Origin": "https://bolsia.acamerini.app",
+            "Origin": "https://consumidor.exemplo.app",
             "Access-Control-Request-Method": "GET",
             "Access-Control-Request-Headers": "X-API-Key",
         })
     assert r.status_code == 200
-    assert r.headers["access-control-allow-origin"] == "https://bolsia.acamerini.app"
+    assert r.headers["access-control-allow-origin"] == "https://consumidor.exemplo.app"
 
 
 def test_cors_nega_origem_nao_declarada(base, monkeypatch):
-    monkeypatch.setenv("PORTAL_ORIGENS", "https://bolsia.acamerini.app")
+    monkeypatch.setenv("PORTAL_ORIGENS", "https://consumidor.exemplo.app")
     app = recarregar_app()
     with TestClient(app) as c:
         r = c.get("/v1/empresas", headers={"Origin": "https://site-qualquer.com"})
