@@ -272,3 +272,78 @@ def test_openapi_documenta_os_endpoints(cliente):
     caminhos = r.json()["paths"]
     assert "/v1/empresas/{cd_cvm}/demonstracoes" in caminhos
     assert "/health" in caminhos
+
+
+# --------------------------------------------------------------------------
+# Busca por ticker e filtro por segmento (Fase 2 da apresentação)
+# --------------------------------------------------------------------------
+@pytest.fixture()
+def cliente_b3(cliente):
+    """O cliente de sempre, com a B3 ingerida por cima: 9512 ganha ticker
+    PETR e segmento NM; 1023 continua sem registro de negociação."""
+    import json
+
+    def _baixar(url: str) -> bytes:
+        return json.dumps({
+            "page": {"totalPages": 1, "totalRecords": 1},
+            "results": [{
+                "codeCVM": 9512, "issuingCompany": "PETR",
+                "companyName": "PETROBRAS", "tradingName": "PETROBRAS",
+                "cnpj": "00000000000100", "segment": "Petróleo e Gás",
+                "market": "NM", "dateListing": "2000-08-09",
+            }],
+        }).encode()
+
+    sink = cliente.app.state.sink
+    ingestao.executar(sink, "b3_listadas", "atual", baixar=_baixar)
+    return cliente
+
+
+def test_busca_por_ticker_casa_por_prefixo(cliente_b3):
+    """A B3 registra a raiz (PETR); quem busca digita o papel (PETR4)."""
+    r = cliente_b3.get("/v1/empresas", params={"q": "PETR4"})
+    assert r.status_code == 200, r.text
+    codigos = [e["cd_cvm"] for e in r.json()["dados"]]
+    assert codigos == [9512]
+
+    r = cliente_b3.get("/v1/empresas", params={"q": "petr"})
+    assert [e["cd_cvm"] for e in r.json()["dados"]] == [9512]
+
+
+def test_busca_por_ticker_ignora_quem_nao_tem(cliente_b3):
+    """Empresa sem ticker não pode casar com qualquer termo por ter a coluna
+    vazia — 'PETR4' LIKE '' || '%' seria verdadeiro para todo mundo."""
+    r = cliente_b3.get("/v1/empresas", params={"q": "PETR4"})
+    codigos = [e["cd_cvm"] for e in r.json()["dados"]]
+    assert 1023 not in codigos
+
+
+def test_filtro_por_segmento_de_listagem(cliente_b3):
+    r = cliente_b3.get("/v1/empresas", params={"segmento": "nm"})
+    assert [e["cd_cvm"] for e in r.json()["dados"]] == [9512]
+
+    r = cliente_b3.get("/v1/empresas", params={"segmento": "N2"})
+    assert r.json()["dados"] == []
+
+
+def test_lista_traz_o_total_do_universo_filtrado(cliente_b3):
+    """Uma página não sabe quantas companhias o filtro alcança; o total sabe,
+    e não muda quando o cursor anda."""
+    r = cliente_b3.get("/v1/empresas", params={"limite": 1})
+    corpo = r.json()
+    assert corpo["total"] == 2
+    assert len(corpo["dados"]) == 1
+
+    r2 = cliente_b3.get("/v1/empresas", params={"listada_b3": "true"})
+    assert r2.json()["total"] == 1
+
+
+def test_meta_classes_declara_a_precedencia(cliente):
+    """O contrato diz por que uma fonte vence, não só qual venceu: a
+    precedência da classe e a do atributo que a sobrepõe saem no catálogo."""
+    r = cliente.get("/v1/meta/classes")
+    classes = {c["chave"]: c for c in r.json()["dados"]}
+    empresa = classes["empresa"]
+    assert empresa["precedencia"] == ["cvm_cadastro", "b3", "cvm_dfp_empresa"]
+    atributo = {a["nome"]: a for a in empresa["atributos"]}["denom_social"]
+    assert atributo["precedencia"] == ["cvm_cadastro", "cvm_dfp_empresa"]

@@ -258,8 +258,10 @@ async def health() -> dict:
 async def listar_empresas(
     request: Request,
     response: Response,
-    q: str | None = Query(None, description="Busca por denominação ou CNPJ"),
+    q: str | None = Query(None, description="Busca por denominação, CNPJ ou ticker"),
     setor: str | None = None,
+    segmento: str | None = Query(
+        None, description="Segmento de listagem na B3 (NM, N1, N2, MB...)"),
     listada_b3: bool | None = Query(
         None, description="Só companhias com registro de negociação na B3"),
     com_balanco: bool | None = Query(
@@ -270,17 +272,29 @@ async def listar_empresas(
 ) -> Any:
     sink = obter_sink(request)
     exigir_vista(sink, "gold_empresa", _chave)
-    etag = _etag(sink, f"empresas:{q}:{setor}:{listada_b3}:{com_balanco}:{limite}:{cursor}")
+    etag = _etag(
+        sink,
+        f"empresas:{q}:{setor}:{segmento}:{listada_b3}:{com_balanco}:{limite}:{cursor}",
+    )
     if (r := _talvez_304(request, etag)):
         return r
 
     onde, params = ["1=1"], []
     if q:
-        onde.append("(lower(denom_social) LIKE ? OR lower(denom_comerc) LIKE ? OR cnpj LIKE ?)")
-        params += [f"%{q.lower()}%", f"%{q.lower()}%", f"%{q}%"]
+        # Ticker casa por prefixo do termo, não por substring: a B3 registra a
+        # raiz ("PETR"), e quem busca digita o papel ("PETR4").
+        onde.append(
+            "(lower(denom_social) LIKE ? OR lower(denom_comerc) LIKE ? "
+            "OR cnpj LIKE ? "
+            "OR (COALESCE(ticker, '') != '' AND ? LIKE lower(ticker) || '%'))"
+        )
+        params += [f"%{q.lower()}%", f"%{q.lower()}%", f"%{q}%", q.lower()]
     if setor:
         onde.append("lower(setor_atividade) LIKE ?")
         params.append(f"%{setor.lower()}%")
+    if segmento:
+        onde.append("lower(COALESCE(segmento_listagem, '')) = ?")
+        params.append(segmento.lower())
     # A CVM registra companhia que nunca teve ação em bolsa, e a B3 lista ETF
     # e BDR que não publicam balanço. Os dois filtros juntos dão o universo
     # que interessa a quem faz análise fundamentalista.
@@ -292,6 +306,13 @@ async def listar_empresas(
             ("cd_cvm IN" if com_balanco else "cd_cvm NOT IN")
             + " (SELECT cd_cvm FROM gold_demonstracoes)"
         )
+    # O total do universo filtrado, antes do cursor: é o número que a tela
+    # mostra ("564 companhias") e que uma página sozinha não sabe.
+    total = sink.um(
+        f"SELECT count(*) AS n FROM gold_empresa WHERE {' AND '.join(onde)}",
+        params,
+    )["n"]
+
     desloc = _cursor_decodificar(cursor)
     if desloc:
         onde.append("cd_cvm > ?")
@@ -309,7 +330,8 @@ async def listar_empresas(
 
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "public, max-age=300"
-    return {"dados": _decorar(sink, linhas), "proximo_cursor": proximo}
+    return {"dados": _decorar(sink, linhas), "total": total,
+            "proximo_cursor": proximo}
 
 
 @app.get("/v1/empresas/{cd_cvm}", tags=["empresas"])
@@ -490,14 +512,18 @@ async def meta_classes(request: Request, _chave: dict = Depends(exigir_chave)) -
     sink = obter_sink(request)
     saida = []
     for c in repo.listar_classes(sink, so_ativas=True):
+        # A precedência declarada faz parte do contrato: é o que explica *por
+        # que* uma fonte venceu um atributo disputado, não só qual venceu.
         saida.append({
             "chave": c["chave"], "nome": c["nome"], "descricao": c["descricao"],
             "identidade": c["chave_identidade"].split(","),
             "resolucao": c["resolucao"],
+            "precedencia": [p for p in (c["precedencia"] or "").split(",") if p],
             "fontes": [d["chave"] for d in repo.datasets_da_classe(sink, c["chave"])],
             "atributos": [
                 {"nome": a["nome"], "tipo": a["tipo"], "origem": a["origem"],
-                 "unidade": a["unidade"], "descricao": a["descricao"]}
+                 "unidade": a["unidade"], "descricao": a["descricao"],
+                 "precedencia": [p for p in (a["precedencia"] or "").split(",") if p]}
                 for a in repo.atributos_de(sink, c["id"])
             ],
         })
@@ -543,9 +569,15 @@ app.include_router(admin.router)
 if RAIZ_WEB.exists():
     app.mount("/admin", StaticFiles(directory=str(RAIZ_WEB), html=True), name="admin")
 
+    # A raiz é a apresentação — onde se vê o dado. A administração fica em
+    # /admin. Mesmo build, mesmo serviço; os assets das duas superfícies
+    # saem pelo mount /admin.
     @app.get("/", include_in_schema=False)
     async def raiz():
-        return FileResponse(str(RAIZ_WEB / "index.html"))
+        pagina = RAIZ_WEB / "apresentacao.html"
+        if not pagina.exists():
+            pagina = RAIZ_WEB / "index.html"
+        return FileResponse(str(pagina))
 else:
     @app.get("/", include_in_schema=False)
     async def raiz_sem_front():
