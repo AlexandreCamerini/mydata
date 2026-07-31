@@ -39,15 +39,37 @@ async def ciclo(app: FastAPI):
     sink.fechar()
 
 
+# O hub ocupa a raiz do domínio; os apps consumidores vivem em subdomínios e
+# chamam a API pelo navegador, então a origem deles precisa ser declarada.
+# Lista vazia significa "nenhuma origem cruzada" — negar por omissão, e não
+# liberar `*` por conveniência de desenvolvimento.
+URL_PUBLICA = os.getenv("PORTAL_URL_PUBLICA", "").rstrip("/")
+ORIGENS = [o.strip() for o in os.getenv("PORTAL_ORIGENS", "").split(",") if o.strip()]
+
 app = FastAPI(
-    title="Portal de Dados — B3/CVM",
+    title="Portal de Dados — hub multi-fonte",
     version="0.1.0",
     description=(
-        "Dados oficiais de companhias abertas, com proveniência em toda "
-        "resposta. Fonte canônica: CVM Dados Abertos."
+        "Classes de informação alimentadas por múltiplas fontes, com "
+        "proveniência em toda resposta. Primeira fonte: CVM Dados Abertos."
     ),
     lifespan=ciclo,
+    # Sem isto o OpenAPI publicado anuncia `http://localhost`, e o cliente
+    # gerado a partir dele aponta para a máquina de quem o gerou.
+    servers=[{"url": URL_PUBLICA, "description": "produção"}] if URL_PUBLICA else None,
 )
+
+if ORIGENS:
+    from fastapi.middleware.cors import CORSMiddleware
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=ORIGENS,
+        allow_methods=["GET", "POST", "DELETE"],
+        allow_headers=["X-API-Key", "X-Admin-Token", "Content-Type", "If-None-Match"],
+        expose_headers=["ETag", "X-Quota-Limite", "X-Quota-Restante"],
+        max_age=600,
+    )
 
 
 def obter_sink(request: Request) -> Sink:
@@ -158,26 +180,40 @@ def _decorar(sink: Sink, linhas: list[dict]) -> list[dict]:
     return saida
 
 
-def exigir_vista(sink: Sink, nome: str) -> None:
-    """Recusa com mensagem útil quando a vista de gold ainda não existe.
+def exigir_vista(sink: Sink, nome: str, chave: dict | None = None) -> None:
+    """Porteiro de gold: a vista existe, e esta chave pode ler esta classe.
 
-    Vista de gold passou a vir de `cfg_vista`. Um banco migrado e sem
+    A existência: vista de gold vem de `cfg_vista`. Um banco migrado e sem
     configuração — deploy novo antes do primeiro seed — não tem gold nenhuma;
     sem esta checagem o consumidor receberia um 500 sobre relação ausente.
+
+    O escopo: cada app consumidor tem chave própria, e o escopo dela diz
+    quais *classes* ele lê. Um app novo é uma chave nova, não código novo.
     """
-    if sink.um(
+    if not sink.um(
         "SELECT 1 AS ok FROM information_schema.tables WHERE table_name = ?",
         (nome,),
     ):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "codigo": "gold_indisponivel",
+                "mensagem": f"A vista '{nome}' ainda não foi publicada. "
+                            f"Rode `python -m app.cli migrar --seed` e uma ingestão.",
+            },
+        )
+    if chave is None:
         return
-    raise HTTPException(
-        status_code=503,
-        detail={
-            "codigo": "gold_indisponivel",
-            "mensagem": f"A vista '{nome}' ainda não foi publicada. "
-                        f"Rode `python -m app.cli migrar --seed` e uma ingestão.",
-        },
-    )
+    classe = publicacao.classe_da_vista(sink, nome)
+    if not auth.pode_ler(chave, classe):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "codigo": "escopo_insuficiente",
+                "mensagem": f"A chave de '{chave.get('consumidor')}' não tem "
+                            f"escopo para a classe '{classe}'.",
+            },
+        )
 
 
 def _cursor_codificar(valores: dict) -> str:
@@ -228,7 +264,7 @@ async def listar_empresas(
     _chave: dict = Depends(exigir_chave),
 ) -> Any:
     sink = obter_sink(request)
-    exigir_vista(sink, "gold_empresa")
+    exigir_vista(sink, "gold_empresa", _chave)
     etag = _etag(sink, f"empresas:{q}:{setor}:{limite}:{cursor}")
     if (r := _talvez_304(request, etag)):
         return r
@@ -266,7 +302,7 @@ async def obter_empresa(
     _chave: dict = Depends(exigir_chave),
 ) -> Any:
     sink = obter_sink(request)
-    exigir_vista(sink, "gold_empresa")
+    exigir_vista(sink, "gold_empresa", _chave)
     linha = sink.um("SELECT * FROM gold_empresa WHERE cd_cvm = ?", (cd_cvm,))
     if linha is None:
         raise HTTPException(
@@ -322,7 +358,7 @@ async def demonstracoes(
         onde.append("(dt_refer, cd_conta) > (?, ?)")
         params += [desloc["dt_refer"], desloc["cd_conta"]]
 
-    exigir_vista(sink, "gold_demonstracoes")
+    exigir_vista(sink, "gold_demonstracoes", _chave)
     linhas = sink.consultar(
         f"SELECT * FROM gold_demonstracoes WHERE {' AND '.join(onde)} "
         f"ORDER BY dt_refer, cd_conta LIMIT ?",
@@ -359,7 +395,7 @@ async def trimestres(
     if exercicio:
         onde.append("exercicio = ?")
         params.append(exercicio)
-    exigir_vista(sink, "gold_itr_trimestre")
+    exigir_vista(sink, "gold_itr_trimestre", _chave)
     linhas = sink.consultar(
         f"SELECT * FROM gold_itr_trimestre WHERE {' AND '.join(onde)} "
         f"ORDER BY dt_refer, cd_conta LIMIT ?",

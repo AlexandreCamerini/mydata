@@ -50,6 +50,22 @@ def vistas(sink: Sink) -> dict[str, str]:
     return saida
 
 
+def classe_da_vista(sink: Sink, nome: str) -> str | None:
+    """De qual classe uma vista de gold saiu.
+
+    É o que permite o escopo da chave de API ser declarado em termos de
+    informação ("este app lê Empresa") em vez de em nomes de vista.
+    """
+    for v in repo.listar_vistas(sink):
+        if v["chave"] == nome:
+            return v["classe_chave"]
+    if nome.startswith("gold_"):
+        candidata = nome[len("gold_"):]
+        if repo.classe_vigente(sink, candidata):
+            return candidata
+    return None
+
+
 def tabelas_publicaveis(sink: Sink) -> tuple[str, ...]:
     """As tabelas que participam do rótulo de publicação.
 

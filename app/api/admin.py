@@ -128,6 +128,9 @@ class ChaveEntrada(BaseModel):
     consumidor: str
     quota_minuto: int = 120
     quota_dia: int = 50000
+    # Vazio = leitura de tudo. Preenchido, restringe às classes nomeadas —
+    # é o contrato de cada app consumidor.
+    classes: list[str] = Field(default_factory=list)
 
 
 class ExecucaoEntrada(BaseModel):
@@ -362,13 +365,26 @@ async def get_chaves(request: Request) -> Any:
 
 @router.post("/chaves", dependencies=[Depends(exigir_admin)])
 async def post_chave(entrada: ChaveEntrada, request: Request) -> Any:
+    sink = obter_sink(request)
+    conhecidas = {c["chave"] for c in repo.listar_classes(sink)}
+    desconhecidas = [c for c in entrada.classes if c not in conhecidas]
+    if desconhecidas:
+        raise HTTPException(
+            status_code=422,
+            detail={"codigo": "classe_desconhecida",
+                    "mensagem": f"Escopo cita classe inexistente: "
+                                f"{', '.join(desconhecidas)}"},
+        )
+    escopos = (",".join(f"classe:{c}" for c in entrada.classes)
+               if entrada.classes else "leitura")
     emitida = auth.emitir(
-        obter_sink(request), entrada.consumidor,
-        entrada.quota_minuto, entrada.quota_dia,
+        sink, entrada.consumidor, entrada.quota_minuto, entrada.quota_dia,
+        escopos=escopos,
     )
     return {"dados": {
         "prefixo": emitida.prefixo,
         "chave": emitida.chave_completa,
+        "escopos": escopos,
         "aviso": "Guarde agora: a chave completa não é exibida de novo.",
     }}
 

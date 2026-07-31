@@ -138,9 +138,13 @@ def cmd_chave(args) -> int:
     from .api import auth
 
     sink = criar_sink()
-    emitida = auth.emitir(sink, args.consumidor, args.quota_minuto, args.quota_dia)
+    escopos = (",".join(f"classe:{c}" for c in args.classe)
+               if args.classe else "leitura")
+    emitida = auth.emitir(sink, args.consumidor, args.quota_minuto,
+                          args.quota_dia, escopos=escopos)
     print(f"consumidor: {emitida.consumidor}")
     print(f"prefixo:    {emitida.prefixo}")
+    print(f"escopos:    {escopos}")
     print(f"chave:      {emitida.chave_completa}")
     print("Guarde agora: só o hash fica no banco.")
     sink.fechar()
@@ -198,6 +202,8 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("consumidor")
     c.add_argument("--quota-minuto", type=int, default=120)
     c.add_argument("--quota-dia", type=int, default=50000)
+    c.add_argument("--classe", action="append", default=[],
+                   help="restringe a chave a uma classe (repetível)")
     c.set_defaults(func=cmd_chave)
 
     s = sub.add_parser("status", help="mostra publicação e últimas execuções")

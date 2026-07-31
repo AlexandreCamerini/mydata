@@ -78,6 +78,29 @@ def verificar(sink: Sink, chave: str | None) -> dict | None:
     return linha
 
 
+def classes_permitidas(chave: dict) -> set[str] | None:
+    """Quais classes de informação esta chave pode ler. `None` = todas.
+
+    O escopo é o contrato de cada app consumidor: o BOLSIA lê demonstração
+    financeira e empresa; um app de watchlist não precisa de nada além de
+    empresa. Um app novo é uma chave nova com o escopo dele — não código novo.
+
+    Sintaxe: `leitura` libera tudo; `classe:empresa` restringe. As duas
+    convivem porque a chave antiga já emitida diz `leitura`, e revogar tudo
+    para introduzir escopo seria migração desnecessária.
+    """
+    escopos = [e.strip() for e in (chave.get("escopos") or "").split(",") if e.strip()]
+    classes = {e.split(":", 1)[1] for e in escopos if e.startswith("classe:")}
+    return classes or None
+
+
+def pode_ler(chave: dict, classe: str | None) -> bool:
+    permitidas = classes_permitidas(chave)
+    if permitidas is None or classe is None:
+        return True
+    return classe in permitidas
+
+
 def consumir_quota(sink: Sink, chave: dict, agora: datetime | None = None) -> dict:
     """Incrementa e avalia a quota. Devolve {ok, limite, restante, janela}."""
     agora = agora or datetime.now(timezone.utc)
