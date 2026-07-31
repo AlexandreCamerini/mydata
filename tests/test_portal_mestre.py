@@ -207,3 +207,36 @@ def test_health_continua_sem_chave_e_sem_banco(base):
     app = recarregar_app()
     with TestClient(app) as c:
         assert c.get("/health").status_code == 200
+
+
+# --------------------------------------------------------------------------
+# Plano de controle
+# --------------------------------------------------------------------------
+def test_admin_exige_token_para_ler_tambem(base, monkeypatch):
+    """Com PORTAL_ADMIN_TOKEN definido, *ler* o plano de controle também exige
+    o token.
+
+    Encontrado em produção: o token protegia só a escrita, e
+    `/admin/api/catalogo/{tabela}` devolvia amostra de qualquer tabela sem
+    autenticação nenhuma — contornando de uma vez o escopo por classe das
+    chaves de API.
+    """
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "segredo-de-teste")
+    app = recarregar_app()
+    with TestClient(app) as c:
+        for caminho in ("/admin/api/classes", "/admin/api/execucoes",
+                        "/admin/api/frescor", "/admin/api/catalogo",
+                        "/admin/api/catalogo/dim_empresa"):
+            r = c.get(caminho)
+            assert r.status_code == 401, f"{caminho} respondeu {r.status_code}"
+
+        cab = {"X-Admin-Token": "segredo-de-teste"}
+        assert c.get("/admin/api/classes", headers=cab).status_code == 200
+
+
+def test_sem_token_configurado_o_admin_fica_aberto_para_dev(base, monkeypatch):
+    """O modo local não pode exigir token: a ausência da variável é a escolha."""
+    monkeypatch.delenv("PORTAL_ADMIN_TOKEN", raising=False)
+    app = recarregar_app()
+    with TestClient(app) as c:
+        assert c.get("/admin/api/classes").status_code == 200

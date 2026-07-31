@@ -19,13 +19,6 @@ from ..repositorio import (
 from ..sinks import Sink
 from . import auth, metricas
 
-router = APIRouter(prefix="/admin/api", tags=["administração"])
-
-
-def obter_sink(request: Request) -> Sink:
-    return request.app.state.sink
-
-
 async def exigir_admin(
     x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
 ) -> None:
@@ -38,6 +31,22 @@ async def exigir_admin(
             detail={"codigo": "admin_nao_autorizado",
                     "mensagem": "Informe X-Admin-Token válido."},
         )
+
+
+# O token protege o router inteiro, não só a escrita. Ler a configuração, o
+# histórico de execução e — pior — a amostra de qualquer tabela via
+# `/catalogo/{tabela}` contorna o escopo por classe das chaves de API. Sem
+# PORTAL_ADMIN_TOKEN definido, `exigir_admin` libera: é o modo de
+# desenvolvimento local, e a ausência da variável é a escolha explícita.
+router = APIRouter(
+    prefix="/admin/api",
+    tags=["administração"],
+    dependencies=[Depends(exigir_admin)],
+)
+
+
+def obter_sink(request: Request) -> Sink:
+    return request.app.state.sink
 
 
 # --------------------------------------------------------------------------
@@ -173,7 +182,7 @@ async def get_classes(request: Request) -> Any:
     return {"dados": saida}
 
 
-@router.post("/classes", dependencies=[Depends(exigir_admin)])
+@router.post("/classes")
 async def post_classe(entrada: ClasseEntrada, request: Request) -> Any:
     """Cadastra a classe e materializa a tabela dela na mesma chamada.
 
@@ -222,7 +231,7 @@ async def get_fontes(request: Request) -> Any:
     return {"dados": repo.listar_fontes(obter_sink(request))}
 
 
-@router.post("/fontes", dependencies=[Depends(exigir_admin)])
+@router.post("/fontes")
 async def post_fonte(entrada: FonteEntrada, request: Request) -> Any:
     sink = obter_sink(request)
     try:
@@ -246,7 +255,7 @@ async def get_datasets(request: Request) -> Any:
     return {"dados": saida}
 
 
-@router.post("/datasets", dependencies=[Depends(exigir_admin)])
+@router.post("/datasets")
 async def post_dataset(entrada: DatasetEntrada, request: Request) -> Any:
     sink = obter_sink(request)
     d = Dataset(
@@ -293,7 +302,7 @@ async def get_execucoes(request: Request, dataset: str | None = None,
     return {"dados": repo.execucoes(obter_sink(request), limite, dataset)}
 
 
-@router.post("/execucoes", dependencies=[Depends(exigir_admin)])
+@router.post("/execucoes")
 async def post_execucao(entrada: ExecucaoEntrada, request: Request) -> Any:
     """Dispara carga ou replay. Replay roda sem rede, do bronze."""
     from ..motor import download
@@ -338,7 +347,7 @@ async def get_publicacoes(request: Request) -> Any:
     ), "atual": publicacao.versao_atual(sink)}
 
 
-@router.post("/publicacoes/{versao}/reverter", dependencies=[Depends(exigir_admin)])
+@router.post("/publicacoes/{versao}/reverter")
 async def post_reverter(versao: int, request: Request) -> Any:
     sink = obter_sink(request)
     try:
@@ -363,7 +372,7 @@ async def get_chaves(request: Request) -> Any:
     )}
 
 
-@router.post("/chaves", dependencies=[Depends(exigir_admin)])
+@router.post("/chaves")
 async def post_chave(entrada: ChaveEntrada, request: Request) -> Any:
     sink = obter_sink(request)
     conhecidas = {c["chave"] for c in repo.listar_classes(sink)}
@@ -389,7 +398,7 @@ async def post_chave(entrada: ChaveEntrada, request: Request) -> Any:
     }}
 
 
-@router.delete("/chaves/{prefixo}", dependencies=[Depends(exigir_admin)])
+@router.delete("/chaves/{prefixo}")
 async def delete_chave(prefixo: str, request: Request) -> Any:
     if not auth.revogar(obter_sink(request), prefixo):
         raise HTTPException(
@@ -408,7 +417,7 @@ async def get_metricas(request: Request) -> Any:
     return {"dados": metricas.listar(obter_sink(request))}
 
 
-@router.post("/metricas", dependencies=[Depends(exigir_admin)])
+@router.post("/metricas")
 async def post_metrica(entrada: MetricaEntrada, request: Request) -> Any:
     sink = obter_sink(request)
     try:
