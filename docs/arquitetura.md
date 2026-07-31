@@ -513,6 +513,7 @@ do domínio:
 | 13 | Precedência declarada por atributo | precedência por fonte inteira | o cadastro da CVM é a melhor fonte para a razão social e não diz nada sobre o resto |
 | 14 | Escopo de chave de API em classe de informação | escopo por rota ou por vista | rota é detalhe de implementação; a classe é o que o consumidor entende, e app novo vira chave nova |
 | 15 | Carga por staging sem índice + upsert em uma instrução | upsert linha a linha | 300 linhas/s tornava o recomputo do bronze — o plano de volta de toda migração — lento demais para alguém acionar |
+| 16 | Postgres do Railway, confirmado por medição | DuckDB em volume, um serviço só | o custo marginal é zero dentro do plano já contratado; ver ADR-16 abaixo |
 
 ### ADR-11 — a tabela como consequência da classe
 
@@ -590,6 +591,51 @@ recomputação.
 minutos: migrar o payload para object storage (Cloudflare R2 tem 10 GB grátis
 sem taxa de egress), mantendo metadado e hash na tabela. É serviço de terceiro
 e cai na regra de aprovação; a migração custa uma coluna `payload_ref`.
+
+---
+
+### ADR-16 — Postgres, confirmado com número
+
+**Contexto.** A pergunta voltou em 31/07/2026: "o Postgres não tem custo
+adicional? dá para evitar?". O ADR-3 já respondia, mas por argumento, não por
+medição — e argumento sem número é o que faz a pergunta voltar.
+
+**O que foi medido.**
+
+| Item | Valor |
+|---|---|
+| API + base real de 364 MB | **114 MB de RSS** — o DuckDB não carrega o arquivo na memória |
+| Bronze de 1 ano (DFP + ITR + cadastro) | 28,6 MB |
+| Silver de 1 ano | 817.600 linhas |
+| Arquivo do banco, 1 ano | 364 MB |
+| Projeção para 15 anos | ~12,3 milhões de linhas, ~5,5 GB |
+
+**Taxas do Railway** (jul/2026, por mês): vCPU $20,01 · RAM $10,00/GB ·
+volume $0,156/GB.
+
+**A decisão.** O plano contratado é o **Pro**: $20/mês com $20 de uso
+incluído, 24 GB de RAM, 24 vCPU e **100 GB de disco**. O consumo corrente é
+$3,60 de compute. O MyData inteiro — API mais Postgres — soma cerca de $4/mês.
+
+Ou seja: **o custo marginal do Postgres é zero** até o uso total ultrapassar os
+$20 já pagos, e a projeção de 15 anos ocupa 5% do disco incluído.
+
+**O que quase foi decidido errado.** A primeira análise assumiu o plano Hobby,
+onde o teto de volume é 5 GB. Sob essa premissa o histórico de 15 anos
+estouraria o disco antes de o custo importar, e a recomendação foi DuckDB em
+volume com serviço único. Estava errada na premissa, e a premissa era tudo.
+
+**O que a alternativa custaria, e por isso foi descartada.** DuckDB em volume
+economiza ~$2/mês e cobra em arquitetura: volume monta em um serviço só, então
+a ingestão teria de rodar dentro da API — contrariando o ADR-8 e o desenho do
+CLI como processo curto; e DuckDB tem escritor único, então cada carga
+degradaria as respostas da API por alguns minutos. Trocar duas propriedades de
+projeto por $2/mês dentro de um orçamento ocioso é mau negócio.
+
+**Gatilho de revisão.** Uso total passando de $20/mês, ou disco passando de
+50 GB. Nos dois casos a saída já está desenhada: bronze para object storage
+([ADR-10](#adr-10--bronze-em-tabela-não-em-volume)) e silver só dos anos
+recentes, já que recomputar um ano antigo do bronze leva 3 minutos.
 
 ---
 
