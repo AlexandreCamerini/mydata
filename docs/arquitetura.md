@@ -514,6 +514,7 @@ do domínio:
 | 14 | Escopo de chave de API em classe de informação | escopo por rota ou por vista | rota é detalhe de implementação; a classe é o que o consumidor entende, e app novo vira chave nova |
 | 15 | Carga por staging sem índice + upsert em uma instrução | upsert linha a linha | 300 linhas/s tornava o recomputo do bronze — o plano de volta de toda migração — lento demais para alguém acionar |
 | 16 | Postgres do Railway, confirmado por medição | DuckDB em volume, um serviço só | o custo marginal é zero dentro do plano já contratado; ver ADR-16 abaixo |
+| 17 | Suíte roda nos dois dialetos, não só no de desenvolvimento | testar em DuckDB e confiar no Postgres | o caminho Postgres nunca tinha sido executado, e a primeira execução achou um bug que matava o deploy no boot |
 
 ### ADR-11 — a tabela como consequência da classe
 
@@ -636,6 +637,49 @@ projeto por $2/mês dentro de um orçamento ocioso é mau negócio.
 50 GB. Nos dois casos a saída já está desenhada: bronze para object storage
 ([ADR-10](#adr-10--bronze-em-tabela-não-em-volume)) e silver só dos anos
 recentes, já que recomputar um ano antigo do bronze leva 3 minutos.
+
+### ADR-17 — a suíte roda nos dois dialetos
+
+**Contexto.** Até 31/07/2026 os 170 testes rodavam só em DuckDB. O
+`SinkPostgres` — tradução de placeholder, `COPY` da carga em bloco, triggers
+do `so_postgres`, FKs, `information_schema` — nunca tinha sido executado.
+DuckDB era o dialeto de desenvolvimento e Postgres o de produção, e só um
+estava coberto.
+
+**O que a primeira execução achou.** `bootstrap.preparar` **falhava** em
+Postgres. O corpo do trigger de imutabilidade do bronze contém `%` dentro de
+um literal (`RAISE EXCEPTION '... : % na captura %'`), e o psycopg trata `%`
+como placeholder sempre que recebe uma sequência de parâmetros — mesmo vazia.
+Como `railway.json` roda `migrar` antes de servir, o container morreria no
+boot, e o healthcheck só diria que não subiu.
+
+A correção está em `sinks._executar`: sem parâmetros, o SQL vai cru, sem
+conversão. Com parâmetros, nada muda.
+
+**Decisão.** `PORTAL_TESTE_POSTGRES=<dsn>` faz a suíte inteira rodar contra
+Postgres; sem a variável, DuckDB em memória. Cada teste recria o schema
+`public`, que é o equivalente ao `:memory:` do DuckDB e reproduz a topologia
+de produção.
+
+**Resultado.** 170/170 nos dois dialetos. Dois testes precisaram deixar de
+supor dialeto: `INTERVAL 400 DAY` é sintaxe do DuckDB, e `numeric` do Postgres
+chega como `Decimal` onde `double` do DuckDB chega como `float` — o que os
+testes afirmam é o valor, não o tipo que o carrega.
+
+**Verificado com dado real em Postgres:** 817.600 linhas carregadas pelo
+`COPY`, 410.100 publicadas, e o trigger recusando as duas operações que
+deveria recusar:
+
+```
+apagar captura     recusado: bronze_captura é imutável: DELETE na captura 1
+alterar captura    recusado: bronze_captura é imutável: UPDATE na captura 1
+```
+
+**O que fica em aberto.** A carga em Postgres levou 5min02 contra 2min47 do
+DuckDB para as mesmas 817.600 linhas. Parte é o `fsync=off` não ser suficiente
+para compensar o custo de índice único do Postgres; parte pode ser o socket
+local. Não é bloqueio — é uma medida a refazer contra o Railway, onde o banco
+está em rede.
 
 ---
 

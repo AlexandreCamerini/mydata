@@ -54,9 +54,16 @@ def test_classe_sem_carga_aparece_como_sem_carga(sink_cvm):
 
 
 def test_sla_estourado_marca_a_classe_como_atrasada(carregado):
-    """Envelhece a execução para além do SLA em vez de esperar."""
+    """Envelhece a execução para além do SLA em vez de esperar.
+
+    A data vem calculada da aplicação, não de `INTERVAL` no SQL: a sintaxe de
+    intervalo difere entre DuckDB e Postgres, e o teste roda nos dois.
+    """
+    from datetime import datetime, timedelta, timezone
+
     carregado.executar(
-        "UPDATE log_execucao SET terminado_em = terminado_em - INTERVAL 400 DAY"
+        "UPDATE log_execucao SET terminado_em = ?",
+        (datetime.now(timezone.utc) - timedelta(days=400),),
     )
     por_classe = {f["classe"]: f for f in obs.frescor(carregado)}
     assert por_classe["empresa"]["situacao"] == "atrasada"

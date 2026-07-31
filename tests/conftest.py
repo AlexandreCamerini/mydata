@@ -4,6 +4,7 @@ A primeira metade serve o pacote legado `cvm_financas`; a segunda serve o
 portal (`app`). Os dois convivem: o pacote continua sendo entregável próprio.
 """
 import io
+import os
 import zipfile
 
 import pytest
@@ -80,9 +81,25 @@ def zip_cvm(arquivos: dict[str, bytes]) -> bytes:
     return buf.getvalue()
 
 
+# Um DSN em PORTAL_TESTE_POSTGRES faz a suíte inteira rodar contra Postgres.
+# Sem ele, DuckDB em memória, como sempre. Os dois caminhos existem no código
+# de produção; testar só um deixa o outro por conta da sorte.
+DSN_TESTE = os.getenv("PORTAL_TESTE_POSTGRES")
+
+
 @pytest.fixture()
 def sink():
-    s = SinkDuckDB(":memory:")
+    if DSN_TESTE:
+        from app.sinks import SinkPostgres
+
+        s = SinkPostgres(DSN_TESTE)
+        # Schema limpo por teste: é o equivalente ao ":memory:" do DuckDB.
+        # Recriar `public` é mais rápido que derrubar o banco, e reproduz a
+        # topologia de produção, onde tudo mora nesse schema.
+        s.executar("DROP SCHEMA IF EXISTS public CASCADE")
+        s.executar("CREATE SCHEMA public")
+    else:
+        s = SinkDuckDB(":memory:")
     bootstrap.preparar(s)
     yield s
     s.fechar()

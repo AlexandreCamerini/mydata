@@ -94,7 +94,10 @@ def test_classe_nova_publica_em_gold_sem_editar_codigo(sink):
 
     publicacao.publicar(sink)
     linhas = sink.consultar("SELECT * FROM gold_indicador_macro")
-    assert len(linhas) == 1 and linhas[0]["valor"] == 0.42
+    # `float()` porque o Postgres devolve Decimal para `numeric` e o DuckDB
+    # devolve float para `double` — o mapeamento está em `sinks.TIPOS`. O que
+    # o teste afirma é o valor, não o tipo Python que carrega o valor.
+    assert len(linhas) == 1 and float(linhas[0]["valor"]) == 0.42
 
 
 # --------------------------------------------------------------------------

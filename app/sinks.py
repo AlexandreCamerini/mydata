@@ -187,6 +187,23 @@ class SinkDuckDB:
         self.con.close()
 
 
+def _executar(cur, sql: str, params: Iterable[Any] = ()) -> None:
+    """Executa no psycopg, convertendo só quando há o que converter.
+
+    Sem parâmetros, o SQL vai cru. Isso não é otimização: o psycopg só procura
+    placeholder quando recebe uma sequência de parâmetros, e passar uma lista
+    vazia faz ele tratar como placeholder qualquer `%` do texto. O corpo do
+    trigger de imutabilidade do bronze tem `%` dentro de um literal —
+    `RAISE EXCEPTION '... : % na captura %'` — e era o suficiente para
+    `migrar` estourar no boot, que é o primeiro comando do deploy.
+    """
+    lista = list(params)
+    if lista:
+        cur.execute(qmark_para_pyformat(sql), lista)
+    else:
+        cur.execute(sql)
+
+
 class SinkPostgres:
     """Sink de produção. Railway injeta a DATABASE_URL."""
 
@@ -200,7 +217,7 @@ class SinkPostgres:
 
     def executar(self, sql: str, params: Iterable[Any] = ()) -> None:
         with self.con.cursor() as cur:
-            cur.execute(qmark_para_pyformat(sql), list(params))
+            _executar(cur, sql, params)
 
     def executar_muitos(self, sql: str, linhas: Iterable[Iterable[Any]]) -> None:
         dados = [list(linha) for linha in linhas]
@@ -231,7 +248,7 @@ class SinkPostgres:
 
     def consultar(self, sql: str, params: Iterable[Any] = ()) -> list[dict]:
         with self.con.cursor() as cur:
-            cur.execute(qmark_para_pyformat(sql), list(params))
+            _executar(cur, sql, params)
             return [dict(linha) for linha in cur.fetchall()]
 
     def um(self, sql: str, params: Iterable[Any] = ()) -> dict | None:
