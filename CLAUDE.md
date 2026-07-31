@@ -1,9 +1,19 @@
-# Portal de Dados / cvm-financas
+# MyData — hub de dados (repositório `cvm-financas`)
 
-Hub multi-fonte de informação sobre companhias da B3, com plano de controle
-configurável e API que abastece os apps do Alex. Raiz pública:
-`https://acamerini.app/`. Primeiro consumidor: BOLSIA (análise
-fundamentalista). Primeira fonte: CVM Dados Abertos.
+Sistema **independente** que fornece informação, por API ou integração direta,
+ao BolsIA e a outros sistemas que precisarem. Existe para o Alex ter o dado
+sem pagar integrador que apenas atravessa a informação e cobra caro — daí a
+fonte ser sempre a origem oficial, nunca um revendedor.
+
+Nasce integrado ao BolsIA, mas não é parte dele: BolsIA é um consumidor, o
+primeiro de vários.
+
+**Endereço:** `https://mydata.acamerini.app/`. O ápice `acamerini.app` é do
+BolsIA e não deve ser reivindicado aqui. A URL pública vive só em
+`PORTAL_URL_PUBLICA`; mudar de endereço é trocar a variável e o DNS, sem tocar
+em código.
+
+Primeira fonte de dado: CVM Dados Abertos.
 
 - Arquitetura e definição do sistema: [docs/arquitetura.md](docs/arquitetura.md)
 - O que depende do painel do Railway: [docs/deploy-railway.md](docs/deploy-railway.md)

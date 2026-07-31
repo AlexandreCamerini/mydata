@@ -1,9 +1,15 @@
 """Etapa 7 — o portal mestre no domínio.
 
-Um serviço só ocupa `https://acamerini.app/`: `/v1` para os apps, `/admin`
-para o plano de controle, `/health` para o Railway. Os apps vivem em
-subdomínios e são consumidores — cada um com sua chave, e o escopo dela diz
-quais classes ele lê. App novo é chave nova, não código novo.
+Um serviço só ocupa `https://mydata.acamerini.app/`: `/v1` para os apps,
+`/admin` para o plano de controle, `/health` para o Railway.
+
+O MyData não fica no ápice `acamerini.app` — esse endereço é do BolsIA, que é
+o app de quem usa. O MyData serve o BolsIA e outros sistemas, e por isso tem
+endereço próprio. A URL sai de `PORTAL_URL_PUBLICA` e de lugar nenhum mais:
+migrar para um domínio registrado à parte é trocar a variável e o DNS.
+
+Cada app consumidor tem sua chave, e o escopo dela diz quais classes ele lê.
+App novo é chave nova, não código novo.
 """
 from __future__ import annotations
 
@@ -149,12 +155,12 @@ def test_app_novo_e_chave_nova_nao_codigo_novo(base):
 # --------------------------------------------------------------------------
 def test_openapi_anuncia_a_url_publica(base, monkeypatch):
     """Sem isto, o cliente gerado a partir do schema aponta para localhost."""
-    monkeypatch.setenv("PORTAL_URL_PUBLICA", "https://acamerini.app")
+    monkeypatch.setenv("PORTAL_URL_PUBLICA", "https://mydata.acamerini.app")
     app = recarregar_app()
     with TestClient(app) as c:
         schema = c.get("/openapi.json").json()
     assert schema["servers"] == [
-        {"url": "https://acamerini.app", "description": "produção"}
+        {"url": "https://mydata.acamerini.app", "description": "produção"}
     ]
 
 

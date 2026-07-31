@@ -47,11 +47,12 @@ URL_PUBLICA = os.getenv("PORTAL_URL_PUBLICA", "").rstrip("/")
 ORIGENS = [o.strip() for o in os.getenv("PORTAL_ORIGENS", "").split(",") if o.strip()]
 
 app = FastAPI(
-    title="Portal de Dados — hub multi-fonte",
+    title="MyData — hub de dados multi-fonte",
     version="0.1.0",
     description=(
         "Classes de informação alimentadas por múltiplas fontes, com "
-        "proveniência em toda resposta. Primeira fonte: CVM Dados Abertos."
+        "proveniência em toda resposta — a fonte é sempre a origem oficial, "
+        "nunca um revendedor. Primeira fonte: CVM Dados Abertos."
     ),
     lifespan=ciclo,
     # Sem isto o OpenAPI publicado anuncia `http://localhost`, e o cliente

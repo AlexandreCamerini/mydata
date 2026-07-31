@@ -29,7 +29,7 @@ Se alguma estiver errada, diga em uma frase e siga; não pare o trabalho.
 | Relação fonte↔classe | Muitos-para-muitos. Um dataset deixa de "ter uma tabela" e passa a **mapear atributos de uma classe** |
 | Conflito entre fontes | Precedência declarada **por atributo**, não por fonte inteira. Toda linha registra qual fonte venceu cada atributo disputado |
 | Tabelas físicas | Geradas por DDL a partir de `cfg_classe`/`cfg_atributo`, aplicadas por migração automática versionada. Sem `CREATE TABLE` escrito à mão para classe nova |
-| Endpoint raiz | `https://acamerini.app/` serve o hub: `/v1` (API), `/admin` (plano de controle), `/health`. Os apps consomem a API e vivem em subdomínios próprios |
+| Endpoint raiz | `https://mydata.acamerini.app/` serve o hub: `/v1` (API), `/admin` (plano de controle), `/health`. O ápice `acamerini.app` é do BolsIA; o MyData é sistema independente e tem endereço próprio |
 | Hospedagem e custo | Railway, um serviço, nada além do que o plano já inclui — restrição mantida do projeto atual |
 | Invariante do dado | Mantido integralmente: bronze imutável por fonte, derivado recomputável, gate antes de publicar |
 
@@ -112,7 +112,8 @@ saída.
 
 ### Fase 5 — Domínio e contratos por app
 
-`https://acamerini.app/` como raiz. Configure no Railway o domínio
+`https://mydata.acamerini.app/` como raiz — não o ápice, que é do BolsIA.
+Configure no Railway o domínio
 customizado, e no app: `CORS` restrito aos subdomínios dos apps, `root_path`
 correto para o OpenAPI apontar para o domínio público, e redirecionamento de
 `http` para `https` a cargo da borda do Railway.
@@ -120,7 +121,7 @@ correto para o OpenAPI apontar para o domínio público, e redirecionamento de
 Cada app consumidor tem sua chave de API com escopo — o escopo diz **quais
 classes** ele lê. Um app novo não implica código novo.
 
-**Aceite:** `curl -sI https://acamerini.app/health` retorna 200 pelo domínio
+**Aceite:** `curl -sI https://mydata.acamerini.app/health` retorna 200 pelo domínio
 público, e `GET /openapi.json` traz o servidor com a URL pública. Se o DNS
 ainda não estiver propagado, entregue a configuração versionada e diga
 exatamente qual passo depende do painel do Railway.
