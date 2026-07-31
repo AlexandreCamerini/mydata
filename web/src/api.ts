@@ -54,6 +54,16 @@ export const api = {
     pedir<Resposta<{ sentencas: string[]; divergencias: string[] }>>(
       `/admin/api/classes/${chave}/ddl`,
     ),
+  previaClasse: (corpo: ClassePayload) =>
+    pedir<Resposta<{ sentencas: string[]; divergencias: string[] }>>(
+      "/admin/api/classes/previa",
+      { method: "POST", body: JSON.stringify(corpo) },
+    ),
+  salvarClasse: (corpo: ClassePayload) =>
+    pedir<Resposta<Classe> & { ddl_aplicado: string[] }>("/admin/api/classes", {
+      method: "POST",
+      body: JSON.stringify(corpo),
+    }),
   frescor: () => pedir<Resposta<Frescor[]>>("/admin/api/frescor"),
   fases: (execucao: number) =>
     pedir<Resposta<Fase[]>>(`/admin/api/execucoes/${execucao}/fases`),
@@ -122,6 +132,142 @@ export const api = {
 };
 
 // --------------------------------------------------------------------------
+// Payloads de escrita — a forma que os POST aceitam. Difere da forma de
+// leitura: listas são arrays aqui e strings separadas por vírgula lá, porque
+// o GET devolve a linha do banco como está.
+export type AtributoPayload = {
+  nome: string;
+  tipo: string;
+  origem: string;
+  obrigatorio: boolean;
+  guarda_texto: boolean;
+  unidade: string | null;
+  descricao: string | null;
+  ordem: number;
+  precedencia: string[];
+};
+
+export type ClassePayload = {
+  chave: string;
+  nome: string;
+  tabela: string;
+  chave_identidade: string[];
+  atributos: AtributoPayload[];
+  indices: string[][];
+  sla_horas: number | null;
+  resolucao: string;
+  precedencia: string[];
+  descricao: string | null;
+  ativo: boolean;
+};
+
+export type ColunaPayload = {
+  nome_origem: string;
+  nome_destino: string;
+  tipo: string;
+  formato: string | null;
+  obrigatoria: boolean;
+  ordem: number;
+};
+
+export type CalculadoPayload = {
+  nome: string;
+  expressao: string;
+  colunas_origem: string[];
+  classe: string;
+  tipo_retorno: string;
+  particao_por: string[] | null;
+  ordena_por: string[] | null;
+  materializacao: string;
+  descricao: string | null;
+  ativo: boolean;
+  ordem: number;
+};
+
+export type RegraPayload = {
+  nome: string;
+  expressao_sql: string;
+  severidade: string;
+  tolerancia: number;
+  descricao: string | null;
+  ativo: boolean;
+};
+
+export type DatasetPayload = {
+  chave: string;
+  fonte_chave: string;
+  nome: string;
+  padrao_arquivo: string;
+  tabela_destino: string;
+  chave_natural: string[];
+  classe_chave: string | null;
+  politica_versao: string;
+  particao: string;
+  parametros: Record<string, string>;
+  colunas: ColunaPayload[];
+  calculados: CalculadoPayload[];
+  regras: RegraPayload[];
+  descricao: string | null;
+  ativo: boolean;
+};
+
+/** "a, b" -> ["a","b"]; vazio/nulo -> []. */
+export function lista(valor: string | null | undefined): string[] {
+  return (valor ?? "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
+/** A linha que o GET devolveu, na forma que o POST aceita. É o que permite
+ * editar pela tela sem perder campo no caminho. */
+export function datasetParaEntrada(d: Dataset): DatasetPayload {
+  return {
+    chave: d.chave,
+    fonte_chave: d.fonte_chave,
+    nome: d.nome,
+    padrao_arquivo: d.padrao_arquivo,
+    tabela_destino: d.tabela_destino,
+    chave_natural: lista(d.chave_natural),
+    classe_chave: d.classe_chave,
+    politica_versao: d.politica_versao,
+    particao: d.particao,
+    parametros: d.parametros ? JSON.parse(d.parametros) : {},
+    colunas: d.colunas.map((c) => ({
+      nome_origem: c.nome_origem,
+      nome_destino: c.nome_destino,
+      tipo: c.tipo,
+      formato: c.formato,
+      obrigatoria: c.obrigatoria,
+      ordem: c.ordem,
+    })),
+    calculados: d.calculados.map((c) => ({
+      nome: c.nome,
+      expressao: c.expressao,
+      colunas_origem: lista(c.colunas_origem),
+      classe: c.classe,
+      tipo_retorno: c.tipo_retorno,
+      particao_por: c.particao_por ? lista(c.particao_por) : null,
+      ordena_por: c.ordena_por ? lista(c.ordena_por) : null,
+      materializacao: c.materializacao,
+      descricao: c.descricao,
+      ativo: c.ativo,
+      ordem: c.ordem,
+    })),
+    regras: d.regras.map((r) => ({
+      nome: r.nome,
+      expressao_sql: r.expressao_sql,
+      severidade: r.severidade,
+      tolerancia: r.tolerancia,
+      descricao: r.descricao,
+      ativo: r.ativo,
+    })),
+    descricao: d.descricao,
+    ativo: d.ativo,
+  };
+}
+
+// --------------------------------------------------------------------------
 export type Atributo = {
   nome: string;
   tipo: string;
@@ -140,14 +286,51 @@ export type Classe = {
   descricao: string | null;
   tabela: string;
   chave_identidade: string;
+  indices: string | null;
   resolucao: string;
   precedencia: string | null;
   sla_horas: number | null;
+  ativo: boolean;
   versao: number;
   atributos: Atributo[];
   datasets: string[];
   divergencias: string[];
 };
+
+/** Grupos de índice "a,b;c" -> [["a","b"],["c"]]. */
+export function indicesDe(bruto: string | null): string[][] {
+  return (bruto ?? "")
+    .split(";")
+    .map((grupo) => lista(grupo))
+    .filter((g) => g.length > 0);
+}
+
+/** A classe que o GET devolveu, na forma que o POST (e a prévia) aceitam. */
+export function classeParaEntrada(c: Classe): ClassePayload {
+  return {
+    chave: c.chave,
+    nome: c.nome,
+    tabela: c.tabela,
+    chave_identidade: lista(c.chave_identidade),
+    indices: indicesDe(c.indices),
+    sla_horas: c.sla_horas,
+    resolucao: c.resolucao,
+    precedencia: lista(c.precedencia),
+    descricao: c.descricao,
+    ativo: c.ativo,
+    atributos: c.atributos.map((a, i) => ({
+      nome: a.nome,
+      tipo: a.tipo,
+      origem: a.origem,
+      obrigatorio: a.obrigatorio,
+      guarda_texto: a.guarda_texto,
+      unidade: a.unidade,
+      descricao: a.descricao,
+      ordem: a.ordem || i + 1,
+      precedencia: lista(a.precedencia),
+    })),
+  };
+}
 
 export type Frescor = {
   classe: string;
@@ -194,9 +377,13 @@ export type Calculado = {
   classe: string;
   expressao: string;
   colunas_origem: string;
+  tipo_retorno: string;
   particao_por: string | null;
+  ordena_por: string | null;
+  materializacao: string;
   descricao: string | null;
   ativo: boolean;
+  ordem: number;
 };
 
 export type Regra = {
@@ -217,6 +404,10 @@ export type Dataset = {
   tabela_destino: string;
   chave_natural: string;
   classe_chave: string | null;
+  politica_versao: string;
+  particao: string;
+  parametros: string | null;
+  ativo: boolean;
   versao: number;
   colunas: Coluna[];
   calculados: Calculado[];

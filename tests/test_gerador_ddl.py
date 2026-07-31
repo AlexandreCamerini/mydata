@@ -234,3 +234,81 @@ def test_gerador_cria_o_indice_de_identidade(tmp_path):
     )
     assert sink.um("SELECT count(*) AS n FROM dim_empresa")["n"] == 2
     sink.fechar()
+
+
+# --------------------------------------------------------------------------
+# Prévia: o DDL antes de existir classe
+# --------------------------------------------------------------------------
+def test_previa_mostra_o_ddl_sem_gravar_nada(admin):
+    """A interface mostra o que vai rodar *antes* do salvar. A prévia não pode
+    deixar rastro: nem linha em cfg_classe, nem tabela no banco."""
+    sink = admin.app.state.sink
+    resposta = admin.post("/admin/api/classes/previa", json=CLASSE_NOVA)
+    assert resposta.status_code == 200, resposta.text
+    dados = resposta.json()["dados"]
+    juntas = "\n".join(dados["sentencas"])
+    assert "CREATE TABLE IF NOT EXISTS fato_leitura_sensor" in juntas
+    assert "ux_fato_leitura_sensor_identidade" in juntas
+    assert dados["divergencias"] == ["tabela 'fato_leitura_sensor' não existe"]
+
+    assert ddl.colunas_fisicas(sink, "fato_leitura_sensor") == {}
+    chaves = {c["chave"] for c in admin.get("/admin/api/classes").json()["dados"]}
+    assert "leitura_sensor" not in chaves
+
+
+def test_previa_recusa_classe_invalida_com_o_mesmo_erro_do_salvar(admin):
+    ruim = {**CLASSE_NOVA, "chave_identidade": ["nao_existe"]}
+    resposta = admin.post("/admin/api/classes/previa", json=ruim)
+    assert resposta.status_code == 422
+    assert "inexistente" in resposta.json()["erro"]["mensagem"]
+
+
+def test_previa_de_classe_ja_salva_reporta_divergencia_com_o_banco(admin):
+    """Editar classe existente: a prévia compara o payload com a tabela que
+    está lá, e um atributo novo aparece como divergência antes de aplicar."""
+    admin.post("/admin/api/classes", json=CLASSE_NOVA)
+    com_umidade = {
+        **CLASSE_NOVA,
+        "atributos": CLASSE_NOVA["atributos"] + [
+            {"nome": "umidade", "tipo": "numero", "ordem": 5},
+        ],
+    }
+    dados = admin.post("/admin/api/classes/previa", json=com_umidade).json()["dados"]
+    assert "declarado e ausente na tabela: umidade" in dados["divergencias"]
+
+
+# --------------------------------------------------------------------------
+# Precedência e resolução atravessam o POST
+# --------------------------------------------------------------------------
+def test_resolucao_e_precedencia_atravessam_o_post(admin):
+    """Multi-fonte configurável pela borda: a classe declara resolução por
+    precedência e um atributo declara a sua própria; o GET devolve ambos."""
+    multi = {
+        **CLASSE_NOVA,
+        "chave": "leitura_multi", "tabela": "fato_leitura_multi",
+        "resolucao": "precedencia",
+        "precedencia": ["fonte_a", "fonte_b"],
+        "atributos": [
+            {"nome": "sensor", "tipo": "texto", "obrigatorio": True, "ordem": 1},
+            {"nome": "medido_em", "tipo": "data", "obrigatorio": True, "ordem": 2},
+            {"nome": "temperatura", "tipo": "numero", "ordem": 3,
+             "precedencia": ["fonte_b", "fonte_a"]},
+        ],
+    }
+    assert admin.post("/admin/api/classes", json=multi).status_code == 200
+
+    por_chave = {c["chave"]: c
+                 for c in admin.get("/admin/api/classes").json()["dados"]}
+    classe = por_chave["leitura_multi"]
+    assert classe["resolucao"] == "precedencia"
+    assert classe["precedencia"] == "fonte_a,fonte_b"
+    atributo = {a["nome"]: a for a in classe["atributos"]}["temperatura"]
+    assert atributo["precedencia"] == "fonte_b,fonte_a"
+
+
+def test_resolucao_desconhecida_e_recusada_na_borda(admin):
+    ruim = {**CLASSE_NOVA, "chave": "r", "tabela": "tab_r",
+            "resolucao": "ultima_palavra"}
+    resposta = admin.post("/admin/api/classes", json=ruim)
+    assert resposta.status_code == 422
+    assert "resolução desconhecida" in resposta.json()["erro"]["mensagem"]

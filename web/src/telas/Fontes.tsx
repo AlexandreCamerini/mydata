@@ -1,6 +1,15 @@
 import { useState } from "react";
 import { api, type Fonte } from "../api";
-import { Botao, Campo, Carregando, Erro, Tabela, Vazio, useDados } from "../ui";
+import {
+  Botao,
+  Campo,
+  Carregando,
+  Erro,
+  Selecao,
+  Tabela,
+  Vazio,
+  useDados,
+} from "../ui";
 
 export function Fontes() {
   const { dados, erro, carregando, recarregar } = useDados(() => api.fontes());
@@ -111,6 +120,16 @@ export function Fontes() {
             ajuda="Aceita {ano}, {tipo} e {TIPO}."
             obrigatorio
             monoespacado
+          />
+          <Selecao
+            rotulo="Transporte"
+            valor={form.tipo_transporte}
+            aoMudar={(v) => setForm({ ...form, tipo_transporte: v })}
+            opcoes={[
+              { valor: "http_zip", rotulo: "http_zip — ZIP com CSVs" },
+              { valor: "http_csv", rotulo: "http_csv — CSV direto" },
+              { valor: "http_json", rotulo: "http_json — JSON paginado" },
+            ]}
           />
           <Campo
             rotulo="Encoding"

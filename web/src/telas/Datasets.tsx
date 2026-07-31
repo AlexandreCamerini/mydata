@@ -1,23 +1,61 @@
 import { useState } from "react";
-import { api, type Dataset } from "../api";
-import { Aviso, Carregando, Erro, Selo, Tabela, Vazio, useDados } from "../ui";
+import {
+  api,
+  datasetParaEntrada,
+  type Dataset,
+  type DatasetPayload,
+} from "../api";
+import { Aviso, Botao, Carregando, Erro, Selo, Tabela, Vazio, useDados } from "../ui";
+import { DatasetForm } from "./DatasetForm";
 
 export function Datasets() {
-  const { dados, erro, carregando } = useDados(() => api.datasets());
+  const { dados, erro, carregando, recarregar } = useDados(() => api.datasets());
+  const fontes = useDados(() => api.fontes());
+  const classes = useDados(() => api.classes());
   const [aberto, setAberto] = useState<string | null>(null);
+  // null = lista; {} = mapeamento novo; {inicial} = nova versão.
+  const [editor, setEditor] = useState<{ inicial?: DatasetPayload } | null>(
+    null,
+  );
 
-  if (carregando) return <Carregando oque="datasets" />;
+  if (editor) {
+    return (
+      <DatasetForm
+        inicial={editor.inicial}
+        fontes={(fontes.dados?.dados ?? []).map((f) => f.chave)}
+        classes={(classes.dados?.dados ?? []).map((c) => c.chave)}
+        aoSalvar={recarregar}
+        aoFechar={() => setEditor(null)}
+      />
+    );
+  }
+
+  // Só na primeira carga: o recarregar pós-salvar não pode desmontar a tela.
+  if (carregando && !dados) return <Carregando oque="datasets" />;
   if (erro) return <Erro mensagem={erro} />;
+
   if (!dados || dados.dados.length === 0)
     return (
-      <Vazio
-        titulo="Nenhum dataset configurado"
-        dica="Cadastre uma fonte primeiro, depois o mapeamento arquivo → tabela."
-      />
+      <div className="grid gap-4">
+        <Vazio
+          titulo="Nenhum dataset configurado"
+          dica="Cadastre uma fonte primeiro, depois o mapeamento arquivo → tabela."
+        />
+        <div>
+          <Botao variante="primario" aoClicar={() => setEditor({})}>
+            Novo mapeamento
+          </Botao>
+        </div>
+      </div>
     );
 
   return (
     <div className="grid gap-4">
+      <div>
+        <Botao variante="primario" aoClicar={() => setEditor({})}>
+          Novo mapeamento
+        </Botao>
+      </div>
       <Aviso>
         Colunas cujo nome de origem começa com <code>$</code> vêm dos grupos
         nomeados do padrão de arquivo, não do CSV. É assim que{" "}
@@ -105,6 +143,14 @@ export function Datasets() {
                   </tr>
                 ))}
               </Tabela>
+
+              <div>
+                <Botao
+                  aoClicar={() => setEditor({ inicial: datasetParaEntrada(d) })}
+                >
+                  Editar (nova versão)
+                </Botao>
+              </div>
             </div>
           )}
         </article>

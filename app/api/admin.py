@@ -80,6 +80,7 @@ class CalculadoEntrada(BaseModel):
     tipo_retorno: str = "numeric"
     particao_por: list[str] | None = None
     ordena_por: list[str] | None = None
+    materializacao: str = "coluna"
     descricao: str | None = None
     ativo: bool = True
     ordem: int = 0
@@ -102,6 +103,8 @@ class DatasetEntrada(BaseModel):
     tabela_destino: str
     chave_natural: list[str]
     classe_chave: str | None = None
+    politica_versao: str = "max_versao"
+    particao: str = "ano"
     parametros: dict[str, str] = Field(default_factory=dict)
     colunas: list[ColunaEntrada] = Field(default_factory=list)
     calculados: list[CalculadoEntrada] = Field(default_factory=list)
@@ -119,6 +122,8 @@ class AtributoEntrada(BaseModel):
     unidade: str | None = None
     descricao: str | None = None
     ordem: int = 0
+    # Vazio herda a precedência da classe.
+    precedencia: list[str] = Field(default_factory=list)
 
 
 class ClasseEntrada(BaseModel):
@@ -129,6 +134,8 @@ class ClasseEntrada(BaseModel):
     atributos: list[AtributoEntrada] = Field(default_factory=list)
     indices: list[list[str]] = Field(default_factory=list)
     sla_horas: int | None = None
+    resolucao: str = "unica"
+    precedencia: list[str] = Field(default_factory=list)
     descricao: str | None = None
     ativo: bool = True
 
@@ -182,6 +189,33 @@ async def get_classes(request: Request) -> Any:
     return {"dados": saida}
 
 
+def _classe_de(entrada: ClasseEntrada) -> repo.Classe:
+    return repo.Classe(
+        chave=entrada.chave, nome=entrada.nome, tabela=entrada.tabela,
+        chave_identidade=entrada.chave_identidade, indices=entrada.indices,
+        sla_horas=entrada.sla_horas, resolucao=entrada.resolucao,
+        precedencia=entrada.precedencia, descricao=entrada.descricao,
+        ativo=entrada.ativo,
+        atributos=[repo.Atributo(**a.model_dump()) for a in entrada.atributos],
+    )
+
+
+def _como_vigente(c: repo.Classe) -> tuple[dict, list[dict]]:
+    """A classe do payload nas formas que o gerador de DDL consome — os dicts
+    que `classe_vigente`/`atributos_de` devolveriam se ela estivesse salva."""
+    classe = {
+        "tabela": c.tabela,
+        "chave_identidade": ",".join(c.chave_identidade),
+        "indices": ";".join(",".join(i) for i in c.indices),
+    }
+    atributos = [
+        {"id": i, "nome": a.nome, "tipo": a.tipo, "ordem": a.ordem,
+         "guarda_texto": a.guarda_texto}
+        for i, a in enumerate(c.atributos)
+    ]
+    return classe, atributos
+
+
 @router.post("/classes")
 async def post_classe(entrada: ClasseEntrada, request: Request) -> Any:
     """Cadastra a classe e materializa a tabela dela na mesma chamada.
@@ -190,13 +224,7 @@ async def post_classe(entrada: ClasseEntrada, request: Request) -> Any:
     deploy. O DDL sai da configuração e é aplicado aqui.
     """
     sink = obter_sink(request)
-    c = repo.Classe(
-        chave=entrada.chave, nome=entrada.nome, tabela=entrada.tabela,
-        chave_identidade=entrada.chave_identidade, indices=entrada.indices,
-        sla_horas=entrada.sla_horas, descricao=entrada.descricao,
-        ativo=entrada.ativo,
-        atributos=[repo.Atributo(**a.model_dump()) for a in entrada.atributos],
-    )
+    c = _classe_de(entrada)
     try:
         novo = repo.salvar_classe(sink, c, autor="ui")
     except ErroConfiguracao as e:
@@ -204,6 +232,30 @@ async def post_classe(entrada: ClasseEntrada, request: Request) -> Any:
     salva = repo.classe_vigente(sink, entrada.chave)
     aplicadas = ddl.garantir_tabela(sink, salva, repo.atributos_de(sink, novo))
     return {"dados": salva, "id": novo, "ddl_aplicado": aplicadas}
+
+
+@router.post("/classes/previa")
+async def previa_classe(entrada: ClasseEntrada, request: Request) -> Any:
+    """O DDL que o payload implica, sem gravar nem aplicar nada.
+
+    É o que permite à interface mostrar o que vai rodar *antes* de salvar —
+    o GET de DDL só enxerga classe já persistida.
+    """
+    sink = obter_sink(request)
+    c = _classe_de(entrada)
+    try:
+        repo.validar_classe(c)
+    except ErroConfiguracao as e:
+        raise _erro_config(e) from e
+    classe, atributos = _como_vigente(c)
+    try:
+        sentencas = ddl.sentencas_da_classe(classe, atributos)
+    except ErroConfiguracao as e:
+        raise _erro_config(e) from e
+    return {"dados": {
+        "sentencas": sentencas,
+        "divergencias": ddl.divergencias(sink, classe, atributos),
+    }}
 
 
 @router.get("/classes/{chave}/ddl")
@@ -255,19 +307,24 @@ async def get_datasets(request: Request) -> Any:
     return {"dados": saida}
 
 
-@router.post("/datasets")
-async def post_dataset(entrada: DatasetEntrada, request: Request) -> Any:
-    sink = obter_sink(request)
-    d = Dataset(
+def _dataset_de(entrada: DatasetEntrada) -> Dataset:
+    return Dataset(
         chave=entrada.chave, fonte_chave=entrada.fonte_chave, nome=entrada.nome,
         padrao_arquivo=entrada.padrao_arquivo, tabela_destino=entrada.tabela_destino,
         chave_natural=entrada.chave_natural, classe_chave=entrada.classe_chave,
+        politica_versao=entrada.politica_versao, particao=entrada.particao,
         parametros=entrada.parametros, descricao=entrada.descricao,
         ativo=entrada.ativo,
         colunas=[Coluna(**c.model_dump()) for c in entrada.colunas],
         calculados=[CampoCalculado(**c.model_dump()) for c in entrada.calculados],
         regras=[RegraQualidade(**r.model_dump()) for r in entrada.regras],
     )
+
+
+@router.post("/datasets")
+async def post_dataset(entrada: DatasetEntrada, request: Request) -> Any:
+    sink = obter_sink(request)
+    d = _dataset_de(entrada)
     try:
         novo = repo.salvar_dataset(sink, d, autor="ui")
     except ErroConfiguracao as e:
@@ -278,14 +335,7 @@ async def post_dataset(entrada: DatasetEntrada, request: Request) -> Any:
 @router.post("/datasets/{chave}/validar")
 async def validar_dataset(chave: str, entrada: DatasetEntrada, request: Request) -> Any:
     """Valida sem gravar — é o que dá o retorno imediato no formulário."""
-    d = Dataset(
-        chave=entrada.chave, fonte_chave=entrada.fonte_chave, nome=entrada.nome,
-        padrao_arquivo=entrada.padrao_arquivo, tabela_destino=entrada.tabela_destino,
-        chave_natural=entrada.chave_natural,
-        colunas=[Coluna(**c.model_dump()) for c in entrada.colunas],
-        calculados=[CampoCalculado(**c.model_dump()) for c in entrada.calculados],
-        regras=[RegraQualidade(**r.model_dump()) for r in entrada.regras],
-    )
+    d = _dataset_de(entrada)
     try:
         repo.validar_dataset(d)
     except ErroConfiguracao as e:

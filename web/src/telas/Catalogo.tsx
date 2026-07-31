@@ -14,12 +14,15 @@ export function Catalogo() {
   if (lista.erro) return <Erro mensagem={lista.erro} />;
 
   const tabelas = lista.dados?.dados ?? [];
+  // Grupos por prefixo, nunca por nome de tabela: uma classe criada agora
+  // pela interface precisa aparecer aqui sem ninguém editar esta lista.
+  const controle = (t: string) => t.startsWith("cfg_") || t.startsWith("log_");
   const grupos = {
     "Gold (consumo)": tabelas.filter((t) => t.startsWith("gold_")),
     "Silver e bronze": tabelas.filter(
-      (t) => t === "fato_conta" || t === "dim_empresa" || t === "bronze_captura",
+      (t) => !t.startsWith("gold_") && !controle(t),
     ),
-    "Plano de controle": tabelas.filter((t) => t.startsWith("cfg_") || t.startsWith("log_")),
+    "Plano de controle": tabelas.filter(controle),
   };
 
   return (

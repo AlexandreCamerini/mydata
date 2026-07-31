@@ -74,6 +74,73 @@ export function Campo(props: {
 }
 
 // --------------------------------------------------------------------------
+export function Selecao(props: {
+  rotulo: string;
+  valor: string;
+  aoMudar: (v: string) => void;
+  opcoes: { valor: string; rotulo: string }[];
+  ajuda?: string;
+}) {
+  const id = useId();
+  const idAjuda = `${id}-ajuda`;
+  return (
+    <div className="mb-4">
+      <label htmlFor={id} className="block text-sm font-medium mb-1">
+        {props.rotulo}
+      </label>
+      <select
+        id={id}
+        value={props.valor}
+        onChange={(e) => props.aoMudar(e.target.value)}
+        aria-describedby={props.ajuda ? idAjuda : undefined}
+        className="w-full rounded border border-borda px-3 py-2 text-sm bg-white"
+      >
+        {props.opcoes.map((o) => (
+          <option key={o.valor} value={o.valor}>
+            {o.rotulo}
+          </option>
+        ))}
+      </select>
+      {props.ajuda && (
+        <p id={idAjuda} className="text-xs text-tinta-suave mt-1">
+          {props.ajuda}
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function Caixa(props: {
+  rotulo: string;
+  marcado: boolean;
+  aoMudar: (v: boolean) => void;
+  ajuda?: string;
+}) {
+  const id = useId();
+  const idAjuda = `${id}-ajuda`;
+  return (
+    <div className="mb-2">
+      <label htmlFor={id} className="inline-flex items-center gap-2 text-sm">
+        <input
+          id={id}
+          type="checkbox"
+          checked={props.marcado}
+          onChange={(e) => props.aoMudar(e.target.checked)}
+          aria-describedby={props.ajuda ? idAjuda : undefined}
+          className="rounded border-borda"
+        />
+        {props.rotulo}
+      </label>
+      {props.ajuda && (
+        <p id={idAjuda} className="text-xs text-tinta-suave mt-0.5 ml-6">
+          {props.ajuda}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
 export function Botao(props: {
   children: ReactNode;
   aoClicar?: () => void;

@@ -6,8 +6,15 @@
 // em disputa, quando cada uma atualizou e se a configuração ainda descreve a
 // tabela que está no banco.
 import { useState } from "react";
-import { api, type Classe, type Frescor } from "../api";
-import { Carregando, Erro, Selo, Tabela, Vazio, useDados } from "../ui";
+import {
+  api,
+  classeParaEntrada,
+  type Classe,
+  type ClassePayload,
+  type Frescor,
+} from "../api";
+import { Botao, Carregando, Erro, Selo, Tabela, Vazio, useDados } from "../ui";
+import { ClasseForm } from "./ClasseForm";
 
 function idade(f: Frescor | undefined): string {
   if (!f || f.idade_horas === null) return "sem carga";
@@ -20,17 +27,38 @@ export function Classes() {
   const classes = useDados(() => api.classes());
   const frescor = useDados(() => api.frescor());
   const [aberta, setAberta] = useState<string | null>(null);
+  // null = lista; {} = classe nova; {inicial} = nova versão de uma existente.
+  const [editor, setEditor] = useState<{ inicial?: ClassePayload } | null>(null);
 
-  if (classes.carregando) return <Carregando oque="classes de informação" />;
+  if (editor) {
+    return (
+      <ClasseForm
+        inicial={editor.inicial}
+        aoSalvar={() => classes.recarregar()}
+        aoFechar={() => setEditor(null)}
+      />
+    );
+  }
+
+  // Só na primeira carga: o recarregar pós-salvar não pode desmontar a tela.
+  if (classes.carregando && !classes.dados)
+    return <Carregando oque="classes de informação" />;
   if (classes.erro) return <Erro mensagem={classes.erro} />;
 
   const lista = classes.dados?.dados ?? [];
   if (lista.length === 0) {
     return (
-      <Vazio
-        titulo="Nenhuma classe de informação cadastrada"
-        dica="Uma classe é a coisa sobre a qual o portal guarda dado — Empresa, Cotação. É dela que a tabela nasce."
-      />
+      <div className="grid gap-4">
+        <Vazio
+          titulo="Nenhuma classe de informação cadastrada"
+          dica="Uma classe é a coisa sobre a qual o portal guarda dado — Empresa, Cotação. É dela que a tabela nasce."
+        />
+        <div>
+          <Botao variante="primario" aoClicar={() => setEditor({})}>
+            Nova classe
+          </Botao>
+        </div>
+      </div>
     );
   }
 
@@ -40,6 +68,11 @@ export function Classes() {
 
   return (
     <div className="grid gap-6">
+      <div>
+        <Botao variante="primario" aoClicar={() => setEditor({})}>
+          Nova classe
+        </Botao>
+      </div>
       <Tabela
         legenda="Classes de informação, fontes que as alimentam e frescor"
         colunas={["Classe", "Identidade", "Fontes", "Atributos", "Atualizada há", "Situação"]}
@@ -93,20 +126,36 @@ export function Classes() {
         })}
       </Tabela>
 
-      {aberta && <Detalhe classe={lista.find((c) => c.chave === aberta)!} />}
+      {aberta && (
+        <Detalhe
+          classe={lista.find((c) => c.chave === aberta)!}
+          aoEditar={(c) => setEditor({ inicial: classeParaEntrada(c) })}
+        />
+      )}
     </div>
   );
 }
 
-function Detalhe({ classe }: { classe: Classe }) {
+function Detalhe({
+  classe,
+  aoEditar,
+}: {
+  classe: Classe;
+  aoEditar: (c: Classe) => void;
+}) {
   const ddl = useDados(() => api.ddlDaClasse(classe.chave), [classe.chave]);
   const multiplas = classe.datasets.length > 1;
 
   return (
     <section aria-labelledby="det" className="grid gap-4">
-      <h2 id="det" className="font-medium">
-        {classe.nome}
-      </h2>
+      <div className="flex items-center justify-between gap-4">
+        <h2 id="det" className="font-medium">
+          {classe.nome}
+        </h2>
+        <Botao aoClicar={() => aoEditar(classe)}>
+          Editar (nova versão)
+        </Botao>
+      </div>
       {classe.descricao && (
         <p className="text-sm text-tinta-suave">{classe.descricao}</p>
       )}
