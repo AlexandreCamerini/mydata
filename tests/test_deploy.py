@@ -131,3 +131,45 @@ def test_cron_do_itr_e_trimestral(sink_cvm):
            if a["dataset_chave"] == "cvm_itr"][0]
     meses = itr["cron"].split()[3]
     assert len(meses.split(",")) == 4, "ITR sai quatro vezes por ano"
+
+
+# --------------------------------------------------------------------------
+# Portas locais
+# --------------------------------------------------------------------------
+def test_launch_json_e_servidor_concordam_na_porta():
+    """A porta vive em dois lugares: o script e o launch.json do harness.
+    Divergirem significa `preview_start` abrindo o navegador numa porta e o
+    servidor subindo em outra."""
+    import sys
+
+    sys.path.insert(0, str(RAIZ / "scripts"))
+    import servidor
+
+    cfg = json.loads((RAIZ / ".claude" / "launch.json").read_text())
+    portas = {c["port"] for c in cfg["configurations"]}
+    assert portas == {servidor.PORTA_PADRAO}
+
+
+def test_launch_json_sobe_pelo_gestor_e_nao_por_uvicorn_direto():
+    """Chamar uvicorn direto pelo launch.json contornaria a checagem de dono
+    da porta — que é a razão de o gestor existir."""
+    cfg = json.loads((RAIZ / ".claude" / "launch.json").read_text())
+    for c in cfg["configurations"]:
+        assert "scripts/servidor.py" in " ".join(c["runtimeArgs"])
+
+
+def test_dono_da_porta_e_o_diretorio_nao_a_porta():
+    """`e_nosso` decide quem pode ser derrubado. Errar para o lado permissivo
+    aqui significa matar serviço de outro projeto do Alex."""
+    import os
+    import sys
+
+    sys.path.insert(0, str(RAIZ / "scripts"))
+    import servidor
+
+    # O próprio pytest roda com cwd na raiz do repositório.
+    assert servidor.e_nosso(os.getpid()) is True
+    # launchd (pid 1) roda em "/" e nunca pode ser considerado nosso.
+    assert servidor.e_nosso(1) is False
+    # PID inexistente não é nosso — e não pode estourar.
+    assert servidor.e_nosso(999_999) is False

@@ -89,19 +89,25 @@ def main() -> int:
     linhas = sink.um("SELECT count(*) AS n FROM gold_demonstracoes")["n"]
     sink.fechar()
 
+    sys.path.insert(0, str(RAIZ / "scripts"))
+    from servidor import PORTA_PADRAO as PORTA          # noqa: E402
+
     print(f"""
 Base pronta: {BANCO}  ({linhas} linhas em gold)
 
-  1) Suba o servidor:
-       PORTAL_DUCKDB={BANCO} uvicorn app.api.main:app --port 8099
+  1) Suba o servidor (ele recusa subir se a porta for de outro projeto):
+       python scripts/servidor.py subir
 
   2) Abra no navegador:
-       Telas de configuração ... http://127.0.0.1:8099/admin/
-       Documentação da API .... http://127.0.0.1:8099/docs
+       Telas de configuração ... http://127.0.0.1:{PORTA}/admin/
+       Documentação da API .... http://127.0.0.1:{PORTA}/docs
 
   3) Chame a API (a chave só aparece agora):
        curl -H 'X-API-Key: {chave.chave_completa}' \\
-         'http://127.0.0.1:8099/v1/empresas/9512/demonstracoes?grupo=BPA'
+         'http://127.0.0.1:{PORTA}/v1/empresas/9512/demonstracoes?grupo=BPA'
+
+  Ao terminar:
+       python scripts/servidor.py parar
 """)
     return 0
 

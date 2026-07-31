@@ -86,9 +86,33 @@ python -m app.cli ingerir cvm_dfp 2023  # uma janela, com rede
 python -m app.cli recomputar            # refaz tudo do bronze e verifica
 python -m app.cli verificar             # digital de gold, sem mexer em nada
 python -m app.cli chave app --classe empresa   # chave com escopo
-uvicorn app.api.main:app --reload       # API local
+python scripts/servidor.py subir        # API local (ver "Porta local")
 npm run build                           # front (em web/)
 ```
+
+## Porta local
+
+Esta máquina tem muitos serviços em escuta (3000, 5000, 5173, 8000, 8002,
+8123, 8765, 8787…). **A porta deste projeto é a 8420**, declarada em
+`scripts/servidor.py` e em `.claude/launch.json` — um teste falha se as duas
+divergirem.
+
+```bash
+python scripts/servidor.py status           # quem está na porta, e de quem é
+python scripts/servidor.py subir            # respeita quem já está no ar
+python scripts/servidor.py parar --orfaos   # derruba os nossos, em qualquer porta
+```
+
+Duas regras, que existem por erro já cometido aqui:
+
+- **Nunca matar processo que não é nosso.** Dono é o diretório de trabalho do
+  processo, não a porta. `parar` recusa tocar em PID de outro repositório.
+- **Nunca cair em outra porta em silêncio.** Porta tomada por terceiro é erro
+  com nome e PID; servidor em porta que ninguém sabe qual é já desorientou uma
+  vez, e um órfão deste repo foi encontrado servindo código velho na 8123.
+
+Não suba servidor com `uvicorn` direto pelo Bash: ele escapa dessa checagem e
+sobrevive à sessão.
 
 ## Armadilhas da CVM
 
