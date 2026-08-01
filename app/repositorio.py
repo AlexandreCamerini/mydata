@@ -526,13 +526,17 @@ def atualizar_execucao(sink: Sink, exec_id: int, **campos: Any) -> None:
     )
 
 
-def execucoes(sink: Sink, limite: int = 50, dataset_chave: str | None = None) -> list[dict]:
+def execucoes(sink: Sink, limite: int = 50, dataset_chave: str | None = None,
+              status: list[str] | None = None) -> list[dict]:
+    onde, params = [], []
     if dataset_chave:
-        return sink.consultar(
-            "SELECT * FROM log_execucao WHERE dataset_chave = ? "
-            "ORDER BY id DESC LIMIT ?",
-            (dataset_chave, limite),
-        )
+        onde.append("dataset_chave = ?")
+        params.append(dataset_chave)
+    if status:
+        onde.append(f"status IN ({','.join('?' for _ in status)})")
+        params += status
+    filtro = f"WHERE {' AND '.join(onde)} " if onde else ""
     return sink.consultar(
-        "SELECT * FROM log_execucao ORDER BY id DESC LIMIT ?", (limite,)
+        f"SELECT * FROM log_execucao {filtro}ORDER BY id DESC LIMIT ?",
+        (*params, limite),
     )

@@ -347,3 +347,17 @@ def test_meta_classes_declara_a_precedencia(cliente):
     assert empresa["precedencia"] == ["cvm_cadastro", "b3", "cvm_dfp_empresa"]
     atributo = {a["nome"]: a for a in empresa["atributos"]}["denom_social"]
     assert atributo["precedencia"] == ["cvm_cadastro", "cvm_dfp_empresa"]
+
+
+def test_meta_execucoes_filtra_por_status(cliente):
+    """O painel do operador pergunta 'o que quebrou'; o filtro responde sem
+    trazer o histórico inteiro."""
+    r = cliente.get("/v1/meta/execucoes")
+    assert r.status_code == 200
+    todas = r.json()["dados"]
+    assert len(todas) >= 2, "a fixture ingeriu DFP e cadastro"
+    assert {"id", "dataset_chave", "status", "iniciado_em"} <= set(todas[0])
+
+    r = cliente.get("/v1/meta/execucoes", params={"status": "falha,bloqueada"})
+    assert r.status_code == 200
+    assert all(e["status"] in ("falha", "bloqueada") for e in r.json()["dados"])

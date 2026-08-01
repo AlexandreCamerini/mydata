@@ -553,6 +553,23 @@ async def meta_linhagem(
         ) from e
 
 
+@app.get("/v1/meta/execucoes", tags=["catálogo"])
+async def meta_execucoes(
+    request: Request,
+    dataset: str | None = None,
+    status: str | None = Query(
+        None, description="Filtra por status, separados por vírgula "
+                          "(ex.: falha,bloqueada)"),
+    limite: int = Query(50, ge=1, le=200),
+    _chave: dict = Depends(exigir_chave),
+) -> Any:
+    """O que rodou e o que quebrou. É o que o painel do operador lê para
+    responder 'o que falhou' sem abrir o banco."""
+    sink = obter_sink(request)
+    lista = [s.strip() for s in (status or "").split(",") if s.strip()]
+    return {"dados": repo.execucoes(sink, limite, dataset, lista or None)}
+
+
 @app.get("/v1/meta/execucoes/{execucao_id}/fases", tags=["catálogo"])
 async def meta_fases(
     execucao_id: int, request: Request, _chave: dict = Depends(exigir_chave)

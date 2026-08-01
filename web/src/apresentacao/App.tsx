@@ -5,13 +5,16 @@ import { useEffect, useState } from "react";
 import { Busca } from "./Busca";
 import { Demonstracoes } from "./Demonstracoes";
 import { Ficha } from "./Ficha";
+import { Operador } from "./Operador";
 
 type Rota =
   | { tela: "busca" }
   | { tela: "empresa"; cd_cvm: number }
-  | { tela: "demonstracoes"; cd_cvm: number };
+  | { tela: "demonstracoes"; cd_cvm: number }
+  | { tela: "operador" };
 
 function rotaAtual(): Rota {
+  if (window.location.hash.startsWith("#/operador")) return { tela: "operador" };
   const dem = window.location.hash.match(/^#\/empresa\/(\d+)\/demonstracoes/);
   if (dem) return { tela: "demonstracoes", cd_cvm: Number(dem[1]) };
   const m = window.location.hash.match(/^#\/empresa\/(\d+)/);
@@ -30,11 +33,13 @@ export function App() {
 
   useEffect(() => {
     document.title =
-      rota.tela === "demonstracoes"
-        ? `Demonstrações ${rota.cd_cvm} — MyData`
-        : rota.tela === "empresa"
-          ? `Companhia ${rota.cd_cvm} — MyData`
-          : "MyData — companhias abertas";
+      rota.tela === "operador"
+        ? "Operador — MyData"
+        : rota.tela === "demonstracoes"
+          ? `Demonstrações ${rota.cd_cvm} — MyData`
+          : rota.tela === "empresa"
+            ? `Companhia ${rota.cd_cvm} — MyData`
+            : "MyData — companhias abertas";
   }, [rota]);
 
   return (
@@ -57,12 +62,20 @@ export function App() {
                 Dado da fonte oficial, com proveniência em cada número.
               </p>
             </div>
-            <a
-              href="/admin/"
-              className="text-xs text-tinta-suave underline decoration-dotted whitespace-nowrap"
-            >
-              administração
-            </a>
+            <nav aria-label="Operação" className="flex gap-4 whitespace-nowrap">
+              <a
+                href="#/operador"
+                className="text-xs text-tinta-suave underline decoration-dotted"
+              >
+                operador
+              </a>
+              <a
+                href="/admin/"
+                className="text-xs text-tinta-suave underline decoration-dotted"
+              >
+                administração
+              </a>
+            </nav>
           </div>
         </header>
 
@@ -72,6 +85,7 @@ export function App() {
           {rota.tela === "demonstracoes" && (
             <Demonstracoes cd_cvm={rota.cd_cvm} />
           )}
+          {rota.tela === "operador" && <Operador />}
         </main>
       </div>
     </>

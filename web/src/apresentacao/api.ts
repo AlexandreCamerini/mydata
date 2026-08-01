@@ -124,6 +124,80 @@ export type Trimestre = {
   proveniencia: Proveniencia;
 };
 
+export type Frescor = {
+  classe: string;
+  nome: string;
+  tabela: string;
+  fontes: string[];
+  sla_horas: number | null;
+  idade_horas: number | null;
+  situacao: "em_dia" | "atrasada" | "sem_carga";
+  ultima_publicacao: {
+    id: number;
+    dataset_chave: string;
+    janela: string;
+    terminado_em: string | null;
+  } | null;
+  ultima_falha: {
+    id: number;
+    dataset_chave: string;
+    janela: string;
+    status: string;
+    erro: string | null;
+    terminado_em: string | null;
+  } | null;
+};
+
+export type Execucao = {
+  id: number;
+  dataset_chave: string;
+  janela: string;
+  status: string;
+  trigger_tipo: string | null;
+  iniciado_em: string;
+  terminado_em: string | null;
+  capturas: number | null;
+  linhas_silver: number | null;
+  erro: string | null;
+};
+
+export type FaseExecucao = {
+  fase: string;
+  iniciado_em: string;
+  terminado_em: string | null;
+  duracao_ms: number | null;
+};
+
+export type OrigemLinhagem = {
+  dataset: string;
+  fonte: { chave: string; url_template: string | null };
+  coluna_de_origem: string | null;
+  formato: string | null;
+  expressao: string | null;
+  colunas_que_usa: string[];
+  capturas_recentes: {
+    id: number;
+    nome_arquivo: string;
+    url: string | null;
+    sha256: string;
+    capturado_em: string;
+    tamanho_bytes: number | null;
+  }[];
+  regras: { nome: string; severidade: string; descricao: string | null }[];
+};
+
+export type Linhagem = {
+  classe: string;
+  atributo: string;
+  tipo: string;
+  descricao: string | null;
+  disputado: boolean;
+  precedencia: string[];
+  origens: OrigemLinhagem[];
+  vistas: string[];
+  publicacao_atual: number | null;
+};
+
 export const api = {
   empresas: (f: FiltrosEmpresas) => {
     const p = new URLSearchParams();
@@ -165,6 +239,25 @@ export const api = {
     }
     return linhas;
   },
+
+  frescor: () => pedir<{ dados: Frescor[] }>("/v1/meta/frescor"),
+  execucoes: (f: { status?: string; limite?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (f.status) p.set("status", f.status);
+    if (f.limite) p.set("limite", String(f.limite));
+    const qs = p.toString();
+    return pedir<{ dados: Execucao[] }>(
+      `/v1/meta/execucoes${qs ? `?${qs}` : ""}`,
+    );
+  },
+  fases: (execucao_id: number) =>
+    pedir<{ dados: FaseExecucao[] }>(
+      `/v1/meta/execucoes/${execucao_id}/fases`,
+    ),
+  linhagem: (classe: string, atributo: string) =>
+    pedir<{ dados: Linhagem }>(
+      `/v1/meta/linhagem?classe=${encodeURIComponent(classe)}&atributo=${encodeURIComponent(atributo)}`,
+    ),
 
   trimestres: (
     cd_cvm: number,
