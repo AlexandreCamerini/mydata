@@ -75,6 +75,12 @@ export function App() {
               >
                 administração
               </a>
+              <a
+                href="/sair"
+                className="text-xs text-tinta-suave underline decoration-dotted"
+              >
+                sair
+              </a>
             </nav>
           </div>
         </header>

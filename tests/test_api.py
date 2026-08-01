@@ -361,3 +361,65 @@ def test_meta_execucoes_filtra_por_status(cliente):
     r = cliente.get("/v1/meta/execucoes", params={"status": "falha,bloqueada"})
     assert r.status_code == 200
     assert all(e["status"] in ("falha", "bloqueada") for e in r.json()["dados"])
+
+
+# --------------------------------------------------------------------------
+# Acesso à apresentação (Fase 5)
+# --------------------------------------------------------------------------
+def test_v1_aceita_sessao_de_admin_sem_chave(cliente, monkeypatch):
+    """A apresentação lê /v1 sob a sessão do dono: nenhuma chave de API
+    existe no navegador, e o cookie HttpOnly é a credencial."""
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "segredo-de-teste")
+
+    # Sem chave e sem sessão: 401, como sempre.
+    r = cliente.get("/v1/empresas", headers={"X-API-Key": ""})
+    assert r.status_code == 401
+
+    # Entrar com token errado não cria sessão.
+    r = cliente.post("/entrar", data={"token": "errado"})
+    assert r.status_code == 401
+    assert "portal_sessao" not in cliente.cookies
+
+    # Entrar com o token cria o cookie HttpOnly e volta para a raiz.
+    r = cliente.post("/entrar", data={"token": "segredo-de-teste"},
+                     follow_redirects=False)
+    assert r.status_code == 303
+    assert "httponly" in r.headers["set-cookie"].lower()
+    assert "portal_sessao" in cliente.cookies
+
+    # Com a sessão, /v1 responde sem chave nenhuma.
+    r = cliente.get("/v1/empresas", headers={"X-API-Key": ""})
+    assert r.status_code == 200, r.text
+    assert r.json()["total"] >= 1
+
+    # Sair derruba a sessão.
+    cliente.get("/sair", follow_redirects=False)
+    r = cliente.get("/v1/empresas", headers={"X-API-Key": ""})
+    assert r.status_code == 401
+
+
+def test_apresentacao_responde_401_sem_sessao(cliente, monkeypatch):
+    from app.api.main import RAIZ_WEB
+
+    if not RAIZ_WEB.exists():
+        pytest.skip("front não construído neste ambiente")
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "segredo-de-teste")
+
+    r = cliente.get("/")
+    assert r.status_code == 401
+    assert "Entrar" in r.text and "token" in r.text.lower()
+
+    cliente.post("/entrar", data={"token": "segredo-de-teste"})
+    r = cliente.get("/")
+    assert r.status_code == 200
+    assert "apresentacao" in r.text or "root" in r.text
+
+
+def test_sem_token_configurado_a_raiz_fica_aberta(cliente):
+    """Dev local: sem PORTAL_ADMIN_TOKEN, nada de login — o mesmo contrato
+    do admin."""
+    from app.api.main import RAIZ_WEB
+
+    if not RAIZ_WEB.exists():
+        pytest.skip("front não construído neste ambiente")
+    assert cliente.get("/").status_code == 200

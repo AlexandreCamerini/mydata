@@ -84,6 +84,29 @@ def erro(codigo: str, mensagem: str, status: int, detalhe: Any = None) -> JSONRe
     )
 
 
+def _admin_ok(valor: str | None) -> bool:
+    """O valor confere com PORTAL_ADMIN_TOKEN? Sem a variável, não há sessão
+    de admin — o modo aberto de dev é PORTAL_API_ABERTA, não isto."""
+    import hmac
+
+    esperado = os.getenv("PORTAL_ADMIN_TOKEN")
+    if not esperado or not valor:
+        return False
+    return hmac.compare_digest(valor, esperado)
+
+
+def sessao_admin(request: Request) -> bool:
+    """Sessão do dono: cookie HttpOnly criado em /entrar, ou o header que o
+    admin já usa. O navegador nunca vê chave de API — a sessão é a credencial,
+    e o servidor responde por ela perante /v1."""
+    return _admin_ok(request.cookies.get(COOKIE_SESSAO)) or _admin_ok(
+        request.headers.get("X-Admin-Token")
+    )
+
+
+COOKIE_SESSAO = "portal_sessao"
+
+
 async def exigir_chave(
     request: Request,
     response: Response,
@@ -93,6 +116,11 @@ async def exigir_chave(
     sink = obter_sink(request)
     if os.getenv("PORTAL_API_ABERTA") == "1" and not x_api_key:
         return {"prefixo": "aberta", "consumidor": "dev", "escopos": "leitura"}
+    # A apresentação lê /v1 sob a sessão do dono: mesma leitura que uma chave
+    # de escopo total, sem quota — é o dono — e sem chave alguma no navegador.
+    if not x_api_key and sessao_admin(request):
+        return {"prefixo": "admin", "consumidor": "apresentacao",
+                "escopos": "leitura"}
     chave = auth.verificar(sink, x_api_key)
     if chave is None:
         raise HTTPException(
@@ -583,6 +611,74 @@ async def meta_fases(
 # --------------------------------------------------------------------------
 app.include_router(admin.router)
 
+# ---------------------------------------------------------------------------
+# Acesso à apresentação. Ela é do dono, não pública: com PORTAL_ADMIN_TOKEN
+# definido, a raiz exige a sessão criada em /entrar. O token vira cookie
+# HttpOnly — JavaScript não o lê, localStorage não o guarda, e nenhuma chave
+# de API existe do lado do navegador.
+# ---------------------------------------------------------------------------
+PAGINA_ENTRAR = """<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Entrar — MyData</title>
+<style>
+ body {{ font-family: system-ui, sans-serif; display: grid; place-items: center;
+        min-height: 100vh; margin: 0; background: #fafaf9; color: #1c1917; }}
+ form {{ background: #fff; border: 1px solid #d6d3d1; border-radius: 6px;
+        padding: 2rem; max-width: 22rem; width: 100%; }}
+ label {{ display: block; font-weight: 600; margin-bottom: .5rem; }}
+ input {{ width: 100%; box-sizing: border-box; padding: .5rem; font-size: 1rem;
+         border: 1px solid #d6d3d1; border-radius: 4px; margin-bottom: 1rem; }}
+ button {{ background: #1c1917; color: #fff; border: 0; border-radius: 4px;
+          padding: .5rem 1rem; font-size: 1rem; cursor: pointer; }}
+ p.erro {{ color: #b91c1c; }}
+</style></head>
+<body>
+<form method="post" action="/entrar">
+  <h1 style="font-size:1.1rem">MyData</h1>
+  <p style="font-size:.9rem;color:#57534e">A apresentação é privada.
+  Informe o token de administração para entrar.</p>
+  {erro}
+  <label for="token">Token</label>
+  <input id="token" name="token" type="password" autocomplete="current-password" required>
+  <button type="submit">Entrar</button>
+</form>
+</body></html>"""
+
+
+def _pagina_entrar(erro: str = "", status: int = 401) -> Response:
+    corpo = PAGINA_ENTRAR.format(
+        erro=f'<p class="erro" role="alert">{erro}</p>' if erro else ""
+    )
+    return Response(content=corpo, status_code=status, media_type="text/html")
+
+
+@app.post("/entrar", include_in_schema=False)
+async def entrar(request: Request):
+    # Sem python-multipart de propósito: um campo urlencoded não justifica
+    # dependência nova.
+    from urllib.parse import parse_qs
+
+    corpo = parse_qs((await request.body()).decode())
+    token = (corpo.get("token") or [""])[0]
+    if not _admin_ok(token):
+        return _pagina_entrar("Token inválido.")
+    resposta = Response(status_code=303, headers={"Location": "/"})
+    resposta.set_cookie(
+        COOKIE_SESSAO, token, httponly=True, samesite="lax",
+        secure=request.url.scheme == "https", path="/",
+        max_age=60 * 60 * 24 * 30,
+    )
+    return resposta
+
+
+@app.get("/sair", include_in_schema=False)
+async def sair():
+    resposta = Response(status_code=303, headers={"Location": "/"})
+    resposta.delete_cookie(COOKIE_SESSAO, path="/")
+    return resposta
+
+
 if RAIZ_WEB.exists():
     app.mount("/admin", StaticFiles(directory=str(RAIZ_WEB), html=True), name="admin")
 
@@ -590,7 +686,9 @@ if RAIZ_WEB.exists():
     # /admin. Mesmo build, mesmo serviço; os assets das duas superfícies
     # saem pelo mount /admin.
     @app.get("/", include_in_schema=False)
-    async def raiz():
+    async def raiz(request: Request):
+        if os.getenv("PORTAL_ADMIN_TOKEN") and not sessao_admin(request):
+            return _pagina_entrar()
         pagina = RAIZ_WEB / "apresentacao.html"
         if not pagina.exists():
             pagina = RAIZ_WEB / "index.html"
