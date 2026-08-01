@@ -215,3 +215,67 @@ def test_api_sem_configuracao_responde_503_e_nao_500(tmp_path, monkeypatch):
         r = c.get("/v1/empresas")
     assert r.status_code == 503
     assert r.json()["erro"]["codigo"] == "gold_indisponivel"
+
+
+# --------------------------------------------------------------------------
+# Recriar vista quando o conjunto de colunas muda
+# --------------------------------------------------------------------------
+def test_vista_e_recriada_quando_as_colunas_mudam(sink_cvm):
+    """Classe que ganha atributo novo muda as colunas da vista. No Postgres,
+    `CREATE OR REPLACE VIEW` recusa isso — foi como um deploy parou de subir
+    depois que a B3 acrescentou `ticker` a `empresa`."""
+    sink_cvm.executar("CREATE OR REPLACE VIEW v_teste AS SELECT 1 AS antigo")
+    publicacao.definir_vista(sink_cvm, "v_teste", "SELECT 2 AS novo, 3 AS outro")
+    linha = sink_cvm.um("SELECT * FROM v_teste")
+    assert linha == {"novo": 2, "outro": 3}
+
+
+def test_vista_recriada_quando_o_replace_e_recusado():
+    """O caminho que só o Postgres percorre, provado sem Postgres: o sink
+    finge a recusa e a vista tem de ser dropada e recriada.
+
+    Sem isto o teste passaria em DuckDB — que aceita a substituição — e o
+    defeito continuaria invisível fora de produção.
+    """
+    class SinkQueRecusaReplace:
+        """Recusa CREATE OR REPLACE, como o Postgres faz quando as colunas
+        mudam, e registra o que foi executado."""
+
+        dialeto = "postgres"
+
+        def __init__(self):
+            self.executados: list[str] = []
+
+        def executar(self, sql, params=()):
+            self.executados.append(sql)
+            if sql.startswith("CREATE OR REPLACE VIEW"):
+                raise RuntimeError(
+                    'cannot change name of view column "captura_id" to "ticker"'
+                )
+
+    sink = SinkQueRecusaReplace()
+    publicacao.definir_vista(sink, "gold_empresa", "SELECT 1 AS ticker")
+
+    assert sink.executados == [
+        "CREATE OR REPLACE VIEW gold_empresa AS SELECT 1 AS ticker",
+        "DROP VIEW IF EXISTS gold_empresa CASCADE",
+        "CREATE VIEW gold_empresa AS SELECT 1 AS ticker",
+    ]
+
+
+def test_publicar_refaz_o_ponteiro_derrubado_pelo_cascade(sink_cvm, monkeypatch):
+    """`gold_x` aponta para `gold_x_vN`; recriar a versionada com CASCADE
+    derruba o ponteiro. A publicação tem de deixá-lo de pé no fim."""
+    ingestao.executar(
+        sink_cvm, "cvm_cadastro", "atual",
+        baixar=lambda url: (
+            "CNPJ_CIA;DENOM_SOCIAL;DENOM_COMERC;DT_REG;SETOR_ATIV;SIT;"
+            "CONTROLE_ACIONARIO;UF;MUN;CD_CVM\n"
+            "00.000.000/0001-00;TESTE S.A.;TESTE;1999-05-10;"
+            "Petróleo e Gás;ATIVO;Estatal;RJ;RIO DE JANEIRO;9512\n"
+        ).encode("latin-1"),
+    )
+    versao = publicacao.publicar(sink_cvm)
+    for nome in publicacao.vistas(sink_cvm):
+        assert sink_cvm.consultar(f"SELECT * FROM {nome} LIMIT 1") is not None
+        assert sink_cvm.consultar(f"SELECT * FROM {nome}_v{versao} LIMIT 1") is not None

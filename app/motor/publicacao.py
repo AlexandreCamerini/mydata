@@ -87,6 +87,26 @@ def versao_atual(sink: Sink) -> int:
     return int(linha["v"]) if linha and linha["v"] is not None else 0
 
 
+def definir_vista(sink: Sink, nome: str, corpo: str) -> None:
+    """Cria a vista, recriando-a quando o conjunto de colunas mudou.
+
+    `CREATE OR REPLACE VIEW` do Postgres só admite acrescentar coluna ao
+    final: renomear ou reordenar é recusado. Uma classe que ganha atributo
+    novo muda exatamente isso — foi o que aconteceu quando a B3 acrescentou
+    `ticker` e `segmento_listagem` a `empresa`, e o boot parou de subir. O
+    DuckDB aceita a substituição, então o defeito só aparecia em produção.
+
+    A vista é derivada por construção: dropar e recriar não perde nada.
+    `CASCADE` derruba quem depende dela, e quem chama recria a dependente na
+    sequência.
+    """
+    try:
+        sink.executar(f"CREATE OR REPLACE VIEW {nome} AS {corpo}")
+    except Exception:  # noqa: BLE001 — o erro real reaparece no CREATE abaixo
+        sink.executar(f"DROP VIEW IF EXISTS {nome} CASCADE")
+        sink.executar(f"CREATE VIEW {nome} AS {corpo}")
+
+
 def garantir_ponteiros(sink: Sink) -> int:
     """Garante que gold existe, apontando para a publicação corrente.
 
@@ -96,9 +116,7 @@ def garantir_ponteiros(sink: Sink) -> int:
     """
     versao = versao_atual(sink)
     for nome, corpo in vistas(sink).items():
-        sink.executar(
-            f"CREATE OR REPLACE VIEW {nome} AS " + corpo.replace("{V}", str(versao))
-        )
+        definir_vista(sink, nome, corpo.replace("{V}", str(versao)))
     return versao
 
 
@@ -114,9 +132,10 @@ def publicar(
             (nova,),
         )
     for nome, corpo in vistas(sink).items():
-        sink.executar(f"CREATE OR REPLACE VIEW {nome}_v{nova} AS "
-                      + corpo.replace("{V}", str(nova)))
-        sink.executar(f"CREATE OR REPLACE VIEW {nome} AS SELECT * FROM {nome}_v{nova}")
+        # A versionada primeiro: recriá-la derruba o ponteiro que aponta para
+        # ela, e a linha seguinte o refaz.
+        definir_vista(sink, f"{nome}_v{nova}", corpo.replace("{V}", str(nova)))
+        definir_vista(sink, nome, f"SELECT * FROM {nome}_v{nova}")
     sink.executar(
         "INSERT INTO publicacao (versao, execucao_id, observacao) VALUES (?,?,?)",
         (nova, execucao_id, observacao),
