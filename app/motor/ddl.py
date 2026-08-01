@@ -277,9 +277,10 @@ def sql_vista_resolvida(
         {d for ds in mapa.values() for d in ds}
     )
 
-    def preferir(coluna: str, fontes: list[str]) -> str:
+    def preferir(coluna: str, fontes: list[str], tipo: str | None = None) -> str:
+        agregador = "BOOL_OR" if tipo == "booleano" else "MAX"
         partes = [
-            f"MAX(CASE WHEN origem_dataset = '{f}' THEN {coluna} END)"
+            f"{agregador}(CASE WHEN origem_dataset = '{f}' THEN {coluna} END)"
             for f in fontes
         ]
         return partes[0] if len(partes) == 1 else f"COALESCE({', '.join(partes)})"
@@ -292,7 +293,7 @@ def sql_vista_resolvida(
         fontes = precedencia_do_atributo(classe, a, mapa.get(nome, []))
         if not fontes:
             continue
-        campos.append(f"{preferir(nome, fontes)} AS {nome}")
+        campos.append(f"{preferir(nome, fontes, a.get('tipo'))} AS {nome}")
         if len(fontes) > 1:
             # Só atributo disputado ganha coluna de origem: para os demais
             # ela seria uma constante repetida em toda linha.
