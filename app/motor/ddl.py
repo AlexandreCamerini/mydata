@@ -277,11 +277,19 @@ def sql_vista_resolvida(
         {d for ds in mapa.values() for d in ds}
     )
 
-    def preferir(coluna: str, fontes: list[str]) -> str:
-        partes = [
-            f"MAX(CASE WHEN origem_dataset = '{f}' THEN {coluna} END)"
-            for f in fontes
-        ]
+    def escolher(coluna: str, tipo: str, fonte: str) -> str:
+        """Pega o valor desta fonte dentro do grupo da identidade.
+
+        Há uma linha por (identidade, fonte), então qualquer agregado que
+        ignore NULL devolve o valor daquela fonte. `MAX` seria o natural, mas
+        o Postgres não o define para booleano — e a classe `empresa` tem
+        `listada_b3`. `BOOL_OR` faz o mesmo papel nos dois dialetos.
+        """
+        agregado = "BOOL_OR" if tipo == "booleano" else "MAX"
+        return f"{agregado}(CASE WHEN origem_dataset = '{fonte}' THEN {coluna} END)"
+
+    def preferir(coluna: str, tipo: str, fontes: list[str]) -> str:
+        partes = [escolher(coluna, tipo, f) for f in fontes]
         return partes[0] if len(partes) == 1 else f"COALESCE({', '.join(partes)})"
 
     campos = list(identidade)
@@ -292,18 +300,19 @@ def sql_vista_resolvida(
         fontes = precedencia_do_atributo(classe, a, mapa.get(nome, []))
         if not fontes:
             continue
-        campos.append(f"{preferir(nome, fontes)} AS {nome}")
+        campos.append(f"{preferir(nome, a['tipo'], fontes)} AS {nome}")
         if len(fontes) > 1:
             # Só atributo disputado ganha coluna de origem: para os demais
             # ela seria uma constante repetida em toda linha.
             caso = " ".join(
-                f"WHEN MAX(CASE WHEN origem_dataset = '{f}' THEN {nome} END) "
-                f"IS NOT NULL THEN '{f}'"
+                f"WHEN {escolher(nome, a['tipo'], f)} IS NOT NULL THEN '{f}'"
                 for f in fontes
             )
             campos.append(f"CASE {caso} END AS {nome}{SUFIXO_ORIGEM}")
-    campos.append(f"{preferir('captura_id', ordem_classe)} AS captura_id")
-    campos.append(f"{preferir('fonte_arquivo', ordem_classe)} AS fonte_arquivo")
+    campos.append(f"{preferir('captura_id', 'inteiro', ordem_classe)} AS captura_id")
+    campos.append(
+        f"{preferir('fonte_arquivo', 'texto', ordem_classe)} AS fonte_arquivo"
+    )
     campos.append("max(publicado_em_versao) AS publicado_em_versao")
 
     return (

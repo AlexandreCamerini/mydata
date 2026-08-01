@@ -223,3 +223,27 @@ def test_api_informa_a_origem_por_atributo(tmp_path, monkeypatch, zip_dfp, csv_c
     assert dado["proveniencia"]["por_atributo"]["denom_social"] == "cvm_cadastro"
     # A origem não vaza como campo solto ao lado do dado.
     assert "denom_social_origem" not in dado
+
+
+def test_vista_resolvida_nao_agrega_booleano_com_max(sink_cvm):
+    """`MAX(boolean)` funciona no DuckDB e não existe no Postgres — foi assim
+    que uma migração passou em teste e derrubou o boot em produção. A vista
+    usa BOOL_OR para os atributos booleanos, que os dois dialetos entendem.
+
+    A asserção é sobre o SQL gerado, de propósito: assim ela vale mesmo na
+    suíte que roda só em DuckDB, onde a diferença é invisível.
+    """
+    import re
+
+    classe = repo.classe_vigente(sink_cvm, "empresa")
+    atributos = repo.atributos_de(sink_cvm, classe["id"])
+    booleanos = [a["nome"] for a in atributos if a["tipo"] == "booleano"]
+    assert booleanos, "a classe empresa tem listada_b3; sem ele o teste não prova nada"
+
+    sql = ddl.sql_vista_resolvida(sink_cvm, classe, atributos)
+    assert sql is not None
+    for nome in booleanos:
+        assert not re.search(rf"MAX\(CASE WHEN [^)]*THEN {nome} END\)", sql), (
+            f"'{nome}' é booleano e está sob MAX — o Postgres recusa"
+        )
+        assert f"BOOL_OR(CASE WHEN origem_dataset = " in sql
