@@ -61,6 +61,14 @@ export function Ficha({ cd_cvm }: { cd_cvm: number }) {
             <span>· publicação v{e.proveniencia.publicacao}</span>
           )}
         </p>
+        <p className="mt-2">
+          <a
+            href={`#/empresa/${e.cd_cvm}/demonstracoes`}
+            className="text-sm font-medium underline decoration-dotted"
+          >
+            Demonstrações financeiras →
+          </a>
+        </p>
       </header>
 
       <section aria-labelledby="dados-cadastrais">
