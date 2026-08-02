@@ -16,6 +16,26 @@ Auth: pass `token=` to the constructor, or set the BRAPI_TOKEN environment
 variable. The four sandbox tickers (PETR4, MGLU3, VALE3, ITUB4) work
 unauthenticated for the quote endpoint; most other endpoints require a token
 on brapi's free plan.
+
+Underlying data sources and freshness (brapi is an aggregator, not the
+primary source — treat it as a convenience cache, not ground truth for
+anything that matters):
+
+    | Service                          | Primary source        | Freshness                     |
+    |-----------------------------------|------------------------|--------------------------------|
+    | quote (stock price)               | B3                     | delayed by plan: free ~30min, startup ~15min, pro ~5min |
+    | quote fundamentals (BP/DRE/DFC/DVA)| CVM                   | quarterly (CVM's own filing cadence) |
+    | financial indices                 | Yahoo Finance          | not confirmed                 |
+    | currency (FX)                     | awesomeapi + BCB/forex | not confirmed                 |
+    | inflation, prime_rate             | BCB                    | not confirmed (BCB series are typically D-1) |
+    | crypto                            | not confirmed          | not confirmed                 |
+
+    Confidence: MEDIUM. brapi.dev's docs/FAQ pages return HTTP 403 to direct
+    fetches from this codebase's dev environment (bot protection), so this
+    table is built from search-indexed snippets of their FAQ
+    (brapi.dev/faq/fonte-de-dados, brapi.dev/faq/qual-a-frequencia), not a
+    verified read of the full page. Re-confirm against the live FAQ or a
+    real API response before relying on this for a product decision.
 """
 
 from __future__ import annotations

@@ -28,6 +28,26 @@ direct fetches from this environment — the endpoint/param names here come
 from search-indexed doc snippets, cross-checked but not hit live). If you add
 typed models later, verify field names against real API responses first.
 
+**brapi is an aggregator, not a primary source.** Don't treat it as ground
+truth for anything that matters — it re-publishes data from elsewhere, on its
+own delay:
+
+| Service | Primary source | Freshness |
+|---|---|---|
+| quote (stock price) | B3 | delayed by plan: free ~30min, startup ~15min, pro ~5min |
+| quote fundamentals (BP/DRE/DFC/DVA) | CVM | quarterly (CVM's filing cadence) |
+| financial indices | Yahoo Finance | not confirmed |
+| currency (FX) | awesomeapi + BCB/forex | not confirmed |
+| inflation, prime_rate | BCB | not confirmed (BCB series are typically D-1) |
+| crypto | not confirmed | not confirmed |
+
+Confidence: MEDIUM, same caveat as above — this comes from search-indexed
+snippets of brapi.dev's FAQ (`/faq/fonte-de-dados`, `/faq/qual-a-frequencia`),
+not a verified read of the live page. Re-confirm before a decision leans on
+it. (Full table with the same caveat is duplicated in `client.py`'s module
+docstring, right where the endpoints that pull this data are defined —
+update both together if you re-verify it.)
+
 ## Setup
 
 ```bash
