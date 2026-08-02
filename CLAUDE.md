@@ -2,25 +2,82 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Repository status
+## Structure
 
-`scrap` is currently an empty scaffold repository. The only tracked file is `README.md`, which contains just the title `# scrap`. There is no source code, build tooling, package manifest, test suite, or CI configuration yet.
+```
+scrap/
+├── brapi_client/       # the package
+│   ├── client.py       # BrapiClient — one method per brapi.dev endpoint family
+│   ├── exceptions.py   # BrapiError and its HTTP-status-specific subclasses
+│   └── __init__.py     # public exports
+├── tests/
+│   └── test_client.py  # all HTTP mocked — no live network calls, no quota burned
+└── pyproject.toml
+```
 
-Because there is no established structure, workflow, or convention to document, this file intentionally stays minimal. **Update this file as soon as real content is added** — see the checklist below.
+`brapi_client` is a thin wrapper around [brapi.dev](https://brapi.dev), a free
+API for B3 (Brazilian stock exchange) market data. It covers every service
+family the API exposes: ações (quote/list/available), opções, criptomoedas,
+moedas (FX), inflação, and taxa básica de juros (SELIC/prime rate).
 
-## When this repo gains real content
+**Deliberate design choice**: responses are returned as raw parsed JSON, not
+typed dataclasses. brapi's response shape varies with request flags
+(`modules`, `fundamental`, `dividends`) and asset type, and modeling that
+precisely wasn't verified against real payloads (brapi.dev's docs site blocks
+direct fetches from this environment — the endpoint/param names here come
+from search-indexed doc snippets, cross-checked but not hit live). If you add
+typed models later, verify field names against real API responses first.
 
-The next time meaningful code, docs, or tooling land here, refresh this file to cover:
+## Setup
 
-- **Structure**: top-level layout and what each major directory/module is for.
-- **Setup**: how to install dependencies and any required environment/config.
-- **Build/run**: the commands to build and run the project locally.
-- **Test**: how to run the test suite (and a single test, if applicable).
-- **Lint/format**: any linters, formatters, or type checkers in use, and how to invoke them.
-- **Conventions**: naming, file organization, or architectural patterns specific to this repo.
-- **Branching/PR workflow**: if this repo adopts conventions beyond standard git flow.
+```bash
+pip install -e ".[dev]"
+```
 
-## Working here today
+Requires Python >=3.10. Only third-party runtime dependency is `requests`.
 
-- There's nothing to build, run, or test yet — verify before assuming standard scaffolding (e.g. `package.json`, `pyproject.toml`) exists; it currently does not.
-- Prefer extending `README.md` with a real project description once the purpose of the repo is decided.
+Auth: pass `token=` to `BrapiClient(...)`, or set `BRAPI_TOKEN` in the
+environment. The quote endpoint works unauthenticated for brapi's four
+sandbox tickers (PETR4, MGLU3, VALE3, ITUB4); most other endpoints need a
+token on brapi's free plan.
+
+## Test
+
+```bash
+python3 -m pytest tests/ -v          # all tests
+python3 -m pytest tests/test_client.py::test_quote_single_ticker  # one test
+```
+
+Tests mock `requests.Session.get` (via `unittest.mock`) — none of them touch
+the network. Keep it that way: hitting the real API from tests would burn
+the free-tier quota just from running `pytest` and make CI flaky/rate-limited.
+
+## Build/run
+
+No build step — it's a plain importable package (`from brapi_client import
+BrapiClient`). Nothing else lives in this repo to run.
+
+## Lint/format
+
+None configured yet. If you add one, prefer `ruff` (format + lint in one
+tool) over a black+flake8+isort stack, and document the invocation here.
+
+## Conventions
+
+- One public method per brapi.dev endpoint, named after what it returns
+  (`quote`, `crypto`, `prime_rate`), not after the HTTP path.
+- Endpoint methods accept confirmed parameters explicitly (typed, with
+  docstrings) and pass through anything else via `**extra` — don't guess at
+  undocumented parameter names by hardcoding them; let the caller pass them
+  through instead.
+- All retry/backoff/error-mapping logic lives in `BrapiClient._get` — new
+  endpoint methods should call `self._get(path, params)` rather than
+  reimplementing HTTP handling.
+- `snake_case` on the Python side is mapped to brapi's actual `camelCase`
+  query params (e.g. `sort_by` → `sortBy`) inside the method, not pushed onto
+  callers.
+
+## Branching/PR workflow
+
+Standard git flow — no repo-specific conventions beyond what's in this
+session's branch/PR instructions.
