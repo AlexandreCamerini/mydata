@@ -26,6 +26,70 @@ function ano(dt_refer: string): string {
   return dt_refer.slice(0, 4);
 }
 
+/** A cadeia até o arquivo oficial: quais capturas originaram esta série.
+ *
+ * O número na tabela acima é derivado; este painel é o que permite conferi-lo
+ * contra o que a fonte publicou. Uma captura costuma cobrir vários anos — o
+ * ZIP anual da CVM traz o exercício e os comparativos —, então as linhas são
+ * agrupadas por digital, e não repetidas por ano. */
+function ProvaDoOriginal({ serie }: { serie: Conta[] }) {
+  const porHash = new Map<string, { anos: string[]; p: Conta["proveniencia"] }>();
+  for (const c of serie) {
+    const hash = c.proveniencia?.sha256;
+    if (!hash) continue;
+    const atual = porHash.get(hash) ?? { anos: [], p: c.proveniencia };
+    atual.anos.push(ano(c.dt_refer));
+    porHash.set(hash, atual);
+  }
+  const capturas = [...porHash.entries()];
+  if (capturas.length === 0) return null;
+
+  return (
+    <div>
+      <h3 className="font-medium text-sm mb-2">O arquivo original</h3>
+      <p className="text-xs text-tinta-suave mb-2">
+        Cada número acima foi derivado de um arquivo que a fonte publicou e que
+        está guardado aqui intacto. A digital SHA-256 é o que permite conferir
+        que o guardado é byte a byte o que ela publicou.
+      </p>
+      <Tabela
+        legenda="Capturas que originaram a série, com digital do arquivo oficial"
+        colunas={["Anos", "Arquivo", "SHA-256", "Capturado em", "Publicação"]}
+      >
+        {capturas.map(([hash, { anos, p }]) => (
+          <tr key={hash} className="border-b border-borda last:border-0">
+            <th scope="row" className="text-left px-3 py-1.5 whitespace-nowrap">
+              {[...new Set(anos)].sort().join(", ")}
+            </th>
+            <td className="px-3 py-1.5 text-xs">
+              {p?.url ? (
+                <a
+                  href={p.url}
+                  className="underline decoration-dotted"
+                  rel="noreferrer noopener"
+                >
+                  {p?.arquivo ?? p.url}
+                </a>
+              ) : (
+                (p?.arquivo ?? "—")
+              )}
+            </td>
+            <td className="px-3 py-1.5">
+              <code className="text-[11px] break-all">{hash}</code>
+            </td>
+            <td className="px-3 py-1.5 text-xs whitespace-nowrap">
+              {p?.dt_captura?.slice(0, 19).replace("T", " ") ?? "—"}
+            </td>
+            <td className="px-3 py-1.5 text-xs">
+              {p?.publicacao != null ? `v${p.publicacao}` : "—"}
+            </td>
+          </tr>
+        ))}
+      </Tabela>
+    </div>
+  );
+}
+
 export function Demonstracoes({ cd_cvm }: { cd_cvm: number }) {
   const empresa = useDados(() => api.empresa(cd_cvm), [cd_cvm]);
   const [grupo, setGrupo] = useState("BPA");
@@ -298,6 +362,8 @@ function PainelConta({
           </tr>
         ))}
       </Tabela>
+
+      <ProvaDoOriginal serie={serie} />
 
       <div>
         <h3 className="font-medium text-sm mb-2">

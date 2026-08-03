@@ -35,6 +35,11 @@ async function pedir<T>(caminho: string): Promise<T> {
 export type Proveniencia = {
   fonte?: string;
   url?: string;
+  // O arquivo oficial que originou a linha, e sua digital. É o fim da cadeia:
+  // com o `sha256` dá para conferir que o que está guardado é byte a byte o
+  // que a fonte publicou.
+  arquivo?: string;
+  sha256?: string;
   dt_captura?: string;
   versao_documento?: number | null;
   publicacao?: number | null;
