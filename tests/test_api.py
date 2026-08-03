@@ -310,7 +310,7 @@ def test_meta_classes_declara_a_precedencia(cliente):
     r = cliente.get("/v1/meta/classes")
     classes = {c["chave"]: c for c in r.json()["dados"]}
     empresa = classes["empresa"]
-    assert empresa["precedencia"] == ["cvm_cadastro", "b3", "cvm_dfp_empresa"]
+    assert empresa["precedencia"] == ["cvm_cadastro", "b3_listadas", "cvm_dfp_empresa"]
     atributo = {a["nome"]: a for a in empresa["atributos"]}["denom_social"]
     assert atributo["precedencia"] == ["cvm_cadastro", "cvm_dfp_empresa"]
 

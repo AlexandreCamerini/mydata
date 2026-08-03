@@ -290,7 +290,7 @@ CLASSE_EMPRESA = Classe(
     # fonte de registro; a DFP cobre companhia que publicou balanço e ainda
     # não apareceu no cadastro do dia.
     resolucao="precedencia",
-    precedencia=["cvm_cadastro", "b3", "cvm_dfp_empresa"],
+    precedencia=["cvm_cadastro", "b3_listadas", "cvm_dfp_empresa"],
     atributos=[
         _atr("cd_cvm", "inteiro", obrigatorio=True, ordem=1),
         _atr("cnpj", ordem=2),
@@ -308,16 +308,16 @@ CLASSE_EMPRESA = Classe(
         # Vindos da B3. `listada_b3` é calculado: a presença de ticker é o
         # que responde "negocia em bolsa", e derivar disso evita um campo
         # que possa discordar da própria evidência.
-        _atr("ticker", ordem=11, precedencia=["b3"],
+        _atr("ticker", ordem=11, precedencia=["b3_listadas"],
              descricao="Código de negociação na B3, sem o dígito da espécie."),
-        _atr("nome_pregao", ordem=12, precedencia=["b3"],
+        _atr("nome_pregao", ordem=12, precedencia=["b3_listadas"],
              descricao="Nome curto usado no pregão."),
-        _atr("setor_b3", ordem=13, precedencia=["b3"],
+        _atr("setor_b3", ordem=13, precedencia=["b3_listadas"],
              descricao="Setor de atuação segundo a B3, ex.: Bancos."),
-        _atr("segmento_listagem", ordem=14, precedencia=["b3"],
+        _atr("segmento_listagem", ordem=14, precedencia=["b3_listadas"],
              descricao="Nível de governança: NM (Novo Mercado), N1, N2, MB, "
                        "DR* (BDR). Vazio é o segmento básico."),
-        _atr("dt_listagem", "data", ordem=15, precedencia=["b3"]),
+        _atr("dt_listagem", "data", ordem=15, precedencia=["b3_listadas"]),
         _atr("listada_b3", "booleano", origem="calculado", ordem=16,
              descricao="Tem registro de negociação na B3. Derivado da "
                        "presença de ticker, não declarado à parte."),

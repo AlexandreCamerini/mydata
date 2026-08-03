@@ -247,3 +247,31 @@ def test_vista_resolvida_nao_agrega_booleano_com_max(sink_cvm):
             f"'{nome}' é booleano e está sob MAX — o Postgres recusa"
         )
         assert f"BOOL_OR(CASE WHEN origem_dataset = " in sql
+
+
+def test_precedencia_nomeia_mapeamento_e_nao_fonte(sink_cvm):
+    """Precedência casa contra `origem_dataset`, que é a chave do mapeamento.
+
+    Declarar a chave da *fonte* — `b3` em vez de `b3_listadas` — não dá erro:
+    o nome simplesmente não casa com candidato nenhum e o mapeamento cai para
+    o fim da fila. Foi o que aconteceu com `cnpj`, e o sintoma era invisível.
+    """
+    ofensores = []
+    for classe in repo.listar_classes(sink_cvm, so_ativas=True):
+        mapeamentos = {
+            d["chave"] for d in repo.datasets_da_classe(sink_cvm, classe["chave"])
+        }
+        declarados = [
+            (classe["chave"], "(classe)", n)
+            for n in (classe["precedencia"] or "").split(",") if n
+        ]
+        for a in repo.atributos_de(sink_cvm, classe["id"]):
+            declarados += [
+                (classe["chave"], a["nome"], n)
+                for n in (a["precedencia"] or "").split(",") if n
+            ]
+        ofensores += [
+            f"{c}.{atr}: '{n}' não é mapeamento de '{c}' ({', '.join(sorted(mapeamentos))})"
+            for c, atr, n in declarados if n not in mapeamentos
+        ]
+    assert ofensores == []
