@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import bootstrap, repositorio as repo
-from ..motor import contrato, observabilidade, publicacao
+from ..motor import contrato, correlacao, observabilidade, publicacao
 from ..motor.ddl import SUFIXO_ORIGEM
 from ..sinks import Sink, criar_sink
 from . import admin, auth
@@ -556,6 +556,106 @@ async def meta_classes(request: Request, _chave: dict = Depends(exigir_chave)) -
             ],
         })
     return {"dados": saida}
+
+
+@app.get("/v1/meta/correlacoes", tags=["catálogo"])
+async def meta_correlacoes(
+    request: Request, chave: dict = Depends(exigir_chave)
+) -> Any:
+    """As junções entre classes que a configuração declara.
+
+    Só as que esta chave alcança inteiras: mostrar uma travessia que ela não
+    pode executar seria anunciar porta fechada.
+    """
+    sink = obter_sink(request)
+    saida = []
+    for c in repo.listar_correlacoes(sink):
+        if not (auth.pode_ler(chave, c["classe_origem"])
+                and auth.pode_ler(chave, c["classe_destino"])):
+            continue
+        saida.append({
+            "chave": c["chave"],
+            "origem": c["classe_origem"],
+            "destino": c["classe_destino"],
+            "por": {"origem": c["atributo_origem"], "destino": c["atributo_destino"]},
+            "relacionamento": c["relacionamento"],
+            "descricao": c["descricao"],
+        })
+    return {"dados": saida}
+
+
+@app.get("/v1/correlacoes/{chave_correlacao}", tags=["dados"])
+async def executar_correlacao(
+    request: Request,
+    chave_correlacao: str,
+    campos: str | None = Query(
+        None, description="colunas da classe de destino, separadas por vírgula"
+    ),
+    onde: str | None = Query(
+        None, description="filtros sobre o destino: campo:valor,campo:valor"
+    ),
+    limite: int = Query(correlacao.LIMITE_PADRAO, ge=1, le=correlacao.LIMITE_MAXIMO),
+    chave: dict = Depends(exigir_chave),
+) -> Any:
+    """Atravessa uma correlação declarada.
+
+    O escopo da chave vale para as duas pontas: se ela não lê a classe de
+    destino, a consulta é negada inteira. Servir a origem com as colunas do
+    destino omitidas em silêncio daria a impressão de que o dado não existe.
+    """
+    sink = obter_sink(request)
+    try:
+        origem, destino = correlacao.classes_da(sink, chave_correlacao)
+    except correlacao.ErroCorrelacao as e:
+        raise HTTPException(
+            status_code=404,
+            detail={"codigo": "correlacao_nao_declarada", "mensagem": str(e)},
+        ) from e
+
+    for classe in (origem, destino):
+        if not auth.pode_ler(chave, classe):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "codigo": "escopo_insuficiente",
+                    "mensagem": f"A chave de '{chave.get('consumidor')}' não tem "
+                                f"escopo para a classe '{classe}', que esta "
+                                f"correlação atravessa.",
+                },
+            )
+
+    filtros: dict[str, str] = {}
+    for par in (onde or "").split(","):
+        if not par.strip():
+            continue
+        if ":" not in par:
+            raise HTTPException(
+                status_code=400,
+                detail={"codigo": "filtro_invalido",
+                        "mensagem": f"'{par}' não é 'campo:valor'"},
+            )
+        campo, valor = par.split(":", 1)
+        filtros[campo.strip()] = valor.strip()
+
+    try:
+        saida = correlacao.consultar(
+            sink, chave_correlacao,
+            campos_destino=[c.strip() for c in (campos or "").split(",") if c.strip()]
+            or None,
+            filtros_destino=filtros,
+            limite=limite,
+        )
+        # Travessia é resposta de dado como qualquer outra: sai com
+        # proveniência, não com as colunas internas da vista. Sem isto o
+        # consumidor receberia `captura_id` e `publicado_em_versao` crus por
+        # esta rota e proveniência decorada por todas as outras.
+        saida["dados"] = _decorar(sink, saida["dados"])
+        return saida
+    except correlacao.ErroCorrelacao as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"codigo": "correlacao_invalida", "mensagem": str(e)},
+        ) from e
 
 
 @app.get("/v1/meta/contrato", tags=["catálogo"])

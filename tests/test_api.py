@@ -12,40 +12,6 @@ from app.motor import ingestao
 from app.sinks import SinkDuckDB
 
 
-def baixador(mapa: dict[str, bytes]):
-    def _baixar(url: str) -> bytes:
-        for chave, dado in mapa.items():
-            if chave in url:
-                return dado
-        raise AssertionError(f"URL não prevista: {url}")
-    return _baixar
-
-
-@pytest.fixture()
-def cliente(tmp_path, zip_dfp_2023, csv_cadastro, monkeypatch):
-    """API sobre uma base DuckDB em arquivo, já carregada com dado."""
-    banco = str(tmp_path / "api.duckdb")
-    monkeypatch.setenv("PORTAL_DUCKDB", banco)
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    monkeypatch.delenv("PORTAL_ADMIN_TOKEN", raising=False)
-
-    s = SinkDuckDB(banco)
-    bootstrap.preparar(s)
-    seed_cvm.aplicar(s)
-    ingestao.executar(s, "cvm_dfp", "2023",
-                      baixar=baixador({"dfp_cia_aberta_2023.zip": zip_dfp_2023}))
-    ingestao.executar(s, "cvm_cadastro", "atual",
-                      baixar=baixador({"cad_cia_aberta.csv": csv_cadastro}))
-    emitida = auth.emitir(s, "bolsia", quota_minuto=5, quota_dia=1000)
-    s.fechar()
-
-    from app.api.main import app
-    with TestClient(app) as c:
-        c.headers.update({"X-API-Key": emitida.chave_completa})
-        c.chave = emitida
-        yield c
-
-
 # --------------------------------------------------------------------------
 # Saúde e autenticação
 # --------------------------------------------------------------------------

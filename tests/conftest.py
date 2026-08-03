@@ -8,6 +8,7 @@ import os
 import zipfile
 
 import pytest
+from fastapi.testclient import TestClient
 
 _BPA_CON = """CNPJ_CIA;DT_REFER;VERSAO;DENOM_CIA;CD_CVM;GRUPO_DFP;MOEDA;ESCALA_MOEDA;ORDEM_EXERC;DT_FIM_EXERC;CD_CONTA;DS_CONTA;VL_CONTA;ST_CONTA_FIXA;COLUNA_DF
 33.000.167/0001-01;2023-12-31;1;PETROBRAS;9512;DF Consolidado - BPA;REAL;MIL;ÚLTIMO;2023-12-31;1;Ativo Total;100000;S;
@@ -47,6 +48,8 @@ def itr_zip(tmp_path):
 # Portal (app) — sink em memória e ZIPs no layout da CVM
 # ==========================================================================
 from app import bootstrap, seed_cvm  # noqa: E402
+from app.api import auth  # noqa: E402
+from app.motor import ingestao  # noqa: E402
 from app.sinks import SinkDuckDB  # noqa: E402
 
 CAB = (
@@ -182,3 +185,37 @@ def csv_cadastro() -> bytes:
         "Bancos;ATIVO;Privado;SP;SAO PAULO;1023",
     ]
     return ("\n".join([cab, *linhas]) + "\n").encode("latin-1")
+
+
+def baixador(mapa: dict[str, bytes]):
+    def _baixar(url: str) -> bytes:
+        for chave, dado in mapa.items():
+            if chave in url:
+                return dado
+        raise AssertionError(f"URL não prevista: {url}")
+    return _baixar
+
+
+@pytest.fixture()
+def cliente(tmp_path, zip_dfp_2023, csv_cadastro, monkeypatch):
+    """API sobre uma base DuckDB em arquivo, já carregada com dado."""
+    banco = str(tmp_path / "api.duckdb")
+    monkeypatch.setenv("PORTAL_DUCKDB", banco)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("PORTAL_ADMIN_TOKEN", raising=False)
+
+    s = SinkDuckDB(banco)
+    bootstrap.preparar(s)
+    seed_cvm.aplicar(s)
+    ingestao.executar(s, "cvm_dfp", "2023",
+                      baixar=baixador({"dfp_cia_aberta_2023.zip": zip_dfp_2023}))
+    ingestao.executar(s, "cvm_cadastro", "atual",
+                      baixar=baixador({"cad_cia_aberta.csv": csv_cadastro}))
+    emitida = auth.emitir(s, "bolsia", quota_minuto=5, quota_dia=1000)
+    s.fechar()
+
+    from app.api.main import app
+    with TestClient(app) as c:
+        c.headers.update({"X-API-Key": emitida.chave_completa})
+        c.chave = emitida
+        yield c

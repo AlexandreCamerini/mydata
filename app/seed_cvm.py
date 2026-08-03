@@ -13,9 +13,9 @@ import json
 from dataclasses import asdict
 
 from .repositorio import (
-    Atributo, CampoCalculado, Classe, Coluna, Dataset, Fonte, RegraQualidade,
-    Vista, salvar_agendamento, salvar_classe, salvar_dataset, salvar_fonte,
-    salvar_vista,
+    Atributo, CampoCalculado, Classe, Coluna, Correlacao, Dataset, Fonte,
+    RegraQualidade, Vista, salvar_agendamento, salvar_classe,
+    salvar_correlacao, salvar_dataset, salvar_fonte, salvar_vista,
 )
 from .motor import ddl
 from .sinks import Sink
@@ -640,6 +640,28 @@ METRICAS = [
 ]
 
 
+# --------------------------------------------------------------------------
+# Correlações — como as classes se ligam
+# --------------------------------------------------------------------------
+# Declarada, e não escrita na consulta de quem consome: é o que permite o
+# escopo por classe da chave de API alcançar a travessia, e o que evita cada
+# consumidor reinventar a ligação — inclusive errada.
+CORRELACOES = [
+    Correlacao(
+        chave="empresa_demonstracoes",
+        classe_origem="empresa",
+        classe_destino="demonstracao_financeira",
+        atributo_origem="cd_cvm",
+        atributo_destino="cd_cvm",
+        # Uma empresa tem muitas contas, em muitos exercícios: a junção
+        # multiplica a linha de origem, e dizer isso é o que impede alguém
+        # de contar empresa duas vezes achando que soma contas.
+        relacionamento="um_para_muitos",
+        descricao="A companhia e as contas que ela publicou. `cd_cvm` liga as "
+                  "duas sem heurística de nome.",
+    ),
+]
+
 AGENDAMENTOS = [
     ("cvm_dfp_anual", "cvm_dfp", "0 6 1 4 *"),
     ("cvm_dfp_empresa_anual", "cvm_dfp_empresa", "0 7 1 4 *"),
@@ -682,6 +704,7 @@ def impressao() -> str:
             "vistas": [asdict(v) for v in VISTAS],
             "fontes": [asdict(FONTE), asdict(FONTE_CADASTRO), asdict(FONTE_B3),
                        asdict(FONTE_BCB)],
+            "correlacoes": [asdict(c) for c in CORRELACOES],
             "datasets": [asdict(d) for d in datasets()],
             "metricas": METRICAS,
             "agendamentos": AGENDAMENTOS,
@@ -712,6 +735,8 @@ def aplicar(sink: Sink, forcar: bool = False) -> bool:
     salvar_fonte(sink, FONTE_CADASTRO, autor="seed")
     salvar_fonte(sink, FONTE_B3, autor="seed")
     salvar_fonte(sink, FONTE_BCB, autor="seed")
+    for corr in CORRELACOES:
+        salvar_correlacao(sink, corr, autor="seed")
     for d in datasets():
         salvar_dataset(sink, d, autor="seed")
     for chave, dataset_chave, cron in AGENDAMENTOS:

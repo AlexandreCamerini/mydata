@@ -356,6 +356,28 @@ MIGRACOES: list[Migracao] = [
                  FOREIGN KEY (execucao_id) REFERENCES log_execucao(id)""",
         ],
     ),
+    Migracao(
+        # Correlação entre classes, declarada como configuração. Sem esta
+        # tabela, juntar duas classes só existiria como SQL escrito por quem
+        # consome — e o escopo por classe da chave de API não teria como
+        # alcançar uma travessia que ele nem enxerga.
+        nome="0011_correlacao",
+        sql=[
+            "CREATE SEQUENCE IF NOT EXISTS seq_cfg_correlacao START 1",
+            """CREATE TABLE IF NOT EXISTS cfg_correlacao (
+                 id             {INT} PRIMARY KEY,
+                 classe_origem  {TEXTO} NOT NULL,
+                 classe_destino {TEXTO} NOT NULL,
+                 atributo_origem  {TEXTO} NOT NULL,
+                 atributo_destino {TEXTO} NOT NULL,
+                 -- um_para_um | um_para_muitos | muitos_para_um. É o que
+                 -- decide se a junção pode multiplicar linha da origem.
+                 relacionamento {TEXTO} NOT NULL DEFAULT 'um_para_muitos',
+                 descricao      {TEXTO},
+                 ativo          {BOOL} NOT NULL DEFAULT TRUE,
+               """ + _VERSAO + ")",
+        ],
+    ),
 ]
 
 # Tabelas silver que participam do ciclo de publicação. A partir da Etapa 3

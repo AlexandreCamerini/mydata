@@ -320,6 +320,98 @@ def listar_vistas(sink: Sink, so_ativas: bool = True) -> list[dict]:
     return sink.consultar(sql + " ORDER BY ordem, chave")
 
 
+RELACIONAMENTOS = ("um_para_um", "um_para_muitos", "muitos_para_um")
+
+
+@dataclass
+class Correlacao:
+    """Como duas classes se ligam, declarado em vez de escrito em SQL.
+
+    Existe pelo mesmo motivo que a classe existe: enquanto a junção estiver na
+    consulta de quem consome, ela é invisível para o escopo por classe da
+    chave de API, e cada consumidor reinventa a ligação — inclusive errada.
+    """
+
+    chave: str
+    classe_origem: str
+    classe_destino: str
+    atributo_origem: str
+    atributo_destino: str
+    relacionamento: str = "um_para_muitos"
+    descricao: str | None = None
+    ativo: bool = True
+
+
+def validar_correlacao(sink: Sink, c: Correlacao) -> None:
+    """Recusa na configuração o que só apareceria como número errado.
+
+    A regra de fan-out vem do MetricFlow: uma junção só é segura quando o lado
+    de destino não multiplica a linha de origem sem que isso esteja declarado.
+    Aqui isso é explícito — quem declara `um_para_um` está afirmando que o
+    atributo de destino é único, e a afirmação é conferida contra a chave de
+    identidade da classe.
+    """
+    if c.relacionamento not in RELACIONAMENTOS:
+        raise ErroConfiguracao(
+            f"relacionamento '{c.relacionamento}' desconhecido; use um de: "
+            + ", ".join(RELACIONAMENTOS)
+        )
+    for papel, classe_chave, atributo in (
+        ("origem", c.classe_origem, c.atributo_origem),
+        ("destino", c.classe_destino, c.atributo_destino),
+    ):
+        classe = classe_vigente(sink, classe_chave)
+        if classe is None:
+            raise ErroConfiguracao(
+                f"classe de {papel} '{classe_chave}' não existe ou não está vigente"
+            )
+        nomes = {a["nome"] for a in atributos_de(sink, classe["id"])}
+        if atributo not in nomes:
+            raise ErroConfiguracao(
+                f"a classe '{classe_chave}' não declara o atributo '{atributo}'"
+            )
+        if papel == "destino" and c.relacionamento == "um_para_um":
+            identidade = [
+                p for p in (classe["chave_identidade"] or "").split(",") if p
+            ]
+            if identidade != [atributo]:
+                raise ErroConfiguracao(
+                    f"'{atributo}' não é a identidade de '{classe_chave}' "
+                    f"({', '.join(identidade)}), então a junção pode multiplicar "
+                    f"a linha de origem: declare 'um_para_muitos'"
+                )
+
+
+def salvar_correlacao(sink: Sink, c: Correlacao, autor: str = "sistema") -> int:
+    validar_correlacao(sink, c)
+    versao = _aposentar(sink, "cfg_correlacao", c.chave)
+    novo_id = sink.proximo_id("cfg_correlacao")
+    sink.executar(
+        """INSERT INTO cfg_correlacao
+           (id, classe_origem, classe_destino, atributo_origem, atributo_destino,
+            relacionamento, descricao, ativo, chave, versao,
+            vigente, vigente_chave, criado_por)
+           VALUES (?,?,?,?,?,?,?,?,?,?,TRUE,?,?)""",
+        (novo_id, c.classe_origem, c.classe_destino, c.atributo_origem,
+         c.atributo_destino, c.relacionamento, c.descricao, c.ativo,
+         c.chave, versao, c.chave, autor),
+    )
+    return novo_id
+
+
+def listar_correlacoes(sink: Sink, so_ativas: bool = True) -> list[dict]:
+    sql = "SELECT * FROM cfg_correlacao WHERE vigente"
+    if so_ativas:
+        sql += " AND ativo"
+    return sink.consultar(sql + " ORDER BY chave")
+
+
+def correlacao_vigente(sink: Sink, chave: str) -> dict | None:
+    return sink.um(
+        "SELECT * FROM cfg_correlacao WHERE chave = ? AND vigente", (chave,)
+    )
+
+
 def indices_de(classe: dict) -> list[list[str]]:
     bruto = classe.get("indices") or ""
     return [
