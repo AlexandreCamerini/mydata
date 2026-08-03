@@ -423,3 +423,45 @@ def test_sem_token_configurado_a_raiz_fica_aberta(cliente):
     if not RAIZ_WEB.exists():
         pytest.skip("front não construído neste ambiente")
     assert cliente.get("/").status_code == 200
+
+
+def test_contrato_mostra_de_onde_cada_atributo_vem(cliente):
+    """O contrato é `/v1/meta/classes` levado até o fim: além de dizer que
+    `denom_social` existe, diz de qual coluna de qual arquivo ela sai, o que a
+    normalização faz com ela, e qual fonte vence quando as duas discordam."""
+    r = cliente.get("/v1/meta/contrato", params={"classe": "empresa"})
+    assert r.status_code == 200
+    c = r.json()["dados"]
+
+    assert c["apiVersion"] == "v3.1.0"
+    assert c["kind"] == "DataContract"
+    assert c["id"] == "empresa"
+
+    props = {p["name"]: p for p in c["schema"][0]["properties"]}
+    denom = props["denom_social"]
+    assert denom["logicalType"] == "string"
+
+    # O atributo é disputado, e o contrato mostra as duas origens e quem vence.
+    extra = denom["customProperties"]
+    assert extra["disputado"] is True
+    assert extra["precedencia"] == ["cvm_cadastro", "cvm_dfp_empresa"]
+    fontes = {o["fonte"] for o in extra["origens"]}
+    assert len(fontes) >= 2, "duas fontes alimentam denom_social"
+    assert all("coluna_origem" in o and "normalizacao" in o for o in extra["origens"])
+
+
+def test_contrato_declara_o_que_barra_a_publicacao(cliente):
+    """Severidade nominal não diz nada ao consumidor; a consequência sim. Uma
+    regra que bloqueia significa que todo dado publicado passou por ela."""
+    r = cliente.get("/v1/meta/contrato", params={"classe": "demonstracao_financeira"})
+    assert r.status_code == 200
+    c = r.json()["dados"]
+    for regra in c["quality"]:
+        assert regra["impedePublicacao"] == (regra["severity"] == "bloqueia")
+    assert "SHA-256" in c["customProperties"]["original"]
+
+
+def test_contrato_de_classe_inexistente_e_404(cliente):
+    r = cliente.get("/v1/meta/contrato", params={"classe": "nao_existe"})
+    assert r.status_code == 404
+    assert r.json()["erro"]["codigo"] == "classe_nao_encontrada"

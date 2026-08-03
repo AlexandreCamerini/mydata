@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import bootstrap, repositorio as repo
-from ..motor import observabilidade, publicacao
+from ..motor import contrato, observabilidade, publicacao
 from ..motor.ddl import SUFIXO_ORIGEM
 from ..sinks import Sink, criar_sink
 from . import admin, auth
@@ -556,6 +556,28 @@ async def meta_classes(request: Request, _chave: dict = Depends(exigir_chave)) -
             ],
         })
     return {"dados": saida}
+
+
+@app.get("/v1/meta/contrato", tags=["catálogo"])
+async def meta_contrato(
+    request: Request,
+    classe: str = Query(..., description="chave da classe de informação"),
+    _chave: dict = Depends(exigir_chave),
+) -> Any:
+    """O que esta classe promete, e de onde cada campo vem.
+
+    É `/v1/meta/classes` levado até o fim: além dos atributos, quais colunas de
+    quais arquivos os alimentam, o que a normalização faz com cada um, o que a
+    qualidade vigia e o que barra a publicação. Perfil ODCS — ver
+    `docs/pesquisa-mercado.md` § Q6.
+    """
+    try:
+        return {"dados": contrato.contrato(obter_sink(request), classe)}
+    except repo.ErroConfiguracao as e:
+        raise HTTPException(
+            status_code=404,
+            detail={"codigo": "classe_nao_encontrada", "mensagem": str(e)},
+        ) from e
 
 
 @app.get("/v1/meta/frescor", tags=["catálogo"])
