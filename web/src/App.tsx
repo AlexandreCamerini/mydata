@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Gestao } from "./telas/Gestao";
 import { Classes } from "./telas/Classes";
 import { Fontes } from "./telas/Fontes";
 import { Datasets } from "./telas/Datasets";
@@ -11,6 +12,8 @@ import { Catalogo } from "./telas/Catalogo";
 // Roteamento por hash: funciona servido estaticamente em /admin sem
 // configuração de servidor e sem dependência de biblioteca de rotas.
 const TELAS = [
+  { id: "gestao", titulo: "Gestão", componente: Gestao,
+    resumo: "O que o hub tem, quem consome e o que está para vencer o SLA" },
   { id: "classes", titulo: "Classes", componente: Classes,
     resumo: "A informação que o portal guarda, e quem a alimenta" },
   { id: "fontes", titulo: "Fontes", componente: Fontes,

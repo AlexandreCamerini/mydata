@@ -413,6 +413,75 @@ async def post_reverter(versao: int, request: Request) -> Any:
 # --------------------------------------------------------------------------
 # Chaves de API
 # --------------------------------------------------------------------------
+@router.get("/gestao")
+async def get_gestao(request: Request) -> Any:
+    """O hub inteiro numa resposta: o que tem, quanto tem, quem consome,
+    quanto ocupa e o que está para vencer o SLA.
+
+    Não há dado novo aqui — frescor, execuções e chaves já existiam, cada um
+    numa rota. Reuni-los é o que evita o operador abrir cinco telas para
+    responder "como está o sistema", que é a pergunta que ele faz primeiro.
+
+    A contagem sai da tabela física, não da vista de gold: a diferença entre
+    as duas é exatamente o que o gate reteve, e escondê-la faria carga
+    reprovada parecer carga inexistente.
+    """
+    sink = obter_sink(request)
+    frescor = {f["classe"]: f for f in observabilidade.frescor(sink)}
+
+    classes = []
+    for c in repo.listar_classes(sink, so_ativas=True):
+        tabela = c["tabela"]
+        if not ddl.colunas_fisicas(sink, tabela):
+            continue
+        total = sink.um(f"SELECT count(*) AS n FROM {tabela}")["n"]
+        publicadas = sink.um(
+            f"SELECT count(*) AS n FROM {tabela} WHERE publicado_em_versao IS NOT NULL"
+        )["n"]
+        f = frescor.get(c["chave"], {})
+        classes.append({
+            "chave": c["chave"],
+            "nome": c["nome"],
+            "tabela": tabela,
+            "linhas": int(total),
+            "linhas_publicadas": int(publicadas),
+            "retidas_no_gate": int(total) - int(publicadas),
+            "fontes": [d["chave"] for d in repo.datasets_da_classe(sink, c["chave"])],
+            "situacao": f.get("situacao"),
+            "idade_horas": f.get("idade_horas"),
+            "sla_horas": c.get("sla_horas"),
+            "ultima_publicacao": f.get("ultima_publicacao"),
+        })
+
+    bronze = sink.um(
+        "SELECT count(*) AS capturas, COALESCE(sum(tamanho_bytes), 0) AS bytes "
+        "FROM bronze_captura"
+    )
+    chaves = sink.consultar(
+        "SELECT consumidor, prefixo, quota_minuto, quota_dia, escopos, "
+        "criada_em, revogada_em FROM cfg_chave_api ORDER BY id DESC"
+    )
+
+    return {"dados": {
+        "classes": classes,
+        "bronze": {
+            "capturas": int(bronze["capturas"] or 0),
+            "bytes": int(bronze["bytes"] or 0),
+        },
+        "consumidores": [
+            {**dict(k), "ativa": k["revogada_em"] is None} for k in chaves
+        ],
+        "correlacoes": [
+            {"chave": c["chave"], "origem": c["classe_origem"],
+             "destino": c["classe_destino"]}
+            for c in repo.listar_correlacoes(sink)
+        ],
+        "fora_do_sla": [
+            c["chave"] for c in classes if c["situacao"] not in ("em_dia", None)
+        ],
+    }}
+
+
 @router.get("/chaves")
 async def get_chaves(request: Request) -> Any:
     sink = obter_sink(request)

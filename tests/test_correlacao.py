@@ -150,3 +150,26 @@ def test_correlacao_nova_nao_exige_deploy(sink_cvm):
     assert correlacao.classes_da(sink_cvm, "empresa_indicadores") == (
         "empresa", "indicador_macro"
     )
+
+
+def test_gestao_reune_o_que_estava_em_cinco_rotas(cliente, monkeypatch):
+    """A pergunta que o operador faz primeiro — "como está o sistema" — passa a
+    ter uma resposta só, sem ele abrir o banco nem cinco telas."""
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "segredo-de-teste")
+    r = cliente.get("/admin/api/gestao", headers={"X-Admin-Token": "segredo-de-teste"})
+    assert r.status_code == 200, r.text
+    d = r.json()["dados"]
+
+    por_classe = {c["chave"]: c for c in d["classes"]}
+    assert {"empresa", "demonstracao_financeira"} <= set(por_classe)
+    empresa = por_classe["empresa"]
+    assert empresa["linhas"] > 0
+    # A contagem sai da tabela física: a diferença para o publicado é o que o
+    # gate reteve, e escondê-la faria carga reprovada parecer inexistente.
+    assert empresa["retidas_no_gate"] == empresa["linhas"] - empresa["linhas_publicadas"]
+
+    assert d["bronze"]["capturas"] >= 2 and d["bronze"]["bytes"] > 0
+    assert any(c["consumidor"] == "bolsia" and c["ativa"] for c in d["consumidores"])
+    assert [c["chave"] for c in d["correlacoes"]] == ["empresa_demonstracoes"]
+    # O BCB está configurado e nunca foi ingerido nesta fixture.
+    assert "indicador_macro" in d["fora_do_sla"]

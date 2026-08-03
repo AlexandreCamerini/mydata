@@ -65,6 +65,7 @@ export const api = {
       body: JSON.stringify(corpo),
     }),
   frescor: () => pedir<Resposta<Frescor[]>>("/admin/api/frescor"),
+  gestao: () => pedir<Resposta<Gestao>>("/admin/api/gestao"),
   fases: (execucao: number) =>
     pedir<Resposta<Fase[]>>(`/admin/api/execucoes/${execucao}/fases`),
 
@@ -472,4 +473,34 @@ export type TabelaDetalhe = {
   colunas: { nome: string; tipo: string }[];
   linhas: number;
   amostra: Record<string, unknown>[];
+};
+
+/** O hub inteiro numa resposta: `/admin/api/gestao`. */
+export type Gestao = {
+  classes: {
+    chave: string;
+    nome: string;
+    tabela: string;
+    linhas: number;
+    linhas_publicadas: number;
+    retidas_no_gate: number;
+    fontes: string[];
+    situacao: string | null;
+    idade_horas: number | null;
+    sla_horas: number | null;
+    ultima_publicacao: string | null;
+  }[];
+  bronze: { capturas: number; bytes: number };
+  consumidores: {
+    consumidor: string;
+    prefixo: string;
+    quota_minuto: number;
+    quota_dia: number;
+    escopos: string | null;
+    criada_em: string | null;
+    revogada_em: string | null;
+    ativa: boolean;
+  }[];
+  correlacoes: { chave: string; origem: string; destino: string }[];
+  fora_do_sla: string[];
 };
