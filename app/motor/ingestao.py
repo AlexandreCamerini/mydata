@@ -187,6 +187,10 @@ def _urls_da_janela(fonte: dict, ds: dict, janela: str) -> list[str]:
     contexto["tipo"] = tipo
     contexto["TIPO"] = tipo.upper()
     contexto.update(declarados)
+    # `{parametros}` pertence ao transporte JSON, que o resolve depois com o
+    # modelo codificado. Devolvê-lo intacto é o que permite a mesma expansão
+    # de janela valer para arquivo e para API.
+    contexto.setdefault("parametros", "{parametros}")
     try:
         return [template.format(**contexto)]
     except KeyError as e:
@@ -221,11 +225,14 @@ def executar(
                 if fonte["tipo_transporte"] == "http_json":
                     # Uma API paginada não entrega tudo numa requisição; o
                     # bronze guarda todas as páginas, cruas e na ordem.
-                    payload = paginacao.capturar(
-                        fonte["url_template"], _parametros(ds), baixar
-                    )
+                    #
+                    # A janela expande aqui como expande para arquivo: uma API
+                    # de série histórica recorta por ano no próprio endereço, e
+                    # sem isso toda janela capturaria a mesma resposta.
+                    url = _urls_da_janela(fonte, ds, janela)[0]
+                    payload = paginacao.capturar(url, _parametros(ds), baixar)
                     _, nova = gravar_bronze(
-                        sink, dataset_chave, janela, fonte["url_template"],
+                        sink, dataset_chave, janela, url,
                         f"{dataset_chave}.json", payload,
                     )
                     res.capturas_novas += int(nova)
@@ -262,7 +269,17 @@ def executar(
                 if fonte["tipo_transporte"] == "http_zip":
                     membros = parsing.membros_do_zip(payload, ds["padrao_arquivo"])
                 elif fonte["tipo_transporte"] == "http_json":
-                    membros = [(captura["nome_arquivo"], payload, {})]
+                    # Numa fonte de arquivo, o contexto das pseudo-colunas `$`
+                    # vem dos grupos nomeados do nome do arquivo. Numa API não
+                    # há nome que carregue nada: o que distingue uma chamada da
+                    # outra — qual série, qual país, qual código — está nos
+                    # parâmetros declarados no mapeamento. Só escalares entram;
+                    # `modelo` e `paginacao` são do transporte, não do dado.
+                    membros = [(
+                        captura["nome_arquivo"], payload,
+                        {k: str(v) for k, v in _parametros(ds).items()
+                         if isinstance(v, (str, int, float))},
+                    )]
                 else:
                     import re as _re
 

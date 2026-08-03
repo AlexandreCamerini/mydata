@@ -324,7 +324,76 @@ CLASSE_EMPRESA = Classe(
     ],
 )
 
-CLASSES = [CLASSE_DEMONSTRACAO, CLASSE_EMPRESA]
+# --------------------------------------------------------------------------
+# Banco Central — indicadores macroeconômicos
+# --------------------------------------------------------------------------
+# Terceira fonte, e a primeira que não é da CVM nem da B3. Entrou inteira como
+# configuração: nenhuma linha de `app/motor/`, `app/api/` ou `app/migracoes.py`
+# sabe que ela existe.
+#
+# O SGS é dado aberto de verdade — ao contrário das séries da B3, cujos termos
+# vedam redistribuição (ver `docs/pesquisa-mercado.md` § Q4). É por isso que o
+# preço não está aqui e o indicador macro está.
+FONTE_BCB = Fonte(
+    chave="bcb",
+    nome="Banco Central — Sistema Gerenciador de Séries Temporais (SGS)",
+    descricao="Séries oficiais do BCB: Selic, IPCA, câmbio, CDI. Uma série "
+              "por mapeamento; o código dela é parâmetro, não código.",
+    tipo_transporte="http_json",
+    # A série e a janela entram no próprio endereço. `{ano}` é a janela da
+    # execução; `{serie}` vem dos parâmetros declarados no mapeamento.
+    url_template=(
+        "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{serie}/dados"
+        "?formato=json&dataInicial=01/01/{ano}&dataFinal=31/12/{ano}"
+    ),
+    encoding="utf-8",
+)
+
+CLASSE_INDICADOR = Classe(
+    chave="indicador_macro",
+    nome="Indicador macroeconômico",
+    descricao="Uma série oficial numa data: Selic, IPCA, câmbio, CDI.",
+    tabela="fato_indicador",
+    chave_identidade=["indicador", "dt_referencia"],
+    indices=[["indicador", "dt_referencia"]],
+    # O IPCA sai uma vez por mês, com defasagem. Quarenta dias é atraso real;
+    # menos que isso marcaria a classe como velha na maior parte do mês.
+    sla_horas=24 * 40,
+    atributos=[
+        _atr("indicador", obrigatorio=True, ordem=1,
+             descricao="Nome curto da série, estável entre janelas."),
+        _atr("dt_referencia", "data", obrigatorio=True, ordem=2),
+        _atr("valor", "numero", ordem=3, guarda_texto=True,
+             descricao="Como o BCB publicou, sem conversão de unidade."),
+        _atr("unidade", ordem=4,
+             descricao="Declarada no mapeamento: a resposta do SGS não a traz."),
+    ],
+)
+
+# `$indicador` e `$unidade` são pseudo-colunas: não vêm da resposta, vêm dos
+# parâmetros declarados no mapeamento. É o mesmo mecanismo que, numa fonte de
+# arquivo, tira `tipo_doc` do nome do arquivo — a diferença é de onde o
+# contexto vem, não de como ele é declarado.
+COLUNAS_BCB = [
+    Coluna("$indicador", "indicador", "texto", obrigatoria=True, ordem=1),
+    Coluna("data", "dt_referencia", "data", obrigatoria=True, ordem=2),
+    Coluna("valor", "valor", "numero", ordem=3),
+    Coluna("$unidade", "unidade", "texto", ordem=4),
+]
+
+# chave do mapeamento, código SGS, nome curto, descrição, unidade
+SERIES_BCB = [
+    ("bcb_selic_meta", "432", "selic_meta",
+     "Meta da taxa Selic definida pelo Copom", "% a.a."),
+    ("bcb_ipca", "433", "ipca",
+     "IPCA — variação percentual mensal", "% a.m."),
+    ("bcb_cambio_usd", "1", "cambio_usd_brl",
+     "Dólar dos EUA, taxa de venda, diária", "BRL/USD"),
+    ("bcb_cdi", "4389", "cdi",
+     "Taxa CDI anualizada, base 252 dias úteis", "% a.a."),
+]
+
+CLASSES = [CLASSE_DEMONSTRACAO, CLASSE_EMPRESA, CLASSE_INDICADOR]
 
 # --------------------------------------------------------------------------
 # Vistas de gold — o contrato que o consumidor lê
@@ -377,6 +446,19 @@ VISTAS = [
                  ), 0) AS vl_trimestre,
                a.captura_id, a.fonte_arquivo, a.publicado_em_versao
         FROM acumulado a
+    """,
+    ),
+    Vista(
+        chave="gold_indicadores",
+        classe_chave="indicador_macro",
+        descricao="Séries do BCB publicadas. Fonte única, então não há "
+                  "precedência a resolver — só o gate de publicação.",
+        ordem=3,
+        corpo="""
+        SELECT indicador, dt_referencia, valor, valor_txt, unidade,
+               captura_id, fonte_arquivo, publicado_em_versao
+        FROM fato_indicador
+        WHERE publicado_em_versao IS NOT NULL AND publicado_em_versao <= {V}
     """,
     ),
     # `gold_empresa` não está aqui: a classe `empresa` resolve por precedência
@@ -504,6 +586,39 @@ def datasets() -> list[Dataset]:
             calculados=[],
             regras=[],
         ),
+        *[
+            Dataset(
+                chave=chave,
+                fonte_chave="bcb",
+                nome=descricao,
+                descricao=f"Série {codigo} do SGS. {descricao}.",
+                padrao_arquivo=rf"^{chave}\.json$",
+                tabela_destino="fato_indicador",
+                classe_chave="indicador_macro",
+                chave_natural=["indicador", "dt_referencia"],
+                # `serie` monta a URL; `indicador` e `unidade` viram coluna via
+                # as pseudo-colunas `$`. Uma série nova é uma linha aqui.
+                parametros={
+                    "serie": codigo, "indicador": nome, "unidade": unidade,
+                },
+                colunas=COLUNAS_BCB,
+                calculados=[],
+                regras=[
+                    RegraQualidade(
+                        nome=f"{chave}_sem_valor",
+                        expressao_sql=(
+                            "SELECT 1 FROM fato_indicador "
+                            f"WHERE indicador = '{nome}' AND valor IS NULL "
+                            "AND valor_txt IS NOT NULL AND valor_txt <> ''"
+                        ),
+                        severidade="bloqueia",
+                        descricao="Texto presente e número nulo: o SGS mudou o "
+                                  "formato do valor e a conversão silenciou.",
+                    ),
+                ],
+            )
+            for chave, codigo, nome, descricao, unidade in SERIES_BCB
+        ],
     ]
 
 
@@ -533,6 +648,9 @@ AGENDAMENTOS = [
     # A composição da bolsa muda com IPO, fusão e saída de listagem —
     # semanal é frequente o bastante e barato (35 requisições).
     ("b3_listadas_semanal", "b3_listadas", "0 4 * * 1"),
+    # O SGS publica com defasagem de um dia útil. Diário cobre câmbio e CDI;
+    # Selic e IPCA mudam menos, e reingerir a mesma janela é no-op.
+    *[(f"{chave}_diario", chave, "0 8 * * *") for chave, *_ in SERIES_BCB],
 ]
 
 
@@ -562,7 +680,8 @@ def impressao() -> str:
         {
             "classes": [asdict(c) for c in CLASSES],
             "vistas": [asdict(v) for v in VISTAS],
-            "fontes": [asdict(FONTE), asdict(FONTE_CADASTRO), asdict(FONTE_B3)],
+            "fontes": [asdict(FONTE), asdict(FONTE_CADASTRO), asdict(FONTE_B3),
+                       asdict(FONTE_BCB)],
             "datasets": [asdict(d) for d in datasets()],
             "metricas": METRICAS,
             "agendamentos": AGENDAMENTOS,
@@ -592,6 +711,7 @@ def aplicar(sink: Sink, forcar: bool = False) -> bool:
     salvar_fonte(sink, FONTE, autor="seed")
     salvar_fonte(sink, FONTE_CADASTRO, autor="seed")
     salvar_fonte(sink, FONTE_B3, autor="seed")
+    salvar_fonte(sink, FONTE_BCB, autor="seed")
     for d in datasets():
         salvar_dataset(sink, d, autor="seed")
     for chave, dataset_chave, cron in AGENDAMENTOS:

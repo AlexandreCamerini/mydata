@@ -38,7 +38,11 @@ def carregado(sink_cvm, zip_dfp_2023, csv_cadastro):
 # --------------------------------------------------------------------------
 def test_frescor_lista_toda_classe_com_idade_e_situacao(carregado):
     por_classe = {f["classe"]: f for f in obs.frescor(carregado)}
-    assert set(por_classe) == {"demonstracao_financeira", "empresa"}
+    assert set(por_classe) == {"demonstracao_financeira", "empresa",
+                               "indicador_macro"}
+    # A fixture carrega CVM e B3; o BCB está configurado e nunca foi ingerido,
+    # e é justamente o caso que o frescor existe para não deixar passar.
+    assert por_classe.pop("indicador_macro")["situacao"] == "sem_carga"
     for f in por_classe.values():
         assert f["situacao"] == "em_dia"
         assert f["idade_horas"] is not None and f["idade_horas"] < 1
@@ -200,7 +204,8 @@ def test_endpoint_de_frescor(cliente):
     r = cliente.get("/v1/meta/frescor")
     assert r.status_code == 200
     classes = {d["classe"]: d["situacao"] for d in r.json()["dados"]}
-    assert classes == {"demonstracao_financeira": "em_dia", "empresa": "em_dia"}
+    assert classes == {"demonstracao_financeira": "em_dia", "empresa": "em_dia",
+                       "indicador_macro": "sem_carga"}
 
 
 def test_endpoint_de_linhagem(cliente):

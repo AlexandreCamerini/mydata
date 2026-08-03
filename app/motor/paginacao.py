@@ -85,12 +85,25 @@ def capturar(
     caminho_total = cfg.get("caminho_total_paginas")
     caminho_registros = parametros.get("caminho_registros")
 
+    # Uma fonte sem lugar para o número da página entrega tudo numa resposta
+    # só. Sem esta guarda, a URL invariável seria buscada de novo a cada volta
+    # e o "para quando vier vazio" nunca dispararia: o bronze acabaria com 500
+    # cópias da mesma resposta.
+    pagina_unica = (
+        not cfg
+        and "{pagina}" not in template
+        and "{pagina}" not in json.dumps(parametros.get("modelo") or {})
+    )
+
     paginas: list[Any] = []
     total = None
     numero = 1
     while numero <= limite:
         corpo = json.loads(baixar(montar_url(template, parametros, numero)))
         paginas.append(corpo)
+
+        if pagina_unica:
+            break
 
         if total is None and caminho_total:
             total = caminho(corpo, caminho_total)
