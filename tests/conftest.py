@@ -188,7 +188,7 @@ def csv_cadastro() -> bytes:
 
 
 def baixador(mapa: dict[str, bytes]):
-    def _baixar(url: str) -> bytes:
+    def _baixar(url: str, cabecalhos=None) -> bytes:
         for chave, dado in mapa.items():
             if chave in url:
                 return dado

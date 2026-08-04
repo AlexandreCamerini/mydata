@@ -35,7 +35,7 @@ def falso_sgs(chamadas: list[str], registros=None):
     """Responde por ano, como o SGS. Devolver o mesmo corpo para janelas
     diferentes faria a segunda captura virar no-op por `sha256` — o que é o
     comportamento certo do bronze, e tornaria o teste irreal."""
-    def _baixar(url: str) -> bytes:
+    def _baixar(url: str, cabecalhos=None) -> bytes:
         chamadas.append(url)
         if registros is not None:
             return json.dumps(registros).encode()

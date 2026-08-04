@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import repositorio as repo
-from ..motor import ddl, ingestao, observabilidade, publicacao
+from ..motor import credenciais, ddl, ingestao, observabilidade, publicacao
 from ..repositorio import (
     CampoCalculado, Coluna, Dataset, ErroConfiguracao, Fonte, RegraQualidade,
 )
@@ -59,6 +59,10 @@ class FonteEntrada(BaseModel):
     url_template: str
     encoding: str = "utf-8"
     separador: str = ";"
+    # Nome da variável de ambiente que guarda o token, nunca o token. Aceita
+    # `VARIAVEL`, `bearer:VARIAVEL`, `header:Nome:VARIAVEL` ou
+    # `query:nome:VARIAVEL` — ver `app/motor/credenciais.py`.
+    credencial_ref: str | None = None
     descricao: str | None = None
     ativo: bool = True
 
@@ -291,6 +295,36 @@ async def post_fonte(entrada: FonteEntrada, request: Request) -> Any:
     except ErroConfiguracao as e:
         raise _erro_config(e) from e
     return {"dados": repo.fonte_vigente(sink, entrada.chave), "id": novo}
+
+
+@router.get("/credenciais")
+async def get_credenciais(request: Request) -> Any:
+    """Quais fontes exigem token, qual variável cada uma espera, e se ela está
+    definida neste ambiente.
+
+    O valor nunca sai daqui — nem deste processo. A configuração guarda a
+    referência; o segredo mora no ambiente, e o que a tela mostra é presença,
+    não conteúdo.
+    """
+    sink = obter_sink(request)
+    saida = []
+    for f in repo.listar_fontes(sink):
+        try:
+            cred = credenciais.declarada(f["credencial_ref"])
+        except credenciais.ErroCredencial as e:
+            saida.append({"fonte": f["chave"], "nome": f["nome"], "erro": str(e)})
+            continue
+        if cred is None:
+            continue
+        saida.append({
+            "fonte": f["chave"],
+            "nome": f["nome"],
+            "modo": cred.modo,
+            "cabecalho": cred.nome or None,
+            "variavel": cred.variavel,
+            "definida": bool(os.getenv(cred.variavel)),
+        })
+    return {"dados": saida}
 
 
 @router.get("/datasets")

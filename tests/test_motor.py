@@ -10,7 +10,7 @@ from app.motor.parsing import ErroParse
 
 def baixador(mapa: dict[str, bytes]):
     """Substitui a rede: devolve o payload pela URL."""
-    def _baixar(url: str) -> bytes:
+    def _baixar(url: str, cabecalhos=None) -> bytes:
         for chave, dado in mapa.items():
             if chave in url:
                 return dado

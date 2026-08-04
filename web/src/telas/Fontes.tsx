@@ -20,6 +20,7 @@ export function Fontes() {
     tipo_transporte: "http_zip",
     encoding: "utf-8",
     separador: ";",
+    credencial_ref: "",
   });
   const [erroForm, setErroForm] = useState<Record<string, string>>({});
   const [salvando, setSalvando] = useState(false);
@@ -141,6 +142,18 @@ export function Fontes() {
             rotulo="Separador"
             valor={form.separador}
             aoMudar={(v) => setForm({ ...form, separador: v })}
+          />
+          <Campo
+            rotulo="Credencial (nome da variável de ambiente)"
+            valor={form.credencial_ref ?? ""}
+            aoMudar={(v) => setForm({ ...form, credencial_ref: v })}
+            ajuda={
+              "O token NÃO é guardado aqui: este campo recebe o nome da " +
+              "variável de ambiente que o contém. Ex.: BRAPI_TOKEN envia " +
+              "Authorization: Bearer. Para outro formato use " +
+              "header:X-API-Key:MINHA_VAR ou query:token:MINHA_VAR."
+            }
+            monoespacado
           />
           <Botao tipo="submit" variante="primario" carregando={salvando}>
             Salvar fonte

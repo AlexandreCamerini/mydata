@@ -349,6 +349,35 @@ FONTE_BCB = Fonte(
     encoding="utf-8",
 )
 
+# --------------------------------------------------------------------------
+# brapi.dev — agregador, e a primeira fonte que exige credencial
+# --------------------------------------------------------------------------
+# Entra como *fonte*, sem mapeamento ativo. O motivo está em
+# `docs/fontes-terceiros.md`: quase tudo que o brapi oferece ou já é ingerido
+# aqui na origem (fundamentos são CVM; inflação, juros e câmbio são BCB) ou
+# esbarra nos termos da B3 (preço e histórico). O que sobra — proventos,
+# opções e o mapa de tickers — depende de responder de onde o brapi tira
+# aquilo, e a documentação oficial não diz.
+#
+# Cadastrá-la mesmo assim tem função concreta: é a única fonte do sistema que
+# exige token, e por isso é o caso de teste do mecanismo de credencial.
+# `{recurso}` vem dos parâmetros do mapeamento — `quote/list`,
+# `v2/options/chain` —, então acrescentar uma carga é uma linha, não um campo
+# de URL novo.
+FONTE_BRAPI = Fonte(
+    chave="brapi",
+    nome="brapi.dev — agregador de mercado brasileiro",
+    descricao="Agregador, não origem. Menor precedencia, marcado como terceiro "
+              "na proveniência, e nunca apresentado como dado primário.",
+    tipo_transporte="http_json",
+    url_template="https://brapi.dev/api/{recurso}",
+    encoding="utf-8",
+    # O token não mora aqui: este campo é o nome da variável de ambiente que o
+    # contém. A documentação do brapi manda `Authorization: Bearer <token>`,
+    # que é o modo padrão quando não há prefixo.
+    credencial_ref="BRAPI_TOKEN",
+)
+
 CLASSE_INDICADOR = Classe(
     chave="indicador_macro",
     nome="Indicador macroeconômico",
@@ -703,7 +732,7 @@ def impressao() -> str:
             "classes": [asdict(c) for c in CLASSES],
             "vistas": [asdict(v) for v in VISTAS],
             "fontes": [asdict(FONTE), asdict(FONTE_CADASTRO), asdict(FONTE_B3),
-                       asdict(FONTE_BCB)],
+                       asdict(FONTE_BCB), asdict(FONTE_BRAPI)],
             "correlacoes": [asdict(c) for c in CORRELACOES],
             "datasets": [asdict(d) for d in datasets()],
             "metricas": METRICAS,
@@ -735,6 +764,7 @@ def aplicar(sink: Sink, forcar: bool = False) -> bool:
     salvar_fonte(sink, FONTE_CADASTRO, autor="seed")
     salvar_fonte(sink, FONTE_B3, autor="seed")
     salvar_fonte(sink, FONTE_BCB, autor="seed")
+    salvar_fonte(sink, FONTE_BRAPI, autor="seed")
     for corr in CORRELACOES:
         salvar_correlacao(sink, corr, autor="seed")
     for d in datasets():

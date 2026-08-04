@@ -37,7 +37,7 @@ REGISTROS = [
 
 def falso_baixar(chamadas: list[str]):
     """Simula a API: 2 registros por página, 2 páginas."""
-    def _baixar(url: str) -> bytes:
+    def _baixar(url: str, cabecalhos=None) -> bytes:
         chamadas.append(url)
         cru = url.rsplit("/", 1)[-1]
         pedido = json.loads(base64.b64decode(cru))
@@ -91,7 +91,7 @@ def test_sem_contagem_declarada_para_na_pagina_vazia():
     sem_total = {**PARAMETROS, "paginacao": {"tamanho": 2}}
     chamadas: list[str] = []
 
-    def _baixar(url):
+    def _baixar(url, cabecalhos=None):
         chamadas.append(url)
         cru = url.rsplit("/", 1)[-1]
         pagina = int(json.loads(base64.b64decode(cru))["pageNumber"])
@@ -119,7 +119,7 @@ def test_api_que_nunca_acaba_e_interrompida():
 def test_contagem_de_paginas_ausente_e_erro_explicito():
     """Declarar `caminho_total_paginas` e a resposta não trazer é configuração
     errada, não motivo para adivinhar."""
-    def _baixar(url):
+    def _baixar(url, cabecalhos=None):
         return json.dumps({"results": REGISTROS}).encode()
 
     with pytest.raises(paginacao.ErroPaginacao, match="page.totalPages"):

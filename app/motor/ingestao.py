@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from .. import repositorio as repo
 from ..sinks import Sink
 from . import calculados as calc
+from . import credenciais
 from . import observabilidade as obs
 from . import paginacao
 from . import parsing
@@ -200,6 +201,24 @@ def _urls_da_janela(fonte: dict, ds: dict, janela: str) -> list[str]:
         ) from e
 
 
+def _com_credencial(fonte: dict, baixar):
+    """Envolve o baixador com a credencial que a fonte declara.
+
+    Fica aqui, e não em `download.py`, porque é aqui que a fonte é conhecida —
+    o downloader continua sendo uma função genérica que recebe URL e
+    cabeçalhos e não sabe de onde vieram.
+    """
+    cred = credenciais.declarada(fonte.get("credencial_ref"))
+    if cred is None:
+        return baixar
+
+    def _baixar(url: str) -> bytes:
+        endereco, cabecalhos = credenciais.aplicar(fonte["credencial_ref"], url)
+        return baixar(endereco, cabecalhos=cabecalhos)
+
+    return _baixar
+
+
 def executar(
     sink: Sink, dataset_chave: str, janela: str, *, trigger: str = "manual",
     baixar=None, apenas_bronze: bool = False, publicar: bool = True,
@@ -222,6 +241,12 @@ def executar(
         repo.atualizar_execucao(sink, exec_id, status="baixando")
         with obs.fase(sink, exec_id, "baixar"):
             if baixar is not None:
+                # A credencial da fonte entra aqui, uma vez, e o resto do
+                # caminho não sabe que ela existe: quem transporta continua
+                # ignorando de quem é o dado. O que vai para o bronze e para o
+                # log é a URL censurada — no modo `query` o segredo está no
+                # próprio endereço.
+                baixar = _com_credencial(fonte, baixar)
                 if fonte["tipo_transporte"] == "http_json":
                     # Uma API paginada não entrega tudo numa requisição; o
                     # bronze guarda todas as páginas, cruas e na ordem.
@@ -232,16 +257,19 @@ def executar(
                     url = _urls_da_janela(fonte, ds, janela)[0]
                     payload = paginacao.capturar(url, _parametros(ds), baixar)
                     _, nova = gravar_bronze(
-                        sink, dataset_chave, janela, url,
+                        sink, dataset_chave, janela,
+                        credenciais.censurar(url, fonte["credencial_ref"]),
                         f"{dataset_chave}.json", payload,
                     )
                     res.capturas_novas += int(nova)
                 else:
                     for url in _urls_da_janela(fonte, ds, janela):
-                        nome = url.rsplit("/", 1)[-1]
+                        nome = url.rsplit("/", 1)[-1].split("?")[0]
                         payload = baixar(url)
                         _, nova = gravar_bronze(
-                            sink, dataset_chave, janela, url, nome, payload
+                            sink, dataset_chave, janela,
+                            credenciais.censurar(url, fonte["credencial_ref"]),
+                            nome, payload,
                         )
                         res.capturas_novas += int(nova)
         repo.atualizar_execucao(sink, exec_id, status="capturado")

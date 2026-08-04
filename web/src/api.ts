@@ -360,6 +360,8 @@ export type Fonte = {
   url_template: string;
   encoding: string;
   separador: string;
+  /** Nome da variável de ambiente que guarda o token — nunca o token. */
+  credencial_ref: string | null;
   ativo: boolean;
   versao: number;
 };

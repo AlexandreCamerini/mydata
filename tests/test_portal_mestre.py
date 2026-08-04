@@ -24,7 +24,7 @@ from app.sinks import SinkDuckDB
 
 
 def baixador(mapa):
-    def _baixar(url: str) -> bytes:
+    def _baixar(url: str, cabecalhos=None) -> bytes:
         for chave, dado in mapa.items():
             if chave in url:
                 return dado
