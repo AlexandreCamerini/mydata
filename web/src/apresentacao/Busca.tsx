@@ -54,6 +54,10 @@ export function Busca() {
 
   return (
     <div className="grid gap-5">
+      {/* Toda página precisa de um h1: é por ele que leitor de tela anuncia
+          onde a pessoa está. Aqui ele era invisível porque a busca começava
+          direto nos filtros. */}
+      <h1 className="sr-only">Companhias abertas registradas na CVM</h1>
       <section
         aria-labelledby="filtros"
         className="border border-borda rounded bg-white p-4"

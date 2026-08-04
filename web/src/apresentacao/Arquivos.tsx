@@ -55,7 +55,7 @@ export function Arquivos({ cd_cvm }: { cd_cvm: number }) {
       ) : (
         <Tabela
           legenda="Arquivos capturados, com tamanho e digital SHA-256"
-          colunas={["Arquivo", "Tamanho", "SHA-256", ""]}
+          colunas={["Arquivo", "Tamanho", "SHA-256", "Baixar"]}
         >
           {capturas.map((c) => (
             <tr key={c.id} className="border-b border-borda last:border-0">

@@ -619,13 +619,39 @@ async def resumo_da_empresa(
         ],
         "trimestres": trimestres,
         "metricas": [m["nome"] for m in metricas_cat.listar(sink)] if grupos else [],
-        "capturas": sink.consultar(
-            "SELECT DISTINCT b.id, b.nome_arquivo, b.sha256, b.tamanho_bytes "
-            "FROM bronze_captura b JOIN cfg_dataset d "
-            "  ON d.chave = b.dataset_chave AND d.vigente "
-            "ORDER BY b.id DESC LIMIT 20"
-        ),
+        "capturas": _capturas_da_empresa(sink, cd_cvm, bool(grupos)),
     }}
+
+
+def _capturas_da_empresa(sink: Sink, cd_cvm: int, com_demonstracoes: bool) -> list[dict]:
+    """Os arquivos que originaram os números **desta** companhia.
+
+    Duas correções que só apareceram ao olhar a tela. A primeira: listar as
+    últimas capturas do sistema mostrava arquivos que não têm nada a ver com a
+    companhia aberta — a lista é filtrada pelas capturas que de fato
+    produziram linha dela.
+
+    A segunda: o mesmo arquivo é capturado uma vez por mapeamento, então o ZIP
+    da DFP aparece duas vezes, uma para `cvm_dfp` e outra para
+    `cvm_dfp_empresa` (é a questão 4 do §14). São dois registros do mesmo
+    documento; para quem quer conferir a digital, é um arquivo só. Agrupamos
+    por `sha256` e ficamos com a primeira captura.
+    """
+    fontes = ["SELECT captura_id FROM gold_empresa WHERE cd_cvm = ?"]
+    params: list[Any] = [cd_cvm]
+    if com_demonstracoes:
+        fontes.append("SELECT captura_id FROM gold_demonstracoes WHERE cd_cvm = ?")
+        params.append(cd_cvm)
+
+    linhas = sink.consultar(
+        "SELECT id, nome_arquivo, sha256, tamanho_bytes FROM bronze_captura "
+        f"WHERE id IN ({' UNION '.join(fontes)}) ORDER BY id DESC",
+        params,
+    )
+    por_hash: dict[str, dict] = {}
+    for linha in linhas:
+        por_hash.setdefault(linha["sha256"], dict(linha))
+    return list(por_hash.values())
 
 
 # --------------------------------------------------------------------------

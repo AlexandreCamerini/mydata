@@ -111,8 +111,12 @@ function Cartao(props: {
     "border border-borda rounded bg-white p-3 grid gap-1 content-start";
 
   if (!props.href) {
+    // Indisponível é borda tracejada, não opacidade: opacidade derruba o
+    // contraste do texto abaixo de 4.5:1 — a auditoria pegou exatamente estes
+    // seis parágrafos — e ainda por cima é um sinal que ninguém lê como
+    // "isto não existe".
     return (
-      <div className={`${classe} opacity-70`}>
+      <div className={`${classe} border-dashed`}>
         {corpo}
       </div>
     );
@@ -151,9 +155,12 @@ export function Empresa({ cd_cvm }: { cd_cvm: number }) {
       total: linhas.reduce((s, d) => s + d.linhas, 0),
       de: linhas.map((d) => d.de).sort()[0] ?? "",
       ate: linhas.map((d) => d.ate).sort().slice(-1)[0] ?? "",
-      // Abre no grupo com mais linhas da família: para o balanço, o ativo.
+      // Abre no primeiro grupo declarado que tem dado. A ordem em FAMILIAS é
+      // a ordem natural de leitura — ativo antes de passivo, resultado antes
+      // do abrangente —, e não a de volume: o passivo tem mais linhas que o
+      // ativo, e abrir o balanço pelo passivo é começar pelo fim.
       grupoAbrir:
-        [...linhas].sort((a, b) => b.linhas - a.linhas)[0]?.grupo ?? f.grupos[0],
+        f.grupos.find((g) => linhas.some((d) => d.grupo === g)) ?? f.grupos[0],
     };
   });
 
