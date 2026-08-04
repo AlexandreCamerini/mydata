@@ -118,6 +118,19 @@ def colunas_fisicas(sink: Sink, tabela: str) -> dict[str, str]:
     return {linha["column_name"]: linha["data_type"].lower() for linha in linhas}
 
 
+def indice_existe(sink: Sink, nome: str) -> bool:
+    """Índice não aparece em `information_schema`, então cada dialeto tem o seu.
+
+    Existe para a guarda de `garantir_tabela` afirmar o que ela diz afirmar:
+    que a tabela está materializada, e não que a configuração dela não mudou.
+    """
+    if sink.dialeto == "postgres":
+        sql = "SELECT 1 AS ok FROM pg_indexes WHERE indexname = ?"
+    else:
+        sql = "SELECT 1 AS ok FROM duckdb_indexes() WHERE index_name = ?"
+    return sink.um(sql, (nome,)) is not None
+
+
 def divergencias(sink: Sink, classe: dict, atributos: list[dict]) -> list[str]:
     """O que a classe declara e a tabela não tem, e vice-versa.
 
@@ -169,7 +182,21 @@ def garantir_tabela(sink: Sink, classe: dict, atributos: list[dict]) -> list[str
     marcador = f"classe:{tabela}"
     ja = sink.um("SELECT sha256 FROM cfg_seed WHERE chave = ?", (marcador,))
     existentes = colunas_fisicas(sink, tabela)
-    if ja and ja["sha256"] == digest and existentes:
+    # O digest sozinho não basta como guarda: ele descreve a *configuração*,
+    # e concluir dela que o schema físico está correto é uma inferência que
+    # falha em silêncio. Foi o que aconteceu em produção — `fato_conta` ficou
+    # sem o índice único da identidade, o `ON CONFLICT` da carga passou a
+    # falhar toda noite, `is_latest` parou de ser recomputado, e gold ficou
+    # servindo 5.048 linhas de 731.034. O digest, batendo, impedia o conserto
+    # a cada boot.
+    #
+    # Conferir a existência do índice custa uma consulta ao catálogo; refazê-lo
+    # à toa é que custaria segundos por deploy. A guarda continua barata e
+    # passa a ser sobre o que ela afirma.
+    if (
+        ja and ja["sha256"] == digest and existentes
+        and indice_existe(sink, f"ux_{tabela}_identidade")
+    ):
         return []
 
     aplicadas: list[str] = []

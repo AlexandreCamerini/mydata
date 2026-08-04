@@ -312,3 +312,37 @@ def test_resolucao_desconhecida_e_recusada_na_borda(admin):
     resposta = admin.post("/admin/api/classes", json=ruim)
     assert resposta.status_code == 422
     assert "resolução desconhecida" in resposta.json()["erro"]["mensagem"]
+
+
+def test_indice_de_identidade_sumido_e_refeito_no_boot(sink_cvm):
+    """A guarda do digest afirmava schema físico correto a partir de
+    configuração inalterada — uma inferência que falha em silêncio.
+
+    Foi o que aconteceu em produção: `fato_conta` ficou sem o índice único da
+    identidade, o `ON CONFLICT` da carga passou a falhar toda noite,
+    `is_latest` parou de ser recomputado, e gold ficou servindo 5.048 linhas
+    de 731.034. O digest, batendo, impedia o conserto a cada boot.
+    """
+    from app.motor import ddl
+
+    assert ddl.indice_existe(sink_cvm, "ux_fato_conta_identidade")
+
+    # Digest gravado e índice perdido — o estado exato de produção.
+    sink_cvm.executar("DROP INDEX ux_fato_conta_identidade")
+    assert not ddl.indice_existe(sink_cvm, "ux_fato_conta_identidade")
+
+    ddl.garantir_classes(sink_cvm)
+    assert ddl.indice_existe(sink_cvm, "ux_fato_conta_identidade"), (
+        "o boot tem de refazer o índice ausente, mesmo com a configuração igual"
+    )
+
+
+def test_boot_sem_nada_a_fazer_continua_barato(sink_cvm):
+    """A guarda continua guardando: com tabela e índice no lugar, o boot não
+    refaz DDL nenhum. Refazer índice em tabela de centenas de milhares de
+    linhas custaria segundos por deploy, sem mudança alguma."""
+    from app.motor import ddl
+
+    assert ddl.garantir_classes(sink_cvm) == {
+        c: [] for c in ("demonstracao_financeira", "empresa", "indicador_macro")
+    }
