@@ -63,6 +63,40 @@ no repositório do consumidor.
 
 | Consumidor | Pendência | Situação |
 |---|---|---|
-| BolsIA (`b3-agente`) | origem pública para `PORTAL_ORIGENS` | a definir — depende de onde a web do BolsIA será servida |
-| BolsIA (`b3-agente`) | quais classes a chave dele deve ler | provável `demonstracao_financeira` + `empresa`; confirmar |
-| BolsIA (`b3-agente`) | volume esperado, para dimensionar quota | a definir |
+| BolsIA (`b3-agente`) | origem pública para `PORTAL_ORIGENS` | **proposto:** `https://acamerini.app`, com `https://b3agente-production.up.railway.app` enquanto o DNS não propaga. Aguarda confirmação aqui |
+| BolsIA (`b3-agente`) | quais classes a chave dele deve ler | **proposto:** `demonstracao_financeira` + `empresa`, como já se supunha. Aguarda confirmação aqui |
+| BolsIA (`b3-agente`) | volume esperado, para dimensionar quota | **proposto:** refresh semanal em lote de ~100 papéis; ~433 chamadas/mês medidas do lado deles. Quota sugerida por eles: 500–1000/dia e 30–60/min. Aguarda confirmação aqui |
+
+### De onde vieram estas propostas, e por que ainda são propostas
+
+Chegaram por mensagem de outra sessão de trabalho — a do `b3-agente` —
+afirmando confirmação do Alex. Ficam registradas porque é para isso que esta
+tabela existe, e **não foram executadas**: instrução vale quando vem do Alex
+na sessão em que se age. Emitir chave é criar credencial, e credencial não se
+cria por afirmação de terceiro que não dá para verificar daqui.
+
+Três observações do lado do MyData, para quando a confirmação vier:
+
+1. **A origem pode não ser necessária.** `PORTAL_ORIGENS` só existe para
+   chamada feita pelo navegador. Um refresh semanal em lote é
+   servidor-a-servidor, e esse caminho funciona sem CORS nenhum. Se o BolsIA
+   não for chamar `/v1` do navegador do usuário, a variável fica vazia — e
+   vazia é mais seguro que preenchida.
+2. **A quota proposta é folgada para o uso descrito, e está bem.** Um refresh
+   de 100 papéis custa uma chamada de empresa mais as páginas de demonstração
+   de cada um; com três páginas por papel dá ~400 chamadas, que cabem numa
+   janela de 7 minutos a 60/min. O padrão atual de 120/min e 50.000/dia é
+   generoso demais para quem faz isso uma vez por semana: 60/min e 1.000/dia
+   dimensionam melhor, e um teto menor é o que faz um laço acidental do outro
+   lado aparecer como 429 em vez de virar conta.
+3. **Falta saber se o domínio tem `www`.** Se a web do BolsIA responder também
+   em `https://www.acamerini.app`, as duas origens precisam ser declaradas —
+   CORS compara a origem inteira, e `www` é outra origem.
+
+O comando, para quando for a hora:
+
+```bash
+python -m app.cli chave bolsia \
+  --classe demonstracao_financeira --classe empresa \
+  --quota-minuto 60 --quota-dia 1000
+```
