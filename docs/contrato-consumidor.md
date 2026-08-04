@@ -63,7 +63,7 @@ no repositório do consumidor.
 
 | Consumidor | Pendência | Situação |
 |---|---|---|
-| BolsIA (`b3-agente`) | origem pública para `PORTAL_ORIGENS` | **proposto:** `https://acamerini.app`, com `https://b3agente-production.up.railway.app` enquanto o DNS não propaga. Aguarda confirmação aqui |
+| BolsIA (`b3-agente`) | origem pública para `PORTAL_ORIGENS` | **respondido pelo Alex: `https://bolsia.semente.dev`.** Só necessário se o BolsIA chamar `/v1` pelo navegador; num refresh servidor-a-servidor a variável fica vazia |
 | BolsIA (`b3-agente`) | quais classes a chave dele deve ler | **proposto:** `demonstracao_financeira` + `empresa`, como já se supunha. Aguarda confirmação aqui |
 | BolsIA (`b3-agente`) | volume esperado, para dimensionar quota | **proposto:** refresh semanal em lote de ~100 papéis; ~433 chamadas/mês medidas do lado deles. Quota sugerida por eles: 500–1000/dia e 30–60/min. Aguarda confirmação aqui |
 
@@ -90,8 +90,18 @@ Três observações do lado do MyData, para quando a confirmação vier:
    dimensionam melhor, e um teto menor é o que faz um laço acidental do outro
    lado aparecer como 429 em vez de virar conta.
 3. **Falta saber se o domínio tem `www`.** Se a web do BolsIA responder também
-   em `https://www.acamerini.app`, as duas origens precisam ser declaradas —
-   CORS compara a origem inteira, e `www` é outra origem.
+   em `https://www.bolsia.semente.dev`, as duas origens precisam ser
+   declaradas — CORS compara a origem inteira, e `www` é outra origem.
+
+O endereço respondido pelo Alex — `bolsia.semente.dev` — **não é o que a
+mensagem da outra sessão afirmava** (`acamerini.app`, com fallback no Railway).
+Vale como lembrete de que aquele canal traz afirmação, não fato.
+
+E ele contradiz o `~/.claude/CLAUDE.md`, que é carregado em toda sessão de todo
+projeto e diz "`acamerini.app` é do BolsIA; o MyData vive em
+`mydata.acamerini.app`". Se o BolsIA mudou de apex, essa linha ficou errada no
+lugar de maior alcance que existe aqui. Não é deste repositório e não foi
+mexida.
 
 O comando, para quando for a hora:
 
