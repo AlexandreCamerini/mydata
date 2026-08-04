@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import bootstrap, repositorio as repo
-from ..motor import contrato, correlacao, observabilidade, publicacao
+from ..motor import contrato, correlacao, ingestao, observabilidade, publicacao
 from ..motor.ddl import SUFIXO_ORIGEM
 from ..sinks import Sink, criar_sink
 from . import admin, auth
@@ -174,6 +174,11 @@ def _proveniencia(sink: Sink, capturas: set[int]) -> dict:
                 if hasattr(linha["capturado_em"], "isoformat")
                 else str(linha["capturado_em"])
             ),
+            # Sem estes dois, o `sha256` acima é um número que o consumidor
+            # teria de aceitar no fio do bigode: a URL de origem é endereço
+            # mutável e não reproduz a captura. Com eles, ele baixa e confere.
+            "captura": linha["id"],
+            "arquivo_em": f"/v1/capturas/{linha['id']}/arquivo",
         }
         for linha in linhas
     }
@@ -556,6 +561,115 @@ async def meta_classes(request: Request, _chave: dict = Depends(exigir_chave)) -
             ],
         })
     return {"dados": saida}
+
+
+# --------------------------------------------------------------------------
+# Bronze — o arquivo oficial, servido para conferência
+# --------------------------------------------------------------------------
+def _captura_ou_404(sink: Sink, captura_id: int, chave: dict) -> dict:
+    """A captura, se ela existe e se esta chave alcança a classe que ela alimenta.
+
+    O escopo vale aqui como vale em gold: a captura é o dado antes de virar
+    linha, então liberá-la sem checar daria, por uma porta lateral, o que a
+    porta da frente nega.
+    """
+    linha = sink.um(
+        "SELECT id, dataset_chave, janela, url, nome_arquivo, sha256, "
+        "tamanho_bytes, capturado_em FROM bronze_captura WHERE id = ?",
+        (captura_id,),
+    )
+    if linha is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"codigo": "captura_nao_encontrada",
+                    "mensagem": f"Não há captura com id {captura_id}."},
+        )
+    ds = repo.dataset_vigente(sink, linha["dataset_chave"])
+    classe = ds["classe_chave"] if ds else None
+    if not auth.pode_ler(chave, classe):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "codigo": "escopo_insuficiente",
+                "mensagem": f"A chave de '{chave.get('consumidor')}' não tem "
+                            f"escopo para a classe '{classe}'.",
+            },
+        )
+    return {**dict(linha), "classe": classe}
+
+
+def _sobre_captura(linha: dict) -> dict:
+    capturado = linha["capturado_em"]
+    return {
+        "id": linha["id"],
+        "classe": linha["classe"],
+        "mapeamento": linha["dataset_chave"],
+        "janela": linha["janela"],
+        "arquivo": linha["nome_arquivo"],
+        "sha256": linha["sha256"],
+        "tamanho_bytes": int(linha["tamanho_bytes"]),
+        "capturado_em": (
+            capturado.isoformat() if hasattr(capturado, "isoformat") else str(capturado)
+        ),
+        "url_de_origem": linha["url"],
+        "arquivo_em": f"/v1/capturas/{linha['id']}/arquivo",
+        "como_conferir": (
+            f"Baixe o arquivo e rode `shasum -a 256 {linha['nome_arquivo']}`. "
+            f"A saída tem de ser exatamente o `sha256` acima. Se bater, o que "
+            f"está guardado aqui é byte a byte o que a fonte publicou."
+        ),
+    }
+
+
+@app.get("/v1/capturas/{captura_id}", tags=["proveniência"])
+async def sobre_captura(
+    request: Request, captura_id: int, chave: dict = Depends(exigir_chave)
+) -> Any:
+    """O que se sabe sobre um arquivo capturado, sem baixá-lo."""
+    sink = obter_sink(request)
+    return {"dados": _sobre_captura(_captura_ou_404(sink, captura_id, chave))}
+
+
+@app.get("/v1/capturas/{captura_id}/arquivo", tags=["proveniência"])
+async def arquivo_da_captura(
+    request: Request,
+    captura_id: int,
+    response: Response,
+    chave: dict = Depends(exigir_chave),
+) -> Any:
+    """O arquivo oficial, byte a byte como a fonte o publicou.
+
+    É o que transforma a proveniência de afirmação em prova. Até esta rota
+    existir, o `sha256` na resposta era um número que o consumidor tinha de
+    aceitar no fio do bigode: a URL de origem não serve para conferir, porque
+    ela é endereço mutável — a fonte regenera o arquivo a cada reapresentação,
+    e baixar de novo não reproduz a captura de antes.
+
+    O `ETag` é o próprio `sha256`. Conteúdo imutável por construção, então uma
+    segunda chamada com `If-None-Match` devolve 304 e nenhum byte.
+    """
+    sink = obter_sink(request)
+    linha = _captura_ou_404(sink, captura_id, chave)
+    etag = f'"{linha["sha256"]}"'
+
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+
+    payload = ingestao.payload_de(sink, captura_id)
+    # Nome de arquivo vem da nossa própria captura, mas aspas ou quebra de
+    # linha no cabeçalho quebrariam a resposta — sanear é barato.
+    nome = "".join(c for c in linha["nome_arquivo"] if c.isprintable() and c != '"')
+    return Response(
+        content=payload,
+        media_type="application/octet-stream",
+        headers={
+            "ETag": etag,
+            "Content-Disposition": f'attachment; filename="{nome}"',
+            # O consumidor confere sem precisar de outra chamada.
+            "X-Conteudo-SHA256": linha["sha256"],
+            "Cache-Control": "public, max-age=31536000, immutable",
+        },
+    )
 
 
 @app.get("/v1/meta/correlacoes", tags=["catálogo"])

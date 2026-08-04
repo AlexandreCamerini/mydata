@@ -431,3 +431,86 @@ def test_contrato_de_classe_inexistente_e_404(cliente):
     r = cliente.get("/v1/meta/contrato", params={"classe": "nao_existe"})
     assert r.status_code == 404
     assert r.json()["erro"]["codigo"] == "classe_nao_encontrada"
+
+
+def _uma_captura(classe: str = "empresa") -> dict:
+    """Um id de captura e seu hash, lidos do banco — sem gastar quota da API."""
+    import os
+    from app.sinks import SinkDuckDB
+
+    s = SinkDuckDB(os.environ["PORTAL_DUCKDB"])
+    linha = s.um(
+        "SELECT b.id, b.sha256, b.tamanho_bytes FROM bronze_captura b "
+        "JOIN cfg_dataset d ON d.chave = b.dataset_chave AND d.vigente "
+        "WHERE d.classe_chave = ? ORDER BY b.id",
+        (classe,),
+    )
+    s.fechar()
+    assert linha is not None, f"a fixture não capturou nada para '{classe}'"
+    return dict(linha)
+
+
+def test_captura_pode_ser_baixada_e_conferida(cliente):
+    """A rota que transforma proveniência de afirmação em prova: o consumidor
+    recebe os bytes e confere o hash sozinho, sem depender da URL de origem —
+    que é endereço mutável e não reproduz a captura de antes."""
+    import hashlib
+
+    alvo = _uma_captura()
+
+    sobre = cliente.get(f"/v1/capturas/{alvo['id']}").json()["dados"]
+    assert sobre["sha256"] == alvo["sha256"]
+    assert sobre["classe"] == "empresa"
+    assert sobre["arquivo_em"] == f"/v1/capturas/{alvo['id']}/arquivo"
+    assert "shasum -a 256" in sobre["como_conferir"]
+
+    arq = cliente.get(f"/v1/capturas/{alvo['id']}/arquivo")
+    assert arq.status_code == 200
+    assert arq.headers["content-type"] == "application/octet-stream"
+    assert "attachment" in arq.headers["content-disposition"]
+    # A prova: o hash dos bytes recebidos é o que a proveniência prometeu.
+    assert hashlib.sha256(arq.content).hexdigest() == alvo["sha256"]
+    assert arq.headers["x-conteudo-sha256"] == alvo["sha256"]
+    assert len(arq.content) == alvo["tamanho_bytes"]
+
+
+def test_proveniencia_aponta_para_o_arquivo_baixavel(cliente):
+    """O laço fechado: o número traz o hash, e o caminho para conferi-lo. Sem
+    isto o consumidor teria a digital e nenhuma forma de achar o arquivo."""
+    prov = cliente.get("/v1/empresas/9512").json()["dados"]["proveniencia"]
+    assert prov["arquivo_em"] == f"/v1/capturas/{prov['captura']}/arquivo"
+    assert prov["sha256"]
+
+
+def test_captura_repetida_devolve_304_sem_bytes(cliente):
+    """Captura é imutável por construção, então o ETag nunca invalida: quem já
+    baixou não baixa de novo."""
+    alvo = _uma_captura()
+    etag = f'"{alvo["sha256"]}"'
+    r = cliente.get(f"/v1/capturas/{alvo['id']}/arquivo",
+                    headers={"If-None-Match": etag})
+    assert r.status_code == 304
+    assert r.content == b""
+
+
+def test_captura_respeita_o_escopo_da_chave(cliente):
+    """O escopo vale aqui como vale em gold. Liberar o bronze sem checar daria,
+    por uma porta lateral, o que a porta da frente nega."""
+    import os
+    from app.sinks import SinkDuckDB
+
+    alvo = _uma_captura("demonstracao_financeira")
+    s = SinkDuckDB(os.environ["PORTAL_DUCKDB"])
+    restrita = auth.emitir(s, "so_empresa", escopos="classe:empresa")
+    s.fechar()
+
+    r = cliente.get(f"/v1/capturas/{alvo['id']}",
+                    headers={"X-API-Key": restrita.chave_completa})
+    assert r.status_code == 403
+    assert r.json()["erro"]["codigo"] == "escopo_insuficiente"
+
+
+def test_captura_inexistente_e_404(cliente):
+    r = cliente.get("/v1/capturas/9999")
+    assert r.status_code == 404
+    assert r.json()["erro"]["codigo"] == "captura_nao_encontrada"
