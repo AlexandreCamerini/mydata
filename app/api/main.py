@@ -22,6 +22,7 @@ from ..motor import contrato, correlacao, ingestao, observabilidade, publicacao
 from ..motor.ddl import SUFIXO_ORIGEM
 from ..sinks import Sink, criar_sink
 from . import admin, auth
+from . import metricas as metricas_cat
 
 RAIZ_WEB = Path(__file__).resolve().parents[2] / "web" / "dist"
 
@@ -561,6 +562,70 @@ async def meta_classes(request: Request, _chave: dict = Depends(exigir_chave)) -
             ],
         })
     return {"dados": saida}
+
+
+@app.get("/v1/empresas/{cd_cvm}/resumo", tags=["empresas"])
+async def resumo_da_empresa(
+    cd_cvm: int, request: Request, _chave: dict = Depends(exigir_chave)
+) -> Any:
+    """O que existe para esta companhia, e quanto — sem trazer nenhum número.
+
+    É o que permite uma tela de entrada por empresa não oferecer porta que não
+    abre: cada família de dado vem com contagem e período, e a que não tem
+    linha nenhuma simplesmente não aparece na resposta.
+
+    Devolve os grupos como a fonte os nomeia (`BPA`, `DRE`, …) em vez de
+    traduzi-los: quem sabe que `BPA` é balanço patrimonial é a apresentação,
+    que já carrega esse dicionário. Traduzir aqui poria conhecimento de uma
+    fonte específica dentro da API.
+    """
+    sink = obter_sink(request)
+    exigir_vista(sink, "gold_empresa", _chave)
+    if sink.um("SELECT 1 AS ok FROM gold_empresa WHERE cd_cvm = ?", (cd_cvm,)) is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"codigo": "empresa_nao_encontrada",
+                    "mensagem": f"Nenhuma companhia com cd_cvm {cd_cvm}."},
+        )
+
+    grupos: list[dict] = []
+    if publicacao.classe_da_vista(sink, "gold_demonstracoes") is not None and auth.pode_ler(
+        _chave, "demonstracao_financeira"
+    ):
+        grupos = sink.consultar(
+            "SELECT grupo, upper(tipo_doc) AS tipo_doc, consolidado, "
+            "count(*) AS linhas, min(dt_refer) AS de, max(dt_refer) AS ate "
+            "FROM gold_demonstracoes WHERE cd_cvm = ? "
+            "GROUP BY grupo, upper(tipo_doc), consolidado "
+            "ORDER BY grupo, tipo_doc, consolidado",
+            (cd_cvm,),
+        )
+
+    trimestres = None
+    if grupos:
+        linha = sink.um(
+            "SELECT count(*) AS linhas, min(dt_refer) AS de, max(dt_refer) AS ate "
+            "FROM gold_itr_trimestre WHERE cd_cvm = ?",
+            (cd_cvm,),
+        )
+        if linha and linha["linhas"]:
+            trimestres = dict(linha)
+
+    return {"dados": {
+        "cd_cvm": cd_cvm,
+        "demonstracoes": [
+            {**dict(g), "linhas": int(g["linhas"]), "consolidado": bool(g["consolidado"])}
+            for g in grupos
+        ],
+        "trimestres": trimestres,
+        "metricas": [m["nome"] for m in metricas_cat.listar(sink)] if grupos else [],
+        "capturas": sink.consultar(
+            "SELECT DISTINCT b.id, b.nome_arquivo, b.sha256, b.tamanho_bytes "
+            "FROM bronze_captura b JOIN cfg_dataset d "
+            "  ON d.chave = b.dataset_chave AND d.vigente "
+            "ORDER BY b.id DESC LIMIT 20"
+        ),
+    }}
 
 
 # --------------------------------------------------------------------------

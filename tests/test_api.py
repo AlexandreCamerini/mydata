@@ -514,3 +514,47 @@ def test_captura_inexistente_e_404(cliente):
     r = cliente.get("/v1/capturas/9999")
     assert r.status_code == 404
     assert r.json()["erro"]["codigo"] == "captura_nao_encontrada"
+
+
+def test_resumo_diz_o_que_existe_para_a_empresa(cliente):
+    """A tela de entrada por empresa precisa saber o que existe antes de
+    oferecer link: porta que não abre é pior que porta ausente."""
+    r = cliente.get("/v1/empresas/9512/resumo")
+    assert r.status_code == 200, r.text
+    d = r.json()["dados"]
+
+    assert d["cd_cvm"] == 9512
+    grupos = {g["grupo"] for g in d["demonstracoes"]}
+    assert "BPA" in grupos, "a fixture carregou balanço patrimonial"
+    for g in d["demonstracoes"]:
+        assert g["linhas"] > 0, "só entra o que tem linha"
+        assert g["de"] <= g["ate"]
+        assert isinstance(g["consolidado"], bool)
+        # O grupo sai como a fonte o nomeia; traduzir é papel da apresentação.
+        assert g["grupo"] == g["grupo"].upper()
+
+    assert isinstance(d["metricas"], list)
+    assert d["capturas"], "a proveniência tem de ser alcançável daqui"
+
+
+def test_resumo_de_empresa_inexistente_e_404(cliente):
+    r = cliente.get("/v1/empresas/424242/resumo")
+    assert r.status_code == 404
+    assert r.json()["erro"]["codigo"] == "empresa_nao_encontrada"
+
+
+def test_resumo_omite_o_que_a_chave_nao_le(cliente):
+    """Chave sem escopo de demonstração recebe a empresa e nada de balanço —
+    a tela dela não mostra porta que a chave não abriria."""
+    import os
+    from app.sinks import SinkDuckDB
+
+    s = SinkDuckDB(os.environ["PORTAL_DUCKDB"])
+    restrita = auth.emitir(s, "so_cadastro", escopos="classe:empresa")
+    s.fechar()
+
+    d = cliente.get("/v1/empresas/9512/resumo",
+                    headers={"X-API-Key": restrita.chave_completa}).json()["dados"]
+    assert d["demonstracoes"] == []
+    assert d["trimestres"] is None
+    assert d["metricas"] == []

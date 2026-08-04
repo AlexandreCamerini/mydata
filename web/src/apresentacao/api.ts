@@ -46,6 +46,29 @@ export type Proveniencia = {
   por_atributo?: Record<string, string>;
 };
 
+export type ResumoDemonstracao = {
+  grupo: string;
+  tipo_doc: string;
+  consolidado: boolean;
+  linhas: number;
+  de: string;
+  ate: string;
+};
+
+/** O que existe para uma companhia — a base da tela de entrada dela. */
+export type ResumoEmpresa = {
+  cd_cvm: number;
+  demonstracoes: ResumoDemonstracao[];
+  trimestres: { linhas: number; de: string; ate: string } | null;
+  metricas: string[];
+  capturas: {
+    id: number;
+    nome_arquivo: string;
+    sha256: string;
+    tamanho_bytes: number;
+  }[];
+};
+
 export type Empresa = {
   cd_cvm: number;
   cnpj: string | null;
@@ -127,6 +150,17 @@ export type Trimestre = {
   vl_acumulado: number | null;
   vl_trimestre: number | null;
   proveniencia: Proveniencia;
+};
+
+export type PeriodoMetricas = {
+  dt_refer: string;
+  tipo_doc: string;
+  metricas: Record<string, number>;
+  definicoes: Record<
+    string,
+    { nome: string; contas: string[]; unidade: string | null; descricao: string | null }
+  >;
+  proveniencia: { captura_id: number | null };
 };
 
 export type Frescor = {
@@ -219,6 +253,8 @@ export const api = {
   },
   empresa: (cd_cvm: number) =>
     pedir<{ dados: Empresa }>(`/v1/empresas/${cd_cvm}`),
+  resumo: (cd_cvm: number) =>
+    pedir<{ dados: ResumoEmpresa }>(`/v1/empresas/${cd_cvm}/resumo`),
   classes: () => pedir<{ dados: MetaClasse[] }>("/v1/meta/classes"),
 
   /** Todas as linhas do recorte, seguindo o cursor até o fim (com teto). */
@@ -244,6 +280,11 @@ export const api = {
     }
     return linhas;
   },
+
+  metricas: (cd_cvm: number, consolidado: boolean) =>
+    pedir<{ dados: PeriodoMetricas[] }>(
+      `/v1/empresas/${cd_cvm}/metricas?consolidado=${consolidado}`,
+    ),
 
   frescor: () => pedir<{ dados: Frescor[] }>("/v1/meta/frescor"),
   execucoes: (f: { status?: string; limite?: number } = {}) => {

@@ -90,9 +90,29 @@ function ProvaDoOriginal({ serie }: { serie: Conta[] }) {
   );
 }
 
-export function Demonstracoes({ cd_cvm }: { cd_cvm: number }) {
+export function Demonstracoes({
+  cd_cvm,
+  grupoInicial,
+}: {
+  cd_cvm: number;
+  grupoInicial?: string;
+}) {
   const empresa = useDados(() => api.empresa(cd_cvm), [cd_cvm]);
-  const [grupo, setGrupo] = useState("BPA");
+  // O grupo vem do endereço quando ele o traz. Trocar de grupo reescreve o
+  // endereço, e não só o estado: é o que torna o recorte citável e o que faz
+  // o botão "voltar" do navegador significar alguma coisa aqui.
+  const [grupo, setGrupoEstado] = useState(
+    (grupoInicial ?? "BPA").toUpperCase(),
+  );
+  function setGrupo(novo: string) {
+    setGrupoEstado(novo);
+    window.location.hash = `#/empresa/${cd_cvm}/demonstracoes/${novo}`;
+  }
+  useEffect(() => {
+    if (grupoInicial && grupoInicial.toUpperCase() !== grupo) {
+      setGrupoEstado(grupoInicial.toUpperCase());
+    }
+  }, [grupoInicial]);
   const [consolidado, setConsolidado] = useState(true);
   const [linhas, setLinhas] = useState<Conta[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -138,7 +158,7 @@ export function Demonstracoes({ cd_cvm }: { cd_cvm: number }) {
           href={`#/empresa/${cd_cvm}`}
           className="text-sm underline decoration-dotted"
         >
-          ← ficha da companhia
+          ← a companhia
         </a>
       </nav>
 

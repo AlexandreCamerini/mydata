@@ -1,25 +1,69 @@
 // A apresentação: onde se vê o dado. Mora em / e lê só /v1 — a administração
 // continua em /admin. Roteamento por hash, como no admin, pelo mesmo motivo:
 // servido estático sem configuração de servidor e sem biblioteca de rotas.
+//
+// A companhia é o ponto de partida: `#/empresa/9512` é a tela de onde se
+// navega para tudo que existe sobre ela. O grupo entra no endereço
+// (`…/demonstracoes/BPA`) para que o recorte seja citável — sem isso, mandar
+// a evidência para outra pessoa só funcionaria por captura de tela.
 import { useEffect, useState } from "react";
+import { Arquivos } from "./Arquivos";
 import { Busca } from "./Busca";
 import { Demonstracoes } from "./Demonstracoes";
+import { Empresa } from "./Empresa";
 import { Ficha } from "./Ficha";
+import { Indicadores } from "./Indicadores";
 import { Operador } from "./Operador";
 
 type Rota =
   | { tela: "busca" }
   | { tela: "empresa"; cd_cvm: number }
-  | { tela: "demonstracoes"; cd_cvm: number }
+  | { tela: "ficha"; cd_cvm: number }
+  | { tela: "demonstracoes"; cd_cvm: number; grupo?: string }
+  | { tela: "indicadores"; cd_cvm: number }
+  | { tela: "arquivos"; cd_cvm: number }
   | { tela: "operador" };
 
 function rotaAtual(): Rota {
-  if (window.location.hash.startsWith("#/operador")) return { tela: "operador" };
-  const dem = window.location.hash.match(/^#\/empresa\/(\d+)\/demonstracoes/);
-  if (dem) return { tela: "demonstracoes", cd_cvm: Number(dem[1]) };
-  const m = window.location.hash.match(/^#\/empresa\/(\d+)/);
-  if (m) return { tela: "empresa", cd_cvm: Number(m[1]) };
+  const h = window.location.hash;
+  if (h.startsWith("#/operador")) return { tela: "operador" };
+
+  const dem = h.match(/^#\/empresa\/(\d+)\/demonstracoes(?:\/([A-Za-z_]+))?/);
+  if (dem)
+    return { tela: "demonstracoes", cd_cvm: Number(dem[1]), grupo: dem[2] };
+
+  const ind = h.match(/^#\/empresa\/(\d+)\/indicadores/);
+  if (ind) return { tela: "indicadores", cd_cvm: Number(ind[1]) };
+
+  const arq = h.match(/^#\/empresa\/(\d+)\/arquivos/);
+  if (arq) return { tela: "arquivos", cd_cvm: Number(arq[1]) };
+
+  const fic = h.match(/^#\/empresa\/(\d+)\/ficha/);
+  if (fic) return { tela: "ficha", cd_cvm: Number(fic[1]) };
+
+  const emp = h.match(/^#\/empresa\/(\d+)/);
+  if (emp) return { tela: "empresa", cd_cvm: Number(emp[1]) };
+
   return { tela: "busca" };
+}
+
+function titulo(rota: Rota): string {
+  switch (rota.tela) {
+    case "operador":
+      return "Operador — MyData";
+    case "demonstracoes":
+      return `Demonstrações ${rota.cd_cvm}${rota.grupo ? ` · ${rota.grupo}` : ""} — MyData`;
+    case "indicadores":
+      return `Indicadores ${rota.cd_cvm} — MyData`;
+    case "arquivos":
+      return `Arquivos originais ${rota.cd_cvm} — MyData`;
+    case "ficha":
+      return `Ficha ${rota.cd_cvm} — MyData`;
+    case "empresa":
+      return `Companhia ${rota.cd_cvm} — MyData`;
+    default:
+      return "MyData — companhias abertas";
+  }
 }
 
 export function App() {
@@ -32,14 +76,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    document.title =
-      rota.tela === "operador"
-        ? "Operador — MyData"
-        : rota.tela === "demonstracoes"
-          ? `Demonstrações ${rota.cd_cvm} — MyData`
-          : rota.tela === "empresa"
-            ? `Companhia ${rota.cd_cvm} — MyData`
-            : "MyData — companhias abertas";
+    document.title = titulo(rota);
   }, [rota]);
 
   return (
@@ -87,10 +124,13 @@ export function App() {
 
         <main id="conteudo" className="max-w-5xl mx-auto px-4 py-6 w-full">
           {rota.tela === "busca" && <Busca />}
-          {rota.tela === "empresa" && <Ficha cd_cvm={rota.cd_cvm} />}
+          {rota.tela === "empresa" && <Empresa cd_cvm={rota.cd_cvm} />}
+          {rota.tela === "ficha" && <Ficha cd_cvm={rota.cd_cvm} />}
           {rota.tela === "demonstracoes" && (
-            <Demonstracoes cd_cvm={rota.cd_cvm} />
+            <Demonstracoes cd_cvm={rota.cd_cvm} grupoInicial={rota.grupo} />
           )}
+          {rota.tela === "indicadores" && <Indicadores cd_cvm={rota.cd_cvm} />}
+          {rota.tela === "arquivos" && <Arquivos cd_cvm={rota.cd_cvm} />}
           {rota.tela === "operador" && <Operador />}
         </main>
       </div>
