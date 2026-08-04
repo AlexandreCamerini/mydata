@@ -558,3 +558,45 @@ def test_resumo_omite_o_que_a_chave_nao_le(cliente):
     assert d["demonstracoes"] == []
     assert d["trimestres"] is None
     assert d["metricas"] == []
+
+
+def test_chave_emitida_com_classes_nasce_restrita(cliente, monkeypatch):
+    """A única decisão de autorização do produto. Enquanto a tela não enviava
+    `classes`, toda chave criada por ela nascia lendo tudo — em silêncio."""
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "segredo-de-teste")
+    cab = {"X-Admin-Token": "segredo-de-teste"}
+
+    r = cliente.post("/admin/api/chaves", headers=cab, json={
+        "consumidor": "so_empresa_ui",
+        "quota_minuto": 60, "quota_dia": 1000,
+        "classes": ["empresa"],
+    })
+    assert r.status_code == 200, r.text
+    emitida = r.json()["dados"]
+    assert emitida["chave"].startswith("pd_")
+
+    chaves = {c["consumidor"]: c for c in
+              cliente.get("/admin/api/chaves", headers=cab).json()["dados"]}
+    assert chaves["so_empresa_ui"]["escopos"] == "classe:empresa"
+
+    # E o escopo vale de verdade: lê empresa, não lê demonstração.
+    minha = {"X-API-Key": emitida["chave"]}
+    assert cliente.get("/v1/empresas", headers=minha).status_code == 200
+    negado = cliente.get("/v1/empresas/9512/demonstracoes", headers=minha)
+    assert negado.status_code == 403
+    assert negado.json()["erro"]["codigo"] == "escopo_insuficiente"
+
+
+def test_chave_sem_classes_continua_lendo_tudo(cliente, monkeypatch):
+    """O padrão permissivo é intencional e compatível com as chaves já
+    emitidas. O que mudou é que agora a tela diz isso em voz alta."""
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "segredo-de-teste")
+    cab = {"X-Admin-Token": "segredo-de-teste"}
+
+    r = cliente.post("/admin/api/chaves", headers=cab, json={
+        "consumidor": "sem_escopo_ui", "quota_minuto": 60, "quota_dia": 1000,
+    })
+    assert r.status_code == 200
+    minha = {"X-API-Key": r.json()["dados"]["chave"]}
+    assert cliente.get("/v1/empresas/9512/demonstracoes",
+                       headers=minha).status_code == 200

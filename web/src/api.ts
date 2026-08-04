@@ -107,12 +107,20 @@ export const api = {
     ),
 
   chaves: () => pedir<Resposta<Chave[]>>("/admin/api/chaves"),
-  emitirChave: (consumidor: string, quota_minuto: number, quota_dia: number) =>
+  // `classes` vazio significa leitura de tudo — é o padrão do backend, e a
+  // tela precisa dizer isso em voz alta. Enquanto este campo não era enviado,
+  // toda chave criada pela interface nascia com escopo total em silêncio.
+  emitirChave: (
+    consumidor: string,
+    quota_minuto: number,
+    quota_dia: number,
+    classes: string[],
+  ) =>
     pedir<Resposta<{ prefixo: string; chave: string; aviso: string }>>(
       "/admin/api/chaves",
       {
         method: "POST",
-        body: JSON.stringify({ consumidor, quota_minuto, quota_dia }),
+        body: JSON.stringify({ consumidor, quota_minuto, quota_dia, classes }),
       },
     ),
   revogarChave: (prefixo: string) =>
@@ -456,6 +464,8 @@ export type Chave = {
   prefixo: string;
   quota_minuto: number;
   quota_dia: number;
+  /** `leitura` = tudo; `classe:x,classe:y` restringe. */
+  escopos: string | null;
   criada_em: string;
   revogada_em: string | null;
 };
