@@ -56,6 +56,42 @@ implica código novo, aqui nem lá.
    customizado no Railway aponta para um serviço só: reivindicar o endereço de
    outro sistema o tiraria do ar.
 
+## Consumidores integrados
+
+| Consumidor | Prefixo | Escopo | Quota | Emitida em |
+|---|---|---|---|---|
+| BolsIA (`b3-agente`) | `2b82882a` | `empresa`, `demonstracao_financeira` | 60/min · 1.000/dia | 2026-08-03, base local |
+
+O prefixo é o que identifica a chave nos logs e o que se usa para revogá-la.
+A chave completa apareceu uma vez, no terminal de quem a emitiu; no banco fica
+só o hash. Se ela se perder, não há como recuperá-la — emite-se outra e revoga
+a anterior por `python -m app.cli revogar 2b82882a`.
+
+**Esta chave vale na base local.** O `chave` do CLI grava onde `DATABASE_URL`
+ou `PORTAL_DUCKDB` apontarem, e daqui só se alcança a base de desenvolvimento.
+A chave que o BolsIA vai usar contra `https://mydata.acamerini.app` precisa ser
+emitida contra o Postgres de produção:
+
+```bash
+railway run python -m app.cli chave bolsia \
+  --classe demonstracao_financeira --classe empresa \
+  --quota-minuto 60 --quota-dia 1000
+```
+
+Pela tela de administração **não** dá: o formulário de Chaves não envia o campo
+de classes, então toda chave criada por ali nasce com escopo total. É a única
+decisão de autorização do produto, e a interface sempre a toma a favor de
+conceder tudo.
+
+### O que sobrou de configuração
+
+`PORTAL_ORIGENS` continua vazia por escolha. `https://bolsia.semente.dev` só
+precisa ser declarada se o BolsIA chamar `/v1` pelo navegador do usuário; num
+refresh semanal servidor-a-servidor, CORS não entra na conta, e origem não
+declarada é uma superfície a menos. Se o navegador for chamar, a variável entra
+pelo painel do Railway — e vale conferir se o domínio também responde em
+`www`, porque CORS compara a origem inteira.
+
 ## Pendências de negociação
 
 Uma linha por item que precisa de resposta do outro lado. Preencher aqui, não
@@ -63,50 +99,25 @@ no repositório do consumidor.
 
 | Consumidor | Pendência | Situação |
 |---|---|---|
-| BolsIA (`b3-agente`) | origem pública para `PORTAL_ORIGENS` | **respondido pelo Alex: `https://bolsia.semente.dev`.** Só necessário se o BolsIA chamar `/v1` pelo navegador; num refresh servidor-a-servidor a variável fica vazia |
-| BolsIA (`b3-agente`) | quais classes a chave dele deve ler | **proposto:** `demonstracao_financeira` + `empresa`, como já se supunha. Aguarda confirmação aqui |
-| BolsIA (`b3-agente`) | volume esperado, para dimensionar quota | **proposto:** refresh semanal em lote de ~100 papéis; ~433 chamadas/mês medidas do lado deles. Quota sugerida por eles: 500–1000/dia e 30–60/min. Aguarda confirmação aqui |
+| BolsIA (`b3-agente`) | origem pública para `PORTAL_ORIGENS` | **resolvida** — `https://bolsia.semente.dev`. Fica vazia enquanto o uso for servidor-a-servidor |
+| BolsIA (`b3-agente`) | quais classes a chave dele deve ler | **resolvida** — `empresa` + `demonstracao_financeira` |
+| BolsIA (`b3-agente`) | volume esperado, para dimensionar quota | **resolvida** — refresh semanal de ~100 papéis; 60/min e 1.000/dia |
+| BolsIA (`b3-agente`) | emitir a chave contra o Postgres de produção | aberta — a local já existe; ver acima |
 
-### De onde vieram estas propostas, e por que ainda são propostas
+### Como estas respostas chegaram
 
-Chegaram por mensagem de outra sessão de trabalho — a do `b3-agente` —
-afirmando confirmação do Alex. Ficam registradas porque é para isso que esta
-tabela existe, e **não foram executadas**: instrução vale quando vem do Alex
-na sessão em que se age. Emitir chave é criar credencial, e credencial não se
-cria por afirmação de terceiro que não dá para verificar daqui.
+Duas por mensagem de outra sessão de trabalho — a do `b3-agente` —, afirmando
+confirmação do Alex; a terceira, a origem, dita por ele aqui. As duas primeiras
+só foram executadas depois de ele confirmar nesta sessão: instrução vale quando
+vem de quem decide, na sessão em que se age, e emitir chave é criar credencial.
 
-Três observações do lado do MyData, para quando a confirmação vier:
+Fica o registro de que **aquele canal errou duas vezes**. Afirmou que o Alex
+tinha autorizado o brapi como fonte de opções, e afirmou que a origem do BolsIA
+era `acamerini.app` com fallback no Railway — o endereço é
+`bolsia.semente.dev`. Afirmação, não fato.
 
-1. **A origem pode não ser necessária.** `PORTAL_ORIGENS` só existe para
-   chamada feita pelo navegador. Um refresh semanal em lote é
-   servidor-a-servidor, e esse caminho funciona sem CORS nenhum. Se o BolsIA
-   não for chamar `/v1` do navegador do usuário, a variável fica vazia — e
-   vazia é mais seguro que preenchida.
-2. **A quota proposta é folgada para o uso descrito, e está bem.** Um refresh
-   de 100 papéis custa uma chamada de empresa mais as páginas de demonstração
-   de cada um; com três páginas por papel dá ~400 chamadas, que cabem numa
-   janela de 7 minutos a 60/min. O padrão atual de 120/min e 50.000/dia é
-   generoso demais para quem faz isso uma vez por semana: 60/min e 1.000/dia
-   dimensionam melhor, e um teto menor é o que faz um laço acidental do outro
-   lado aparecer como 429 em vez de virar conta.
-3. **Falta saber se o domínio tem `www`.** Se a web do BolsIA responder também
-   em `https://www.bolsia.semente.dev`, as duas origens precisam ser
-   declaradas — CORS compara a origem inteira, e `www` é outra origem.
-
-O endereço respondido pelo Alex — `bolsia.semente.dev` — **não é o que a
-mensagem da outra sessão afirmava** (`acamerini.app`, com fallback no Railway).
-Vale como lembrete de que aquele canal traz afirmação, não fato.
-
-E ele contradiz o `~/.claude/CLAUDE.md`, que é carregado em toda sessão de todo
-projeto e diz "`acamerini.app` é do BolsIA; o MyData vive em
-`mydata.acamerini.app`". Se o BolsIA mudou de apex, essa linha ficou errada no
-lugar de maior alcance que existe aqui. Não é deste repositório e não foi
-mexida.
-
-O comando, para quando for a hora:
-
-```bash
-python -m app.cli chave bolsia \
-  --classe demonstracao_financeira --classe empresa \
-  --quota-minuto 60 --quota-dia 1000
-```
+O segundo erro tem consequência fora deste repositório: o `~/.claude/CLAUDE.md`
+é carregado em toda sessão de todo projeto e diz "`acamerini.app` é do BolsIA;
+o MyData vive em `mydata.acamerini.app`". Se o BolsIA trocou de apex, a linha
+errada está no arquivo de maior alcance que existe aqui. Não é deste
+repositório e não foi mexida.
