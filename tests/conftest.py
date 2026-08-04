@@ -5,6 +5,7 @@ portal (`app`). Os dois convivem: o pacote continua sendo entregável próprio.
 """
 import io
 import os
+import pathlib
 import zipfile
 
 import pytest
@@ -196,15 +197,42 @@ def baixador(mapa: dict[str, bytes]):
     return _baixar
 
 
+def sink_do_ambiente():
+    """Abre o mesmo banco que a fixture `cliente` preparou.
+
+    Existe porque vários testes precisam emitir chave ou inspecionar
+    configuração por fora da API, e não podem supor o dialeto: com
+    `PORTAL_TESTE_POSTGRES` definido, a API roda em Postgres.
+    """
+    if DSN_TESTE:
+        from app.sinks import SinkPostgres
+
+        return SinkPostgres(DSN_TESTE)
+    return SinkDuckDB(os.environ["PORTAL_DUCKDB"])
+
+
 @pytest.fixture()
 def cliente(tmp_path, zip_dfp_2023, csv_cadastro, monkeypatch):
-    """API sobre uma base DuckDB em arquivo, já carregada com dado."""
-    banco = str(tmp_path / "api.duckdb")
-    monkeypatch.setenv("PORTAL_DUCKDB", banco)
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    monkeypatch.delenv("PORTAL_ADMIN_TOKEN", raising=False)
+    """API sobre a base já carregada com dado.
 
-    s = SinkDuckDB(banco)
+    Roda nos dois dialetos: com `PORTAL_TESTE_POSTGRES` definido, a API sobe
+    contra Postgres. Sem isso, a camada de API — que é a que mais SQL escreve
+    — nunca era exercitada no dialeto de produção, e foi ali que os dois
+    últimos deploys quebraram.
+    """
+    monkeypatch.delenv("PORTAL_ADMIN_TOKEN", raising=False)
+    if DSN_TESTE:
+        monkeypatch.setenv("DATABASE_URL", DSN_TESTE)
+        from app.sinks import SinkPostgres
+
+        s = SinkPostgres(DSN_TESTE)
+        s.executar("DROP SCHEMA IF EXISTS public CASCADE")
+        s.executar("CREATE SCHEMA public")
+    else:
+        banco = str(tmp_path / "api.duckdb")
+        monkeypatch.setenv("PORTAL_DUCKDB", banco)
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        s = SinkDuckDB(banco)
     bootstrap.preparar(s)
     seed_cvm.aplicar(s)
     ingestao.executar(s, "cvm_dfp", "2023",
@@ -219,3 +247,10 @@ def cliente(tmp_path, zip_dfp_2023, csv_cadastro, monkeypatch):
         c.headers.update({"X-API-Key": emitida.chave_completa})
         c.chave = emitida
         yield c
+
+    # O arquivo sai junto com o teste. `tmp_path` guarda um diretório por teste
+    # e só apaga entre sessões, então os ~47 testes que usam esta fixture
+    # deixavam ~47 bancos DuckDB vivos ao mesmo tempo — perto de 2 GB de disco
+    # para rodar a suíte. Apagando aqui, existe um de cada vez.
+    if not DSN_TESTE:
+        pathlib.Path(banco).unlink(missing_ok=True)

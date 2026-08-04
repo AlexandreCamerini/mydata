@@ -56,10 +56,9 @@ def test_escopo_restrito_recebe_403_na_travessia(cliente):
     """A outra metade do aceite. A chave lê `empresa` e nada mais; a correlação
     alcança `demonstracao_financeira`, então a consulta é negada inteira — não
     servida com as colunas do destino omitidas em silêncio."""
-    from app.sinks import SinkDuckDB
-    import os
+    from conftest import sink_do_ambiente
 
-    s = SinkDuckDB(os.environ["PORTAL_DUCKDB"])
+    s = sink_do_ambiente()
     restrita = auth.emitir(s, "watchlist", escopos="classe:empresa")
     s.fechar()
 
@@ -81,10 +80,9 @@ def test_escopo_restrito_recebe_403_na_travessia(cliente):
 def test_catalogo_esconde_travessia_que_a_chave_nao_alcanca(cliente):
     """Anunciar uma correlação que a chave não pode executar é anunciar porta
     fechada."""
-    from app.sinks import SinkDuckDB
-    import os
+    from conftest import sink_do_ambiente
 
-    s = SinkDuckDB(os.environ["PORTAL_DUCKDB"])
+    s = sink_do_ambiente()
     restrita = auth.emitir(s, "watchlist2", escopos="classe:empresa")
     s.fechar()
 

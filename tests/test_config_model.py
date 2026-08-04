@@ -242,8 +242,25 @@ def test_qmark_preserva_interrogacao_dentro_de_literal():
     )
 
 
-def test_qmark_escapa_porcento_literal():
+def test_qmark_escapa_porcento_tambem_dentro_de_literal():
+    """Este teste afirmava o contrário, e o contrário estava errado.
+
+    A distinção entre dentro e fora do literal vale para o `?`: só fora dele
+    ele é placeholder. Para o `%` não vale — o psycopg varre a string inteira
+    e não sabe o que é literal de SQL. Um `%` entre aspas precisa ser escapado
+    igual, senão a consulta estoura com "only '%s', '%b', '%t' are allowed as
+    placeholders".
+
+    Quem pagou por isso foi a busca por ticker, cujo `LIKE lower(ticker) ||
+    '%'` é literal. Em DuckDB passava; em produção, que é Postgres, a busca
+    por papel quebrava — e nenhum teste pegava, porque a camada de API só
+    rodava num dialeto.
+    """
     sql = "SELECT * FROM t WHERE nome LIKE 'a%' AND id = ?"
     assert qmark_para_pyformat(sql) == (
-        "SELECT * FROM t WHERE nome LIKE 'a%' AND id = %s"
+        "SELECT * FROM t WHERE nome LIKE 'a%%' AND id = %s"
+    )
+    # E o `?` dentro do literal continua intocado.
+    assert qmark_para_pyformat("SELECT 'tem ? e %' , ?") == (
+        "SELECT 'tem ? e %%' , %s"
     )

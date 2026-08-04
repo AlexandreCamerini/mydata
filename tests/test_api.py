@@ -435,10 +435,9 @@ def test_contrato_de_classe_inexistente_e_404(cliente):
 
 def _uma_captura(classe: str = "empresa") -> dict:
     """Um id de captura e seu hash, lidos do banco — sem gastar quota da API."""
-    import os
-    from app.sinks import SinkDuckDB
+    from conftest import sink_do_ambiente
 
-    s = SinkDuckDB(os.environ["PORTAL_DUCKDB"])
+    s = sink_do_ambiente()
     linha = s.um(
         "SELECT b.id, b.sha256, b.tamanho_bytes FROM bronze_captura b "
         "JOIN cfg_dataset d ON d.chave = b.dataset_chave AND d.vigente "
@@ -496,11 +495,10 @@ def test_captura_repetida_devolve_304_sem_bytes(cliente):
 def test_captura_respeita_o_escopo_da_chave(cliente):
     """O escopo vale aqui como vale em gold. Liberar o bronze sem checar daria,
     por uma porta lateral, o que a porta da frente nega."""
-    import os
-    from app.sinks import SinkDuckDB
+    from conftest import sink_do_ambiente
 
     alvo = _uma_captura("demonstracao_financeira")
-    s = SinkDuckDB(os.environ["PORTAL_DUCKDB"])
+    s = sink_do_ambiente()
     restrita = auth.emitir(s, "so_empresa", escopos="classe:empresa")
     s.fechar()
 
@@ -546,10 +544,9 @@ def test_resumo_de_empresa_inexistente_e_404(cliente):
 def test_resumo_omite_o_que_a_chave_nao_le(cliente):
     """Chave sem escopo de demonstração recebe a empresa e nada de balanço —
     a tela dela não mostra porta que a chave não abriria."""
-    import os
-    from app.sinks import SinkDuckDB
+    from conftest import sink_do_ambiente
 
-    s = SinkDuckDB(os.environ["PORTAL_DUCKDB"])
+    s = sink_do_ambiente()
     restrita = auth.emitir(s, "so_cadastro", escopos="classe:empresa")
     s.fechar()
 

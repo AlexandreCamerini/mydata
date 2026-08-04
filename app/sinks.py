@@ -51,12 +51,20 @@ _LITERAL = re.compile(r"'(?:[^']|'')*'")
 
 
 def qmark_para_pyformat(sql: str) -> str:
-    """`?` -> `%s`, preservando `?` dentro de literais e escapando `%` solto."""
+    """`?` -> `%s`, preservando `?` dentro de literais e escapando todo `%`.
+
+    A distinção entre dentro e fora do literal vale para o `?`, que só é
+    placeholder fora dele. Para o `%` não vale: o psycopg varre a string
+    inteira e não sabe o que é literal de SQL, então um `%` dentro de aspas
+    precisa ser escapado igual. Foi o que quebrou a busca por ticker, cujo
+    `LIKE lower(ticker) || '%'` é literal — em DuckDB passava, e o defeito só
+    existia no dialeto de produção.
+    """
     partes: list[str] = []
     pos = 0
     for m in _LITERAL.finditer(sql):
         partes.append(sql[pos : m.start()].replace("%", "%%").replace("?", "%s"))
-        partes.append(m.group(0))
+        partes.append(m.group(0).replace("%", "%%"))
         pos = m.end()
     partes.append(sql[pos:].replace("%", "%%").replace("?", "%s"))
     return "".join(partes)
@@ -212,8 +220,21 @@ class SinkPostgres:
     def __init__(self, dsn: str):
         import psycopg
         from psycopg.rows import dict_row
+        from psycopg.types.numeric import FloatLoader
 
         self.con = psycopg.connect(dsn, row_factory=dict_row, autocommit=True)
+        # `numeric` chega como `Decimal`, e o serializador JSON do FastAPI
+        # transforma `Decimal` em **string**. O efeito era o consumidor receber
+        # `"105409478000.0"` no lugar de um número — em produção, porque só lá
+        # o dialeto é Postgres; em DuckDB o mesmo campo é `double` e sai como
+        # número. O ADR-17 notou a diferença e ajustou os testes; o contrato
+        # publicado ficou torto esse tempo todo.
+        #
+        # Trocar por `float` no carregamento é a correção certa aqui: o sink
+        # existe justamente para o resto do sistema não precisar saber qual
+        # dialeto está embaixo. Precisão: `vl_conta` é valor contábil em reais,
+        # bem dentro do que o double representa exatamente.
+        self.con.adapters.register_loader("numeric", FloatLoader)
 
     def executar(self, sql: str, params: Iterable[Any] = ()) -> None:
         with self.con.cursor() as cur:
