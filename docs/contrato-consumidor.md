@@ -60,23 +60,30 @@ implica código novo, aqui nem lá.
 
 | Consumidor | Prefixo | Escopo | Quota | Emitida em |
 |---|---|---|---|---|
-| BolsIA (`b3-agente`) | `2b82882a` | `empresa`, `demonstracao_financeira` | 60/min · 1.000/dia | 2026-08-03, base local |
+| BolsIA (`b3-agente`) | `dadbd4b0` | `empresa`, `demonstracao_financeira` | 60/min · 1.000/dia | 2026-08-04, **produção** |
+| BolsIA (`b3-agente`) | `2b82882a` | `empresa`, `demonstracao_financeira` | 60/min · 1.000/dia | 2026-08-03, base local — para desenvolvimento |
 
 O prefixo é o que identifica a chave nos logs e o que se usa para revogá-la.
 A chave completa apareceu uma vez, no terminal de quem a emitiu; no banco fica
 só o hash. Se ela se perder, não há como recuperá-la — emite-se outra e revoga
 a anterior por `python -m app.cli revogar 2b82882a`.
 
-**Esta chave vale na base local.** O `chave` do CLI grava onde `DATABASE_URL`
-ou `PORTAL_DUCKDB` apontarem, e daqui só se alcança a base de desenvolvimento.
-A chave que o BolsIA vai usar contra `https://mydata.acamerini.app` precisa ser
-emitida contra o Postgres de produção:
+São duas chaves porque são dois bancos. O `chave` do CLI grava onde
+`DATABASE_URL` ou `PORTAL_DUCKDB` apontarem: a de prefixo `2b82882a` vale
+contra o portal local, a de `dadbd4b0` contra `https://mydata.acamerini.app`.
+
+A de produção foi emitida **dentro do container**, e não da máquina do Alex:
 
 ```bash
-railway run python -m app.cli chave bolsia \
+railway ssh --service mydata "python -m app.cli chave bolsia \
   --classe demonstracao_financeira --classe empresa \
-  --quota-minuto 60 --quota-dia 1000
+  --quota-minuto 60 --quota-dia 1000"
 ```
+
+`railway run` não serve para isto. Ele injeta a `DATABASE_URL` interna, cujo
+host `postgres.railway.internal` só resolve dentro da rede do Railway — de
+fora, a conexão nem sai. Rodar por `ssh` também evita trazer o DSN de produção,
+com senha, para a máquina de quem executa.
 
 Pela tela de administração **não** dá: o formulário de Chaves não envia o campo
 de classes, então toda chave criada por ali nasce com escopo total. É a única
