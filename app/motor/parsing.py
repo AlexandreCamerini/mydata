@@ -28,10 +28,18 @@ def _num(txt: str, formato: str | None) -> float | None:
         return None
     if formato == "decimal_ptbr":
         txt = txt.replace(".", "").replace(",", ".") if "," in txt else txt
+    casas = 0
+    if formato and formato.startswith("implicito:"):
+        # `implicito:2` — o arquivo grava 0000000000057 e quer dizer 0,57.
+        # Layout posicional não tem onde pôr a vírgula, então a escala é
+        # declarada. Dividir aqui, e não num campo calculado, mantém a
+        # coluna com o número que o campo significa.
+        casas = int(formato.split(":", 1)[1])
     try:
-        return float(txt)
+        valor = float(txt)
     except ValueError:
         return None
+    return valor / (10 ** casas) if casas else valor
 
 
 def _int(txt: str) -> int | None:
@@ -178,6 +186,83 @@ def ler_csv(
     leitor = csv.DictReader(io.StringIO(texto), delimiter=separador)
     cabecalho = {(c or "").strip().upper() for c in (leitor.fieldnames or [])}
     return mapear(iter(leitor), colunas, cabecalho, contexto, extras)
+
+
+_FAIXA = re.compile(r"^(?P<campo>[^@]+)@(?P<ini>\d+)-(?P<fim>\d+)$")
+
+
+def faixa_de(nome_origem: str) -> tuple[int, int] | None:
+    """Interpreta `PREEXE@189-201` como a fatia 189..201, 1-indexada inclusive.
+
+    A posição mora no `nome_origem` em vez de numa coluna nova de `cfg_coluna`
+    pela mesma razão que `$grupo` mora ali: é a identificação do campo *na
+    origem*. Num CSV a origem se identifica por nome, num layout posicional se
+    identifica por posição, e nos dois casos é a mesma pergunta — de onde vem
+    este valor.
+    """
+    m = _FAIXA.match(nome_origem.strip())
+    if not m:
+        return None
+    ini, fim = int(m.group("ini")), int(m.group("fim"))
+    if ini < 1 or fim < ini:
+        raise ErroParse(
+            f"faixa inválida em '{nome_origem}': posição inicial {ini}, final {fim}"
+        )
+    return ini, fim
+
+
+def ler_larguras(
+    raw: bytes,
+    colunas: list[dict],
+    encoding: str,
+    filtro_linha: str | None = None,
+    contexto: dict[str, str] | None = None,
+    extras: dict[str, Any] | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Lê um arquivo de registro posicional, com o mesmo mapeamento do CSV.
+
+    Cada coluna declara a faixa em `nome_origem` (`CAMPO@ini-fim`). O leitor
+    recorta e entrega o registro com a chave igual ao `nome_origem` declarado,
+    então `mapear` — tipo, formato, coluna sombra `_txt`, pseudo-coluna `$` —
+    vale sem uma linha de exceção.
+
+    `filtro_linha` é um regex casado contra a linha crua. Arquivo posicional
+    costuma misturar tipos de registro (cabeçalho, dado, encerramento) na
+    mesma sequência de bytes; sem o filtro, o cabeçalho vira uma linha de
+    dado com todos os campos deslocados.
+    """
+    texto = raw.decode(encoding, errors="strict")
+    rx = re.compile(filtro_linha) if filtro_linha else None
+
+    faixas: list[tuple[str, int, int]] = []
+    largura_min = 0
+    for c in colunas:
+        origem = c["nome_origem"].strip()
+        if origem.startswith("$"):
+            continue
+        faixa = faixa_de(origem)
+        if faixa is None:
+            raise ErroParse(
+                f"formato 'larguras' exige faixa em nome_origem, e '{origem}' "
+                f"não traz — use CAMPO@inicio-fim, com posições 1-indexadas"
+            )
+        ini, fim = faixa
+        faixas.append((origem, ini - 1, fim))
+        largura_min = max(largura_min, fim)
+
+    def registros() -> Iterator[dict[str, Any]]:
+        for linha in texto.splitlines():
+            if not linha or (rx and not rx.match(linha)):
+                continue
+            if len(linha) < largura_min:
+                raise ErroParse(
+                    f"linha com {len(linha)} caracteres, mas o mapeamento "
+                    f"declara campo até a posição {largura_min}"
+                )
+            yield {origem: linha[ini:fim] for origem, ini, fim in faixas}
+
+    cabecalho = {origem.upper() for origem, _, _ in faixas}
+    return mapear(registros(), colunas, cabecalho, contexto, extras)
 
 
 def membros_do_zip(

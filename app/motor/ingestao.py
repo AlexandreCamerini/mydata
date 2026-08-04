@@ -138,6 +138,12 @@ def carregar_arquivo(
             caminho_registros=_parametros(ds).get("caminho_registros"),
             contexto=contexto, extras=extras,
         )
+    elif fonte.get("formato_registro") == "larguras":
+        linhas = parsing.ler_larguras(
+            payload, colunas, fonte["encoding"],
+            filtro_linha=ds.get("filtro_linha"),
+            contexto=contexto, extras=extras,
+        )
     else:
         linhas = parsing.ler_csv(
             payload, colunas, fonte["encoding"], fonte["separador"],

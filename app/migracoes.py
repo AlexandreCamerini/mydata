@@ -378,6 +378,23 @@ MIGRACOES: list[Migracao] = [
                """ + _VERSAO + ")",
         ],
     ),
+    Migracao(
+        # Registro de largura fixa. Até aqui todo arquivo era CSV ou JSON —
+        # um separador dizia onde um campo termina. O COTAHIST da B3 não tem
+        # separador nenhum: 245 bytes por linha, cada campo numa faixa de
+        # posições, e três tipos de registro no mesmo arquivo.
+        #
+        # As duas colunas são do transporte, não da B3: `formato_registro`
+        # diz como ler os bytes de um membro, e `filtro_linha` descarta a
+        # linha que não é do tipo que interessa. Uma fonte futura de layout
+        # posicional — e há muitas em dado público brasileiro — entra pela
+        # mesma porta, sem tocar no motor.
+        nome="0012_largura_fixa",
+        sql=[
+            "ALTER TABLE cfg_fonte ADD COLUMN formato_registro {TEXTO} DEFAULT 'csv'",
+            "ALTER TABLE cfg_dataset ADD COLUMN filtro_linha {TEXTO}",
+        ],
+    ),
 ]
 
 # Tabelas silver que participam do ciclo de publicação. A partir da Etapa 3

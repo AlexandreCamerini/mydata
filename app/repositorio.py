@@ -73,6 +73,9 @@ class Dataset:
     particao: str = "ano"
     # Valores que o template de URL da fonte pede além de {ano} e {janela}.
     parametros: dict[str, str] = field(default_factory=dict)
+    # Regex casado contra a linha crua, só no formato de largura fixa. Serve
+    # para separar tipos de registro que dividem o mesmo arquivo.
+    filtro_linha: str | None = None
     descricao: str | None = None
     ativo: bool = True
 
@@ -118,10 +121,14 @@ class Classe:
 class Fonte:
     chave: str
     nome: str
-    tipo_transporte: str           # http_zip | http_csv
+    tipo_transporte: str           # http_zip | http_csv | http_json
     url_template: str
     encoding: str = "utf-8"
     separador: str = ";"
+    # Como ler os bytes de um membro: `csv` (separador) ou `larguras`
+    # (posição declarada em cfg_coluna). Ortogonal ao transporte — um ZIP
+    # pode trazer qualquer um dos dois.
+    formato_registro: str = "csv"
     credencial_ref: str | None = None
     descricao: str | None = None
     ativo: bool = True
@@ -152,17 +159,22 @@ def _aposentar(sink: Sink, tabela: str, chave: str) -> int:
 def salvar_fonte(sink: Sink, f: Fonte, autor: str = "sistema") -> int:
     if f.tipo_transporte not in ("http_zip", "http_csv", "http_json"):
         raise ErroConfiguracao(f"tipo_transporte desconhecido: {f.tipo_transporte}")
+    if f.formato_registro not in ("csv", "larguras"):
+        raise ErroConfiguracao(
+            f"formato_registro desconhecido: {f.formato_registro}. "
+            f"Use 'csv' ou 'larguras'."
+        )
     versao = _aposentar(sink, "cfg_fonte", f.chave)
     novo_id = sink.proximo_id("cfg_fonte")
     sink.executar(
         """INSERT INTO cfg_fonte
            (id, nome, descricao, tipo_transporte, url_template, encoding,
-            separador, credencial_ref, ativo, chave, versao, vigente,
-            vigente_chave, criado_por)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,TRUE,?,?)""",
+            separador, formato_registro, credencial_ref, ativo, chave, versao,
+            vigente, vigente_chave, criado_por)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,TRUE,?,?)""",
         (novo_id, f.nome, f.descricao, f.tipo_transporte, f.url_template,
-         f.encoding, f.separador, f.credencial_ref, f.ativo, f.chave, versao,
-         f.chave, autor),
+         f.encoding, f.separador, f.formato_registro, f.credencial_ref,
+         f.ativo, f.chave, versao, f.chave, autor),
     )
     return novo_id
 
@@ -471,12 +483,13 @@ def salvar_dataset(sink: Sink, d: Dataset, autor: str = "sistema") -> int:
         """INSERT INTO cfg_dataset
            (id, fonte_chave, nome, descricao, padrao_arquivo, tabela_destino,
             chave_natural, politica_versao, particao, ativo, classe_chave,
-            parametros, chave, versao, vigente, vigente_chave, criado_por)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,TRUE,?,?)""",
+            parametros, filtro_linha, chave, versao, vigente, vigente_chave,
+            criado_por)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,TRUE,?,?)""",
         (novo_id, d.fonte_chave, d.nome, d.descricao, d.padrao_arquivo,
          d.tabela_destino, ",".join(d.chave_natural), d.politica_versao,
          d.particao, d.ativo, d.classe_chave, json.dumps(d.parametros),
-         d.chave, versao, d.chave, autor),
+         d.filtro_linha, d.chave, versao, d.chave, autor),
     )
     for c in d.colunas:
         sink.executar(
