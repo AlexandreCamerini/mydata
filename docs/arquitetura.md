@@ -817,6 +817,111 @@ pessoa operando, identidade por autenticador não é o mesmo que identidade por
 usuário, e isso vira decisão nova.
 
 
+### ADR-20 — o cadastro de instrumentos entra como classe própria, e não substitui o COTAHIST
+
+**Contexto.** Uma descoberta vinda da sessão do b3-agente apontou o
+**InstrumentsConsolidated** do portal `arquivos.b3.com.br`: cadastro completo
+dos instrumentos listados, servido diariamente sem autenticação e sem CAPTCHA.
+O pedido que veio junto era trocar a fonte de opções, porque a atual estaria
+"chegando com muitos erros".
+
+**A premissa foi medida antes de ser aceita.** Cruzando o arquivo de
+04/08/2026 com as 11.321 séries do nosso pregão de 31/07:
+
+| Campo nosso × cadastro | Divergências |
+|---|---|
+| Vencimento | 0 de 10.728 |
+| Tipo (call/put) | 0 |
+| Ativo-objeto | 0 |
+| Strike | 666 (6%) |
+
+As 593 séries que não casaram venciam em 31/07 e 03/08 — expiraram antes da
+data do cadastro. A cobertura das séries vivas é 100%, e o zero na coluna de
+ativo-objeto confirma de forma independente a resolução por `CODISI` do
+[ADR-18](#adr-18--cotahist-entra-sob-uso-pessoal-e-a-classe-é-negociação).
+
+**O cadastro não conserta os erros que motivaram o pedido.** Dos 941 prêmios
+abaixo do piso do modelo, usar o strike do cadastro resolve **10**. Os três
+defeitos reais eram outros, e foram corrigidos sem trocar de fonte: `hv21`
+nula por faltar histórico (dois pregões carregados, janela de 21), 584 séries
+vencendo no próprio pregão exibidas como nulo mudo, e o motivo do nulo não
+declarado. Um cadastro não tem preço, e o prêmio impossível é problema de
+preço — o último negócio do dia comparado com o fechamento do objeto.
+
+**O que ele acrescenta, e que o COTAHIST estruturalmente não pode dar.**
+
+- **`OptnStyle`.** O COTAHIST não diz estilo de exercício. O cadastro diz, e
+  `CFICd` confirma: **não existe put americana** — 68.068 europeias, zero
+  americanas. Só as calls se dividem (42.909 americanas contra 25.158
+  europeias). Isso reduz muito o problema: call americana sobre papel sem
+  provento vale o mesmo que a europeia, então a limitação real continua sendo
+  a ausência de dividendos que `app/motor/nucleos.py` já declara.
+- **A cadeia completa.** O COTAHIST traz só série que negociou. Série listada
+  e parada não existe no nosso dado, e nenhuma agregação sobre "quantas séries
+  existem" é respondível hoje.
+- **Conferência independente** do strike corrigido, do vencimento e do
+  ativo-objeto — as três colunas de zero divergência acima.
+
+**Alternativas.**
+
+| Alternativa | Por que não venceu |
+|---|---|
+| Substituir o COTAHIST | Não tem preço. Não é substituto, é complemento |
+| Não adotar | Deixa `estilo_exercicio` inalcançável e a cadeia incompleta, sem que nada mais preencha essas lacunas |
+| Adotar dentro de `negociacao_b3`, por precedência | Confundiria cadastro com evento de negociação. [ADR-12](#adr-12--resolução-multi-fonte-é-derivação-não-sobrescrita) resolve atributo disputado entre fontes da *mesma* classe; aqui são coisas diferentes que se juntam, não que disputam |
+| **Classe `instrumento_b3` própria, ligada por correlação** | Mantém cada coisa no que ela é, e a travessia fica declarada em `cfg_correlacao` em vez de embutida numa vista |
+
+**Decisão proposta — pende de confirmação do Alex por causa da licença.**
+Adotar como classe `instrumento_b3`, sob **o mesmo uso pessoal** do ADR-18: os
+Termos de Uso do portal são os mesmos que já barraram a redistribuição do
+COTAHIST. O argumento de que cadastro de instrumento é dado cadastral e não
+cotação é razoável, e é argumento — não muda os termos. Enquanto esta linha
+disser "proposta", nada disto vira código.
+
+**Consequências de modelo, se for adotada.**
+
+- **Identidade `TckrSymb`, não `TckrSymb` + data.** O arquivo é uma fotografia
+  diária de 154.606 instrumentos; guardar uma linha por dia são ~38 milhões de
+  linhas por ano em silver, contra 2,11 GB que o banco inteiro ocupa hoje. A
+  história fica em bronze, que é imutável e reconstrói qualquer dia.
+- **Guarda de recarga fora de ordem.** Com identidade sem data, reingerir um
+  dia antigo sobrescreveria o estado atual com o velho. É o mesmo defeito que
+  o escopo da escrita já corrigiu para campo de janela, e precisa do mesmo
+  tipo de guarda: só aplica quando `RptDt` for maior ou igual ao guardado.
+- **Sem filtro na carga.** Entram os 154.606 instrumentos, não só as 138.561
+  opções. Filtrar seria o motor decidindo qual linha do arquivo oficial merece
+  existir — o mesmo argumento que fez a classe ser `negociacao_b3` e não
+  `opcao`. Opção continua sendo recorte, e recorte é vista.
+- **A ligação com a negociação é correlação declarada**, por código de
+  negociação. `gold_opcoes` ganha `estilo_exercicio` pela travessia, não por
+  uma coluna copiada.
+
+**Consequências de motor.**
+
+- **Transporte em dois passos.** `GET requestname?fileName=&date=` devolve um
+  JSON com `token`; `GET download/?token=` devolve o CSV. Os transportes hoje
+  são `http_zip` e `http_json`. O novo precisa ser **genérico** — o campo do
+  token e o segundo endereço declarados em `cfg_fonte` — e não um transporte
+  chamado "b3": `app/motor/` não sabe o que é fonte específica, e um nome de
+  fonte no motor quebra a regra do engine único.
+- **Preâmbulo antes do cabeçalho.** A primeira linha é "Status do Arquivo:
+  Final"; o cabeçalho real é a segunda. `ler_csv` hoje assume cabeçalho na
+  primeira linha, e o salto precisa ser declarado, não presumido.
+- **Vírgula decimal já resolvida.** `ExrcPric` vem como `5,99`, e o formato
+  `decimal_ptbr` já existe em `app/motor/parsing.py`. Nada a fazer.
+- **Duas linhas repetidas** no arquivo de 04/08 (`GMATT599`, `ONCOB418`),
+  idênticas em todos os 52 campos. Não é conflito de identidade; é linha
+  duplicada, e o upsert por identidade a absorve.
+- **`AsstQtnQty`, `UndrlygTckrSymb1` e `CtrctMltplr` vêm 100% vazios** no
+  recorte de opções. Declará-los como colunas criaria três atributos que nunca
+  se preenchem.
+
+**O que esta decisão não resolve.** Preço. O mesmo portal serve
+`TradeInformationConsolidated`, que é a mesma família de market data do
+COTAHIST e presumivelmente a mesma restrição — mas isso é decisão separada, e
+herdar esta sem medir seria repetir o erro que este ADR começou corrigindo.
+
+
 ---
 
 ## 14. Questões em aberto

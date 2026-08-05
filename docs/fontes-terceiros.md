@@ -106,6 +106,27 @@ endpoints existem no cliente herdado do repositório `scrap`, mas a tabela de
 fonte primária que veio junto não cobria opções, então não dava para saber de
 onde o agregador tirava aquilo.
 
+### O que o COTAHIST não dá, e onde isso foi parar
+
+**Aberto em 05/08/2026.** Duas lacunas ficaram, e nenhuma é do agregador:
+
+- **Estilo de exercício.** O COTAHIST não o publica. Medido no cadastro de
+  instrumentos da B3: não existe put americana, e 63% das calls são
+  americanas. A consequência prática é menor do que parece — call americana
+  sobre papel sem provento vale o mesmo que a europeia.
+- **Séries que não negociaram.** O COTAHIST traz o pregão, não o cadastro:
+  série listada e parada não existe no dado.
+
+As duas seriam preenchidas pelo **InstrumentsConsolidated**, avaliado no
+[ADR-20](arquitetura.md#adr-20--o-cadastro-de-instrumentos-entra-como-classe-própria-e-não-substitui-o-cotahist)
+— que **não** o adota ainda: os Termos de Uso do portal são os mesmos que
+barraram a redistribuição do COTAHIST, e a decisão é do Alex.
+
+Registre-se o que a medição desfez: o pedido original era **trocar** a fonte
+de opções por causa de erros. O cadastro conserta 10 dos 941 prêmios
+impossíveis. Os erros eram falta de histórico, prazo zero exibido como nulo, e
+motivo de nulo não declarado — corrigidos sem trocar nada.
+
 Ir à origem tornou a pergunta desnecessária, e de quebra deu o que o agregador
 não daria: o arquivo original em bronze com SHA-256, o ISIN que liga cada
 contrato ao ativo-objeto, e o direito de recomputar tudo do zero. É o mesmo

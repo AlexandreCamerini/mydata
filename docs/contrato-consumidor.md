@@ -153,6 +153,32 @@ dividendos, e `hv21`/`hv63` nulas até haver 21 e 63 pregões carregados.
 limiares de liquidez, score educacional e backtest de regras de trailing. São
 juízo de produto, não fato de mercado.
 
+### O cadastro de instrumentos da B3 — pendente do Alex
+
+**Aberto em 05/08/2026**, por mensagem da sessão do `b3-agente`. Ela propõe o
+**InstrumentsConsolidated** como fonte de opções, e a ingestão dele pertence ao
+MyData: dado que o mercado publicou é de um lugar só.
+
+Avaliado no
+[ADR-20](arquitetura.md#adr-20--o-cadastro-de-instrumentos-entra-como-classe-própria-e-não-substitui-o-cotahist).
+O que atravessa a fronteira e precisa de decisão do Alex:
+
+1. **A licença.** Os Termos de Uso do portal são os mesmos que barraram a
+   redistribuição do COTAHIST. Adotar sob o uso pessoal do ADR-18 é o proposto;
+   confirmar é dele.
+2. **O que o b3-agente consumiria**, se adotado: `estilo_exercicio` e a cadeia
+   completa, pela API deste hub — não pelo arquivo, que ele não deve baixar em
+   paralelo.
+
+Duas coisas da mensagem foram verificadas e não conferem com este repositório:
+a pendência "opções: Pendente" é do outro projeto — aqui a cadeia está fechada
+desde 04/08 pelo COTAHIST — e o pedido de trocar de fonte por causa de erros
+não se sustenta: o cadastro conserta 10 dos 941 prêmios impossíveis.
+
+Sobre o conteúdo do arquivo, porém, **a mensagem estava certa em tudo que
+afirmou** e as contagens bateram na medição. Vale registrar, já que a seção
+seguinte registra os dois erros anteriores do mesmo canal.
+
 ### Como estas respostas chegaram
 
 Duas por mensagem de outra sessão de trabalho — a do `b3-agente` —, afirmando
