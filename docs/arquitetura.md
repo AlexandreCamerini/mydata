@@ -954,18 +954,96 @@ do meio e o de hoje) contra os trinta — dão 71,7% de cobertura, não os 100%.
 As séries somem do cadastro em datas espalhadas pelo mês, não de uma vez, então
 não há um punhado de fotografias que substitua a sequência.
 
-O que resolve, e é a próxima decisão: **comprimir o payload em bronze.** O
-arquivo tem 35,0 MB crus e 2,1 MB em gzip — 6%. Um ano cairia de 8,5 GB para
-0,54 GB. A imutabilidade não muda: o que se guarda continua sendo o byte que a
-fonte publicou, com o mesmo `sha256` do original; muda a codificação de
-armazenamento, e a descompressão fica na leitura. É mudança na semântica de
-`bronze_captura`, atinge todas as fontes, e por isso é ADR próprio — não um
-detalhe desta carga.
+O que resolve virou o [ADR-21](#adr-21--bronze-volta-a-ser-comprimido-pelo-postgres-e-não-pela-aplicação),
+e a causa é mais específica do que "o arquivo é grande": a migração `0003_bronze`
+desliga a compressão do Postgres na coluna do payload, com o comentário *"ZIP já
+vem comprimido"*. Era verdade enquanto toda fonte entregava ZIP. Esta entrega
+CSV puro, e a premissa quebrou sem ninguém perceber.
 
 **O que esta decisão não resolve.** Preço. O mesmo portal serve
 `TradeInformationConsolidated`, que é a mesma família de market data do
 COTAHIST e presumivelmente a mesma restrição — mas isso é decisão separada, e
 herdar esta sem medir seria repetir o erro que este ADR começou corrigindo.
+
+
+### ADR-21 — bronze volta a ser comprimido pelo Postgres, e não pela aplicação
+
+**Contexto.** A migração `0003_bronze` declara
+`ALTER COLUMN payload SET STORAGE EXTERNAL`, com o comentário que explica a
+escolha: *"ZIP já vem comprimido: não vale a pena o Postgres tentar de novo"*.
+`EXTERNAL` guarda o valor fora da linha **e desliga a compressão do TOAST**.
+
+Era verdade enquanto toda fonte entregava ZIP. O
+[ADR-20](#adr-20--o-cadastro-de-instrumentos-entra-como-classe-própria-e-não-substitui-o-cotahist)
+trouxe a primeira que entrega **CSV puro**, e a premissa quebrou sem que
+ninguém percebesse: são 33,6 MB por pregão contra 0,5 MB do COTAHIST, 8,5 GB
+por ano de operação, contra os 2,11 GB que o banco inteiro ocupa hoje.
+
+**O que foi medido**, em 05/08/2026, sobre o arquivo real de 04/08:
+
+| | tamanho | ganho |
+|---|---|---|
+| Cadastro (CSV, 35,0 MB) — gzip -6 | 2,15 MB | 16,3× |
+| Cadastro (CSV, 35,0 MB) — LZ77 com janela de 4 KB | 2,05 MB | 17,1× |
+| COTAHIST (ZIP, 0,53 MB) — gzip -6 | 0,53 MB | 1,0× |
+| COTAHIST (ZIP, 0,53 MB) — LZ77 com janela de 4 KB | 0,53 MB | 1,0× |
+
+Duas leituras. A primeira: no ZIP não há nada a ganhar, e o comentário de 2026
+continua certo — **para aquela fonte**. A segunda, que é a que decide: um CSV
+tão repetitivo quanto este não precisa de janela grande. Uma janela de 4 KB
+alcança o mesmo que o gzip, e 4 KB é a ordem de grandeza do histórico do
+`pglz`, o compressor que o TOAST usa.
+
+**Alternativas.**
+
+| Alternativa | Por que não venceu |
+|---|---|
+| Deixar como está | 8,5 GB/ano em uma fonte só, sob a regra de custo do Railway |
+| Comprimir na aplicação, com gzip | Ganha o mesmo que o TOAST ganharia, e cobra por isso: coluna nova dizendo a codificação de cada linha, descompressão na leitura, e `sha256`/`tamanho_bytes` passando a significar coisas diferentes de onde são lidos |
+| Comprimir só a fonte nova | Duas regras de armazenamento para a mesma tabela, decididas por quem escreveu o dataset e não pelo que o dado é |
+| **`SET STORAGE EXTENDED` na coluna** | Uma linha. O `pglz` desiste sozinho no que já vem comprimido, então o ZIP não paga nada, e o CSV paga o que tem a pagar |
+
+**Decisão proposta — pende de confirmação do Alex.** Trocar
+`STORAGE EXTERNAL` por `STORAGE EXTENDED` em `bronze_captura.payload`. Bronze é
+a única coisa não reconstruível deste sistema, e mudar como ele é guardado não
+é decisão de quem está com pressa.
+
+**Por que isto não fere a imutabilidade.**
+
+- `STORAGE` decide como o Postgres guarda **valores novos**. As capturas já
+  gravadas ficam exatamente como estão, byte a byte. Não há reescrita, e a
+  trigger `trg_bronze_imutavel` continua recusando `UPDATE` e `DELETE`.
+- O que o consumidor recebe não muda: `payload_de` devolve os mesmos bytes, o
+  `sha256` continua sendo o do arquivo que a fonte publicou, e
+  `/v1/capturas/{id}/arquivo` continua servindo o original conferível.
+- Compressão do TOAST é transparente ao SQL. Nenhuma consulta muda.
+
+**O que fica em aberto, e é o número que confirma ou desmente.** A tabela acima
+mede LZ77 **com Huffman** — é `zlib` com a janela reduzida. O `pglz` não tem
+Huffman, então 17,1× é **teto, não estimativa**. O ganho real só se mede em
+Postgres, e não há Postgres nesta máquina para medir:
+
+```sql
+SELECT pg_size_pretty(sum(octet_length(payload)))   AS bruto,
+       pg_size_pretty(sum(pg_column_size(payload))) AS guardado
+FROM bronze_captura WHERE dataset_chave = 'b3_instrumentos';
+```
+
+Rodar isso em produção depois da primeira captura nova responde. Se o `pglz`
+decepcionar — digamos, menos de 4× — a alternativa do gzip na aplicação volta à
+mesa, agora com número em vez de suposição. Começar pela linha única é o que
+mantém a decisão barata de desfazer.
+
+**Consequência para a medição de custo.** `custo.py` soma `tamanho_bytes` e
+chama isso de "espaço do original". Com o TOAST comprimindo, esse número passa
+a ser o tamanho do arquivo publicado e não o espaço ocupado — que é o que a
+tela de gestão quer dizer. As duas coisas precisam aparecer separadas, ou a
+gestão passa a superestimar o próprio custo.
+
+**O que esta decisão não resolve.** O volume. Comprimir 8,5 GB/ano para algo
+entre 0,5 e 2 GB/ano adia a pergunta; não a responde. Se o cadastro diário virar
+o maior item do banco mesmo comprimido, a pergunta seguinte é se ele precisa ser
+diário — e essa é outra decisão, com o dado de uso na mão.
 
 
 ---
