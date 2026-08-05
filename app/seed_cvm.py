@@ -660,6 +660,46 @@ VISTAS = [
         WHERE publicado_em_versao IS NOT NULL AND publicado_em_versao <= {V}
     """,
     ),
+    Vista(
+        chave="gold_cotacoes",
+        classe_chave="negociacao_b3",
+        descricao="Pregão do lote padrão: uma linha por papel por dia. É o "
+                  "recorte à vista de `fato_negociacao`.",
+        ordem=4,
+        corpo="""
+        SELECT dt_pregao, codneg AS ticker, nome_resumido, especificacao, isin,
+               preco_abertura, preco_maximo, preco_minimo, preco_medio,
+               preco_fechamento, total_negocios, quantidade_negociada,
+               volume_financeiro, log_retorno, hv21, hv63,
+               captura_id, fonte_arquivo, publicado_em_versao
+        FROM fato_negociacao
+        WHERE tp_mercado = '010'
+          AND publicado_em_versao IS NOT NULL AND publicado_em_versao <= {V}
+    """,
+    ),
+    Vista(
+        chave="gold_opcoes",
+        classe_chave="negociacao_b3",
+        descricao="Contratos de opção com ativo-objeto resolvido, prazo, "
+                  "volatilidade implícita e gregas. Sentinela de vencimento "
+                  "não chega aqui: opção tem vencimento de verdade.",
+        ordem=5,
+        corpo="""
+        SELECT dt_pregao, codneg AS contrato, ticker_objeto,
+               CASE tp_mercado WHEN '070' THEN 'CALL' WHEN '080' THEN 'PUT' END
+                 AS tipo,
+               preco_exercicio AS strike, dt_vencimento, prazo_anos,
+               preco_fechamento AS premio, melhor_oferta_compra,
+               melhor_oferta_venda, total_negocios, quantidade_negociada,
+               volume_financeiro, preco_objeto, taxa_livre_risco,
+               volatilidade_implicita, hv21_objeto, preco_teorico,
+               delta, gamma, vega, theta, rho, isin,
+               captura_id, fonte_arquivo, publicado_em_versao
+        FROM fato_negociacao
+        WHERE tp_mercado IN ('070', '080')
+          AND publicado_em_versao IS NOT NULL AND publicado_em_versao <= {V}
+    """,
+    ),
     # `gold_empresa` não está aqui: a classe `empresa` resolve por precedência
     # e sua vista é gerada por `motor.ddl.vistas_resolvidas`. Escrevê-la à mão
     # duplicaria a regra de precedência em dois lugares que divergiriam.

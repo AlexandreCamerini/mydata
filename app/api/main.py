@@ -493,6 +493,138 @@ async def metricas(
     return {"dados": calcular(sink, cd_cvm, consolidado, pedidos)}
 
 
+@app.get("/v1/cotacoes/{ticker}", tags=["negociação"])
+async def cotacoes(
+    ticker: str, request: Request, response: Response,
+    de: str | None = Query(None, description="Data inicial, AAAA-MM-DD"),
+    ate: str | None = Query(None, description="Data final, AAAA-MM-DD"),
+    limite: int = Query(200, ge=1, le=2000),
+    cursor: str | None = None,
+    _chave: dict = Depends(exigir_chave),
+) -> Any:
+    """Pregão do lote padrão de um papel, com volatilidade histórica."""
+    sink = obter_sink(request)
+    etag = _etag(sink, f"cot:{ticker}:{de}:{ate}:{limite}:{cursor}")
+    if (r := _talvez_304(request, etag)):
+        return r
+
+    onde = ["ticker = ?"]
+    params: list[Any] = [ticker.upper()]
+    if de:
+        onde.append("dt_pregao >= ?")
+        params.append(de)
+    if ate:
+        onde.append("dt_pregao <= ?")
+        params.append(ate)
+    if (desloc := _cursor_decodificar(cursor)):
+        onde.append("dt_pregao > ?")
+        params.append(desloc["dt_pregao"])
+
+    exigir_vista(sink, "gold_cotacoes", _chave)
+    linhas = sink.consultar(
+        f"SELECT * FROM gold_cotacoes WHERE {' AND '.join(onde)} "
+        f"ORDER BY dt_pregao LIMIT ?",
+        [*params, limite + 1],
+    )
+    proximo = None
+    if len(linhas) > limite:
+        linhas = linhas[:limite]
+        proximo = _cursor_codificar({"dt_pregao": linhas[-1]["dt_pregao"]})
+
+    response.headers["ETag"] = etag
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return {"dados": _decorar(sink, linhas), "proximo_cursor": proximo}
+
+
+@app.get("/v1/opcoes/{ticker}", tags=["negociação"])
+async def opcoes(
+    ticker: str, request: Request, response: Response,
+    vencimento: str | None = Query(None, description="Vencimento, AAAA-MM-DD"),
+    pregao: str | None = Query(
+        None, description="Data do pregão. Omitida, vale o último publicado."
+    ),
+    tipo: str | None = Query(None, description="CALL ou PUT"),
+    limite: int = Query(500, ge=1, le=2000),
+    cursor: str | None = None,
+    _chave: dict = Depends(exigir_chave),
+) -> Any:
+    """Cadeia de opções de um ativo-objeto, com implícita e gregas.
+
+    Sem `pregao`, responde o último pregão publicado *daquele papel* — e não
+    o último da base. Um papel que parou de negociar devolveria vazio se o
+    corte fosse global, o que pareceria ausência de dado em vez de ausência
+    de negócio.
+    """
+    sink = obter_sink(request)
+    etag = _etag(sink, f"opc:{ticker}:{vencimento}:{pregao}:{tipo}:{limite}:{cursor}")
+    if (r := _talvez_304(request, etag)):
+        return r
+
+    exigir_vista(sink, "gold_opcoes", _chave)
+    alvo = ticker.upper()
+    if not pregao:
+        ultimo = sink.um(
+            "SELECT max(dt_pregao) AS dia FROM gold_opcoes WHERE ticker_objeto = ?",
+            (alvo,),
+        )
+        pregao = ultimo["dia"] if ultimo else None
+        if pregao is None:
+            return {"dados": [], "proximo_cursor": None}
+
+    onde = ["ticker_objeto = ?", "dt_pregao = ?"]
+    params: list[Any] = [alvo, pregao]
+    if vencimento:
+        onde.append("dt_vencimento = ?")
+        params.append(vencimento)
+    if tipo:
+        onde.append("tipo = ?")
+        params.append(tipo.upper())
+    if (desloc := _cursor_decodificar(cursor)):
+        onde.append("(dt_vencimento, strike) > (?, ?)")
+        params += [desloc["dt_vencimento"], desloc["strike"]]
+
+    linhas = sink.consultar(
+        f"SELECT * FROM gold_opcoes WHERE {' AND '.join(onde)} "
+        f"ORDER BY dt_vencimento, strike LIMIT ?",
+        [*params, limite + 1],
+    )
+    proximo = None
+    if len(linhas) > limite:
+        linhas = linhas[:limite]
+        proximo = _cursor_codificar({
+            "dt_vencimento": linhas[-1]["dt_vencimento"],
+            "strike": linhas[-1]["strike"],
+        })
+
+    response.headers["ETag"] = etag
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return {"dados": _decorar(sink, linhas), "proximo_cursor": proximo}
+
+
+@app.get("/v1/opcoes/{ticker}/vencimentos", tags=["negociação"])
+async def vencimentos(
+    ticker: str, request: Request,
+    pregao: str | None = None,
+    _chave: dict = Depends(exigir_chave),
+) -> Any:
+    """Vencimentos disponíveis, para o consumidor não varrer a cadeia inteira
+    só para descobrir o que existe."""
+    sink = obter_sink(request)
+    exigir_vista(sink, "gold_opcoes", _chave)
+    onde = ["ticker_objeto = ?"]
+    params: list[Any] = [ticker.upper()]
+    if pregao:
+        onde.append("dt_pregao = ?")
+        params.append(pregao)
+    return {"dados": sink.consultar(
+        f"SELECT dt_vencimento, count(*) AS contratos, "
+        f"       min(strike) AS menor_strike, max(strike) AS maior_strike "
+        f"FROM gold_opcoes WHERE {' AND '.join(onde)} "
+        f"GROUP BY dt_vencimento ORDER BY dt_vencimento",
+        params,
+    )}
+
+
 @app.get("/v1/meta/datasets", tags=["catálogo"])
 async def meta_datasets(request: Request, _chave: dict = Depends(exigir_chave)) -> Any:
     sink = obter_sink(request)
