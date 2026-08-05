@@ -65,6 +65,10 @@ export const api = {
       body: JSON.stringify(corpo),
     }),
   frescor: () => pedir<Resposta<Frescor[]>>("/admin/api/frescor"),
+  carga: (dataset?: string) =>
+    pedir<PainelCarga>(
+      `/admin/api/carga${dataset ? `?dataset=${dataset}` : ""}`,
+    ),
   gestao: () => pedir<Resposta<Gestao>>("/admin/api/gestao"),
   fases: (execucao: number) =>
     pedir<Resposta<Fase[]>>(`/admin/api/execucoes/${execucao}/fases`),
@@ -423,6 +427,57 @@ export type Dataset = {
   colunas: Coluna[];
   calculados: Calculado[];
   regras: Regra[];
+};
+
+/** Uma linha de `relatorio_carga`: o que a execução trouxe e o que pesa.
+ *
+ * Os campos de bytes são nulos quando não há como medir — o DuckDB local roda
+ * em memória. Nulo é o fato; zero pareceria medida. */
+export type RelatorioCarga = {
+  id: number;
+  execucao_id: number;
+  dataset_chave: string;
+  classe_chave: string | null;
+  janela: string;
+  status: string;
+  gerado_em: string;
+  linhas_carregadas: number | null;
+  delta_linhas: number | null;
+  capturas_novas: number | null;
+  bytes_capturados: number | null;
+  linhas_classe: number | null;
+  bytes_classe: number | null;
+  bytes_bronze: number | null;
+  bytes_banco: number | null;
+  delta_bytes_banco: number | null;
+  duracao_ms: number | null;
+  gb_armazenados: number | null;
+  custo_mes_usd: number | null;
+  custo_mes_brl: number | null;
+  cambio_usd_brl: number | null;
+  crescimento_gb_dia: number | null;
+  projecao_12m_gb: number | null;
+  projecao_12m_usd: number | null;
+};
+
+export type PainelCarga = {
+  dados: RelatorioCarga[];
+  resumo: {
+    bytes_banco: number | null;
+    gb_armazenados: number | null;
+    custo_mes_usd: number | null;
+    custo_mes_brl: number | null;
+    cambio_usd_brl: number | null;
+    crescimento_gb_dia: number | null;
+    projecao_12m_gb: number | null;
+    projecao_12m_usd: number | null;
+    gerado_em: string | null;
+  };
+  tarifa: {
+    recurso: string; unidade: string; preco_usd: number;
+    vigente_desde: string; fonte: string | null; descricao: string | null;
+  } | null;
+  medicao: { fisico: string; financeiro: string; nao_coberto: string };
 };
 
 export type Execucao = {

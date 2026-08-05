@@ -12,7 +12,9 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import repositorio as repo
-from ..motor import credenciais, ddl, ingestao, observabilidade, publicacao
+from ..motor import (
+    credenciais, custo, ddl, ingestao, observabilidade, publicacao,
+)
 from ..repositorio import (
     CampoCalculado, Coluna, Dataset, ErroConfiguracao, Fonte, RegraQualidade,
 )
@@ -447,6 +449,15 @@ async def post_reverter(versao: int, request: Request) -> Any:
 # --------------------------------------------------------------------------
 # Chaves de API
 # --------------------------------------------------------------------------
+@router.get("/carga")
+async def get_carga(
+    request: Request, dataset: str | None = None, limite: int = 50
+) -> Any:
+    """Relatório de carga para a interface. Mesma resposta de `/v1/meta/carga`
+    — a diferença entre as rotas é quem pode chamar, não o que respondem."""
+    return custo.painel(obter_sink(request), dataset, min(max(limite, 1), 500))
+
+
 @router.get("/gestao")
 async def get_gestao(request: Request) -> Any:
     """O hub inteiro numa resposta: o que tem, quanto tem, quem consome,

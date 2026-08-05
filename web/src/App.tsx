@@ -6,6 +6,7 @@ import { Datasets } from "./telas/Datasets";
 import { Calculados } from "./telas/Calculados";
 import { Qualidade } from "./telas/Qualidade";
 import { Execucoes } from "./telas/Execucoes";
+import { Carga } from "./telas/Carga";
 import { Chaves } from "./telas/Chaves";
 import { Catalogo } from "./telas/Catalogo";
 
@@ -26,6 +27,8 @@ const TELAS = [
     resumo: "Regras que barram publicação" },
   { id: "execucoes", titulo: "Execuções", componente: Execucoes,
     resumo: "Histórico, replay e publicações" },
+  { id: "carga", titulo: "Carga e custo", componente: Carga,
+    resumo: "O que cada execução pesa em disco, e o que isso custa" },
   { id: "chaves", titulo: "Chaves de API", componente: Chaves,
     resumo: "Consumidores e quotas" },
   { id: "catalogo", titulo: "Catálogo", componente: Catalogo,

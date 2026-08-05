@@ -206,6 +206,44 @@ def gerar(sink: Sink, ds: dict, resultado, duracao_ms: int | None = None) -> dic
     return relatorio
 
 
+def painel(sink: Sink, dataset: str | None = None, limite: int = 50) -> dict:
+    """O relatório pronto para consumo: histórico, retrato de agora e tarifa.
+
+    Serve `/v1/meta/carga` e `/admin/api/carga` sem duplicar a consulta — a
+    diferença entre as duas rotas é quem pode chamar, não o que respondem.
+
+    `medicao` viaja junto de propósito. Quem lê um custo precisa saber que
+    ele é conta e não medida, e qual pedaço da conta ficou de fora; separar
+    isso numa documentação à parte é o que faz estimativa virar fato.
+    """
+    onde, params = "", []
+    if dataset:
+        onde, params = " WHERE dataset_chave = ?", [dataset]
+    linhas = sink.consultar(
+        f"SELECT * FROM relatorio_carga{onde} ORDER BY gerado_em DESC, id DESC "
+        f"LIMIT ?", [*params, limite],
+    )
+    ultimo = linhas[0] if linhas else {}
+    tarifa = tarifa_vigente(sink, "armazenamento")
+    return {
+        "dados": linhas,
+        "resumo": {
+            campo: ultimo.get(campo)
+            for campo in ("bytes_banco", "gb_armazenados", "custo_mes_usd",
+                          "custo_mes_brl", "cambio_usd_brl",
+                          "crescimento_gb_dia", "projecao_12m_gb",
+                          "projecao_12m_usd", "gerado_em")
+        },
+        "tarifa": dict(tarifa) if tarifa else None,
+        "medicao": {
+            "fisico": "medido no catálogo do banco e no tamanho da captura",
+            "financeiro": "derivado: GB medidos × tarifa declarada",
+            "nao_coberto": "CPU e memória do Railway não são observáveis daqui "
+                           "com precisão útil, e não entram no custo.",
+        },
+    }
+
+
 def resumo(relatorio: dict) -> str:
     """Uma linha para o log do cron — é onde o operador vê primeiro.
 
