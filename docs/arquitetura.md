@@ -748,6 +748,75 @@ quando o prêmio está fora do que o modelo alcança: o fechamento de contrato
 ilíquido é o último negócio, que pode ser de horas antes e ficar abaixo do
 valor intrínseco. No pregão medido isso é 10% dos contratos.
 
+### ADR-19 — passkey entra ao lado do token, não no lugar
+
+**Contexto.** `PORTAL_ADMIN_TOKEN` protege as duas superfícies humanas. Ele é
+um segredo de 43 caracteres digitado à mão, igual para a apresentação e para a
+configuração. A auditoria (§5.2 de
+[auditoria-apresentacao.md](auditoria-apresentacao.md)) registrou quatro
+faltas: não há identidade, não há revogação individual, o segredo é digitado, e
+não expira de forma útil.
+
+O que ele *tem* também precisa ficar registrado, para o redesenho não perder
+por descuido: entropia suficiente, comparação em tempo constante, cookie
+`HttpOnly` `SameSite=Lax`, CORS negado por omissão, e nada em `localStorage`.
+Para dono único, isso não era frágil — era incômodo.
+
+**Alternativas.** Filtro obrigatório: nada que cobre por uso, e nada que
+dependa de terceiro para o dono entrar no próprio sistema.
+
+| Alternativa | Por que não venceu |
+|---|---|
+| OIDC de provedor | Identidade real, mas o dono passa a depender de terceiro para entrar. Gratuito hoje não é gratuito por decisão nossa |
+| Link mágico por e-mail | Exige serviço de envio — cai na regra de custo |
+| Token melhorado (prefixo, rotação, expiração) | Endereça expiração e revogação e **não** endereça a queixa: continua sendo segredo digitado |
+| **Passkey / WebAuthn** | Elimina o segredo digitado sem terceiro. É a única que faz as duas coisas |
+
+**Decisão.** Passkey como caminho humano, **ao lado do token, nunca no lugar**.
+
+O token continua funcionando até o Alex verificar o caminho novo num navegador
+limpo e mandar remover. É isso que torna a decisão reversível — e uma decisão
+que se desfaz sozinha não precisa parar a construção para ser tomada.
+
+O que passkey resolve, item a item: **identidade** vira o rótulo do
+autenticador registrado; **revogação individual** vira apagar uma credencial
+sem derrubar as outras; **segredo digitado** desaparece — o navegador assina um
+desafio; **expiração** deixa de ser problema porque não há segredo de longa
+vida a expirar.
+
+**Consequências.**
+
+- Tabela `cfg_passkey`: `credential_id`, `public_key`, `sign_count`, rótulo,
+  `criada_em`, `ultimo_uso_em`. Revogação é apagar a linha.
+- Dependência nova: `webauthn` (py_webauthn), MIT, Python puro, sem serviço e
+  sem cobrança. Não é add-on nem tier pago; fica registrada aqui porque
+  dependência nova é decisão, mesmo quando gratuita.
+- `X-Admin-Token` **permanece** para `curl` e script, que não têm navegador e
+  portanto não têm passkey. Quem opera por terminal não perde nada.
+- Sessão, cookie e defesa de CSRF ficam **exatamente como estão**. Muda quem
+  emite a sessão, não o que ela é.
+- A chave de API por consumidor em `/v1` não é tocada. São mecanismos
+  diferentes para públicos diferentes, e confundi-los é o erro fácil aqui.
+
+**O que fica registrado como risco, e como sai dele.**
+
+O risco desta decisão é trancar o dono fora do próprio sistema — autenticador
+perdido, navegador trocado, dispositivo formatado. Três saídas, em ordem:
+
+1. **Mais de um autenticador registrado.** O caminho normal, e o que a tela de
+   registro deve encorajar explicitamente.
+2. **`PORTAL_ACESSO_LEGADO=1`** reabilita o caminho do token, documentada em
+   [deploy-railway.md](deploy-railway.md). É a diferença entre reversível no
+   papel e reversível às onze da noite pelo painel do Railway.
+3. **Nada de recuperação por e-mail.** Exigiria serviço de envio, e a saída 2
+   já cobre o caso sem custo.
+
+**O que esta decisão não resolve.** Passkey autentica o navegador do dono e
+não tem nada a dizer sobre consumo por máquina. Se um dia houver mais de uma
+pessoa operando, identidade por autenticador não é o mesmo que identidade por
+usuário, e isso vira decisão nova.
+
+
 ---
 
 ## 14. Questões em aberto

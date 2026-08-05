@@ -49,7 +49,8 @@ integrado está em [contrato-consumidor.md](contrato-consumidor.md).
    |---|---|
    | `PORTAL_URL_PUBLICA` | `https://mydata.acamerini.app` |
    | `PORTAL_ORIGENS` | as origens dos consumidores, separadas por vírgula |
-   | `PORTAL_ADMIN_TOKEN` | segredo gerado no painel; sem ele o `/admin/api` fica aberto |
+   | `PORTAL_ADMIN_TOKEN` | segredo do dono. Gere com `python -c "import secrets; print(secrets.token_urlsafe(32))"` — o painel do Railway não tem gerador para isto. Sem a variável, `/admin/api` fica aberto (modo de desenvolvimento local) |
+   | `PORTAL_ACESSO_LEGADO` | `1` reabilita o caminho do token depois de o passkey entrar. **É a saída de emergência** ([ADR-19](arquitetura.md#adr-19--passkey-entra-ao-lado-do-token-não-no-lugar)): se o autenticador se perder, defina esta variável no painel e entre com o token de novo |
 
    `PORTAL_URL_PUBLICA` é o que faz o OpenAPI anunciar o domínio real. Sem
    ela, o cliente gerado a partir do schema aponta para `localhost`.
