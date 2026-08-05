@@ -13,6 +13,7 @@ import { Demonstracoes } from "./Demonstracoes";
 import { Empresa } from "./Empresa";
 import { Ficha } from "./Ficha";
 import { Indicadores } from "./Indicadores";
+import { Negociacao } from "./Negociacao";
 import { Operador } from "./Operador";
 
 type Rota =
@@ -22,11 +23,15 @@ type Rota =
   | { tela: "demonstracoes"; cd_cvm: number; grupo?: string }
   | { tela: "indicadores"; cd_cvm: number }
   | { tela: "arquivos"; cd_cvm: number }
+  | { tela: "negociacao"; ticker: string }
   | { tela: "operador" };
 
 function rotaAtual(): Rota {
   const h = window.location.hash;
   if (h.startsWith("#/operador")) return { tela: "operador" };
+
+  const neg = h.match(/^#\/negociacao(?:\/([A-Za-z0-9]+))?/);
+  if (neg) return { tela: "negociacao", ticker: (neg[1] ?? "PETR4").toUpperCase() };
 
   const dem = h.match(/^#\/empresa\/(\d+)\/demonstracoes(?:\/([A-Za-z_]+))?/);
   if (dem)
@@ -51,6 +56,8 @@ function titulo(rota: Rota): string {
   switch (rota.tela) {
     case "operador":
       return "Operador — MyData";
+    case "negociacao":
+      return `Opções ${rota.ticker} — MyData`;
     case "demonstracoes":
       return `Demonstrações ${rota.cd_cvm}${rota.grupo ? ` · ${rota.grupo}` : ""} — MyData`;
     case "indicadores":
@@ -101,6 +108,12 @@ export function App() {
             </div>
             <nav aria-label="Operação" className="flex gap-4 whitespace-nowrap">
               <a
+                href="#/negociacao/PETR4"
+                className="text-xs text-tinta-suave underline decoration-dotted"
+              >
+                opções
+              </a>
+              <a
                 href="#/operador"
                 className="text-xs text-tinta-suave underline decoration-dotted"
               >
@@ -131,6 +144,7 @@ export function App() {
           )}
           {rota.tela === "indicadores" && <Indicadores cd_cvm={rota.cd_cvm} />}
           {rota.tela === "arquivos" && <Arquivos cd_cvm={rota.cd_cvm} />}
+          {rota.tela === "negociacao" && <Negociacao ticker={rota.ticker} />}
           {rota.tela === "operador" && <Operador />}
         </main>
       </div>

@@ -78,10 +78,67 @@ export type Proveniencia = {
   // que a fonte publicou.
   arquivo?: string;
   sha256?: string;
+  // O caminho para baixar o arquivo original. A API sempre devolveu; este tipo
+  // nunca declarou, e é por isso que nenhuma tela o alcançava — a promessa de
+  // proveniência auditável parava um clique antes do fim.
+  captura?: number;
+  arquivo_em?: string;
   dt_captura?: string;
   versao_documento?: number | null;
   publicacao?: number | null;
   por_atributo?: Record<string, string>;
+};
+
+/** Um contrato de opção num pregão, como `gold_opcoes` publica.
+ *
+ * `volatilidade_implicita` é nula em cerca de 10% dos contratos, e isso é
+ * fato e não falha: o fechamento de contrato ilíquido é o último negócio, que
+ * pode ser de horas antes e ficar fora do que Black-Scholes alcança. A tela
+ * precisa dizer isso — um traço mudo faria parecer defeito. */
+export type Opcao = {
+  dt_pregao: string;
+  contrato: string;
+  ticker_objeto: string | null;
+  tipo: "CALL" | "PUT" | null;
+  strike: number;
+  dt_vencimento: string;
+  prazo_anos: number | null;
+  premio: number | null;
+  melhor_oferta_compra: number | null;
+  melhor_oferta_venda: number | null;
+  total_negocios: number | null;
+  volume_financeiro: number | null;
+  preco_objeto: number | null;
+  volatilidade_implicita: number | null;
+  hv21_objeto: number | null;
+  preco_teorico: number | null;
+  delta: number | null;
+  gamma: number | null;
+  vega: number | null;
+  theta: number | null;
+  rho: number | null;
+  isin: string | null;
+  proveniencia?: Proveniencia;
+};
+
+export type Vencimento = {
+  dt_vencimento: string;
+  contratos: number;
+  menor_strike: number;
+  maior_strike: number;
+};
+
+export type Cotacao = {
+  dt_pregao: string;
+  ticker: string;
+  preco_fechamento: number | null;
+  preco_maximo: number | null;
+  preco_minimo: number | null;
+  volume_financeiro: number | null;
+  log_retorno: number | null;
+  hv21: number | null;
+  hv63: number | null;
+  proveniencia?: Proveniencia;
 };
 
 export type ResumoDemonstracao = {
@@ -353,6 +410,30 @@ export const api = {
     p.set("limite", "2000");
     return pedir<{ dados: Trimestre[] }>(
       `/v1/empresas/${cd_cvm}/trimestres?${p.toString()}`,
+    );
+  },
+
+  vencimentos: (ticker: string) =>
+    pedir<{ dados: Vencimento[] }>(
+      `/v1/opcoes/${encodeURIComponent(ticker)}/vencimentos`,
+    ),
+
+  opcoes: (ticker: string, f: { vencimento?: string; tipo?: string }) => {
+    const p = new URLSearchParams();
+    if (f.vencimento) p.set("vencimento", f.vencimento);
+    if (f.tipo) p.set("tipo", f.tipo);
+    p.set("limite", "2000");
+    return pedir<{ dados: Opcao[] }>(
+      `/v1/opcoes/${encodeURIComponent(ticker)}?${p.toString()}`,
+    );
+  },
+
+  cotacoes: (ticker: string, f: { de?: string } = {}) => {
+    const p = new URLSearchParams();
+    if (f.de) p.set("de", f.de);
+    p.set("limite", "400");
+    return pedir<{ dados: Cotacao[] }>(
+      `/v1/cotacoes/${encodeURIComponent(ticker)}?${p.toString()}`,
     );
   },
 };
