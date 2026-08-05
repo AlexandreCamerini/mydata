@@ -90,20 +90,31 @@ bom: o que o brapi agrega, este hub já ingere na origem.
 | Criptomoedas | `v2/crypto` | não confirmada | **Não.** Fora do escopo de um hub de companhias abertas |
 | Dividendos | `quote/{t}?dividends=true` | não confirmada | **Talvez.** É a única lacuna real — "Proventos" aparece como ausente na tela da companhia |
 | Lista de tickers | `quote/list`, `available` | B3 | **Talvez.** Segunda fonte para o mapa ticker↔empresa da [questão 1 do §14](arquitetura.md#14-questões-em-aberto), abaixo da B3 na precedência |
-| Opções | `v2/options/*` | **não confirmada** | **Pendente.** Ver abaixo |
+| Opções | `v2/options/*` | **não confirmada** | **Não.** Resolvido na origem — ver abaixo |
 
-### O que a documentação não diz
+### Opções: resolvido pela origem, não pelo agregador
 
-A página de SDKs enumera os recursos suportados e **opções não está entre
-eles** — aparecem ações, fundamentos, dividendos, histórico, cripto, inflação,
-juros e câmbio. Os endpoints `v2/options/expirations`, `/strikes`, `/chain`,
-`/analytics` existem no cliente que herdamos do repositório `scrap`, mas a
-tabela de fonte primária que veio junto também não cobre opções.
+**Fechada em 04/08/2026.** A cadeia de opções passou a vir do COTAHIST da B3,
+direto, sob a decisão de uso pessoal registrada no
+[ADR-18](arquitetura.md#adr-18--cotahist-entra-sob-uso-pessoal-e-a-classe-é-negociação).
+Os endpoints `v2/options/*` do brapi ficam sem uso.
 
-Isso importa porque a origem decide a resposta: se a cadeia de opções vem da
-B3, republicá-la esbarra nos mesmos termos que barraram o COTAHIST, e passar
-por um agregador não muda a origem do dado — muda só de quem é o contrato.
-Antes de ativar, é preciso confirmar isso.
+O que a pergunta em aberto era, e por que ela deixou de importar: a página de
+SDKs enumera os recursos suportados e **opções não está entre eles** — aparecem
+ações, fundamentos, dividendos, histórico, cripto, inflação, juros e câmbio. Os
+endpoints existem no cliente herdado do repositório `scrap`, mas a tabela de
+fonte primária que veio junto não cobria opções, então não dava para saber de
+onde o agregador tirava aquilo.
+
+Ir à origem tornou a pergunta desnecessária, e de quebra deu o que o agregador
+não daria: o arquivo original em bronze com SHA-256, o ISIN que liga cada
+contrato ao ativo-objeto, e o direito de recomputar tudo do zero. É o mesmo
+raciocínio que já valia para preço e fundamentos — passar por agregador não
+muda a origem do dado, muda só de quem é o contrato.
+
+**O cliente continua onde estava.** `src/brapi_client/` mantém os seis métodos
+de opções e seus testes: ele é catálogo verificado de endpoints e ferramenta de
+conferência pontual, não caminho de ingestão. Removê-lo não devolveria nada.
 
 ### O custo, que também decide
 
@@ -116,9 +127,15 @@ A conta muda tudo:
 | Dividendos por papel | 1 por ticker · 564 tickers | ~17.000/mês — **estoura** |
 | Cadeia de opções por papel | 1 por ticker com opção | estoura mais rápido ainda |
 
-Dividendos e opções só cabem no plano gratuito em cadência semanal, ou
-restritos a um subconjunto de papéis. Isso é decisão de produto, não de
-engenharia, e precisa ser tomada antes de a carga entrar.
+Dividendos só cabem no plano gratuito em cadência semanal, ou restritos a um
+subconjunto de papéis. Isso é decisão de produto, não de engenharia, e precisa
+ser tomada antes de a carga entrar.
+
+A linha de opções fica na tabela como registro do que se evitou: um arquivo
+diário da B3 traz a cadeia inteira do mercado numa requisição — 11.321
+contratos no pregão de 31/07/2026 —, enquanto pelo agregador seria uma
+requisição por papel. Não é só uma questão de termos de uso; é ordem de
+grandeza.
 
 ### Como ativar uma delas
 

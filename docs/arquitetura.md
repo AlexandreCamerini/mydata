@@ -707,6 +707,47 @@ está em rede.
 | Não há ticker na CVM | `/v1` por ticker depende de fonte não-oficial | mapa `ticker → cd_cvm` isolado, marcado como dado de terceiro, nunca misturado ao oficial |
 | Créditos do Railway esgotam | serviço para | cache, serviço único, retenção; monitorar consumo |
 
+### ADR-18 — COTAHIST entra sob uso pessoal, e a classe é negociação
+
+**Contexto.** Um handoff vindo da sessão do BolsIA pediu opções da B3 no
+MyData. O repositório já tinha o COTAHIST registrado como **barrado** em
+[fontes-terceiros.md](fontes-terceiros.md): a cadeia de opções, se vier da B3,
+esbarra nos termos de redistribuição — foi o mesmo motivo que tirou preço e
+histórico da lista de cargas possíveis do brapi.
+
+O arquivo responde a um `GET` simples, sem login e sem CAPTCHA. Isso é acesso
+público, não licença de redistribuição, e as duas coisas não se confundem.
+
+**Decisão.** O Alex decidiu seguir **para uso pessoal**, com consumo
+servidor-a-servidor entre sistemas dele. A restrição que continua valendo é a
+de *redistribuição*: a classe não vai para consumidor externo, e uma eventual
+abertura da API a terceiros precisa reabrir esta decisão, não herdá-la.
+
+**Consequência de modelo.** A classe é `negociacao_b3`, não `opcao`. O arquivo
+publica o pregão de um instrumento — ação, opção, termo e fracionário na mesma
+sequência de bytes, distinguidos por `TPMERC`/`CODBDI`. Uma classe de opção
+obrigaria a filtrar na carga, e o filtro seria o motor decidindo qual linha do
+arquivo oficial merece existir. Opção é recorte, e recorte é vista
+(`gold_opcoes`), coerente com [ADR-12](#adr-12--resolução-multi-fonte-é-derivação-não-sobrescrita).
+
+**O que o arquivo ensinou, e o handoff não sabia.** Três coisas saíram de
+contar linhas do pregão de 31/07/2026, não do PDF de layout:
+
+- O `CODISI` de um registro de opção é o ISIN do **ativo-objeto**, não o do
+  contrato. Casar contra o registro à vista do mesmo pregão resolve 11.320 de
+  11.321 opções — sem o Cadastro de Instrumentos e sem inferir pelo prefixo do
+  código de negociação, que eram as duas alternativas propostas.
+- `PRAZOT` faz parte da identidade. A chave proposta perderia quinze contratos
+  a termo por pregão, silenciosamente.
+- Dia sem pregão responde **404**, não um ZIP vazio de 22 bytes.
+
+**O que fica registrado como limite conhecido.** O prazo conta dia útil sem
+descontar feriado — descontar exigiria um calendário, que é outra fonte. O
+modelo é BSM sem dividendos. E a volatilidade implícita é nula, não um número,
+quando o prêmio está fora do que o modelo alcança: o fechamento de contrato
+ilíquido é o último negócio, que pode ser de horas antes e ficar abaixo do
+valor intrínseco. No pregão medido isso é 10% dos contratos.
+
 ---
 
 ## 14. Questões em aberto

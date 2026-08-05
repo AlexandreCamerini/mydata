@@ -110,6 +110,48 @@ no repositório do consumidor.
 | BolsIA (`b3-agente`) | quais classes a chave dele deve ler | **resolvida** — `empresa` + `demonstracao_financeira` |
 | BolsIA (`b3-agente`) | volume esperado, para dimensionar quota | **resolvida** — refresh semanal de ~100 papéis; 60/min e 1.000/dia |
 | BolsIA (`b3-agente`) | emitir a chave contra o Postgres de produção | aberta — a local já existe; ver acima |
+| BolsIA (`b3-agente`) | classe de opções | **entregue** — a classe é `negociacao_b3`, não `opcoes_b3`; ver abaixo |
+
+### A camada de opções
+
+Entregue em 04/08/2026, a partir do handoff vindo da sessão do `b3-agente`. O
+que o consumidor precisa saber para escrever o cliente dele:
+
+**A classe chama `negociacao_b3`**, não `opcoes_b3`. O COTAHIST publica o
+pregão de um instrumento — ação, opção, termo e fracionário no mesmo arquivo —,
+e opção é um recorte, não uma classe
+([ADR-18](arquitetura.md#adr-18--cotahist-entra-sob-uso-pessoal-e-a-classe-é-negociação)).
+O escopo da chave é, portanto:
+
+```bash
+python -m app.cli chave bolsia --classe negociacao_b3
+```
+
+**Três rotas**, todas com a proveniência padrão em cada linha:
+
+| Rota | O que devolve |
+|---|---|
+| `GET /v1/opcoes/{ticker}` | cadeia do ativo-objeto: strike, vencimento, prêmio, implícita e gregas. Filtros: `vencimento`, `pregao`, `tipo`. Sem `pregao`, vale o último pregão daquele papel |
+| `GET /v1/opcoes/{ticker}/vencimentos` | vencimentos disponíveis com contagem e faixa de strike |
+| `GET /v1/cotacoes/{ticker}` | pregão do lote padrão, com `hv21` e `hv63` |
+
+**Quatro coisas que divergem do handoff**, todas medidas contra o arquivo real:
+
+1. O ativo-objeto **sai do próprio COTAHIST**, pelo ISIN — o Cadastro de
+   Instrumentos não é necessário.
+2. A chave natural inclui `PRAZOT`; a proposta perderia quinze contratos a
+   termo por pregão.
+3. Dia sem pregão responde **404**, não ZIP vazio.
+4. `volatilidade_implicita` é **nula** quando o prêmio está fora do alcance do
+   modelo — cerca de 10% dos contratos, quase todos ilíquidos e fundo no
+   dinheiro. O cliente precisa tratar nulo; não é erro.
+
+**Limites conhecidos:** prazo em dia útil sem desconto de feriado, BSM sem
+dividendos, e `hv21`/`hv63` nulas até haver 21 e 63 pregões carregados.
+
+**O que continua do lado do BolsIA**, como o próprio handoff delimitou:
+limiares de liquidez, score educacional e backtest de regras de trailing. São
+juízo de produto, não fato de mercado.
 
 ### Como estas respostas chegaram
 
