@@ -13,13 +13,13 @@ from pydantic import BaseModel, Field
 
 from .. import repositorio as repo
 from ..motor import (
-    credenciais, custo, ddl, ingestao, observabilidade, publicacao,
+    correlacao, credenciais, custo, ddl, ingestao, observabilidade, publicacao,
 )
 from ..repositorio import (
     CampoCalculado, Coluna, Dataset, ErroConfiguracao, Fonte, RegraQualidade,
 )
 from ..sinks import Sink
-from . import auth, metricas
+from . import auth, metricas, proveniencia
 
 async def exigir_admin(request: Request) -> None:
     """Sessão do dono, por cookie ou por cabeçalho.
@@ -472,6 +472,68 @@ async def get_carga(
     return custo.painel(obter_sink(request), dataset, min(max(limite, 1), 500))
 
 
+# --------------------------------------------------------------------------
+# Linhagem e correlações no plano de controle
+# --------------------------------------------------------------------------
+# As três respondem o mesmo que suas irmãs em `/v1`. A diferença entre as
+# rotas é quem pode chamar, não o que respondem — é o arranjo que `/carga` já
+# usava, e existe por um motivo concreto: `/v1` exige chave de API ou sessão
+# do dono, enquanto `/admin/api` fica aberto localmente sem
+# `PORTAL_ADMIN_TOKEN`. A interface de configuração chamando `/v1` recebia
+# "informe uma chave válida no cabeçalho X-API-Key" em desenvolvimento — a
+# mensagem de máquina numa tela de humano que a auditoria condenou na
+# apresentação, reaparecendo aqui.
+#
+# Aqui não há filtro por escopo, e é deliberado: escopo restringe consumidor,
+# e quem entra no plano de controle é o dono.
+@router.get("/linhagem")
+async def get_linhagem(request: Request, classe: str, atributo: str) -> Any:
+    try:
+        return {"dados": observabilidade.linhagem(
+            obter_sink(request), classe, atributo)}
+    except ErroConfiguracao as e:
+        raise HTTPException(
+            status_code=404,
+            detail={"codigo": "linhagem_nao_encontrada", "mensagem": str(e)},
+        ) from e
+
+
+@router.get("/correlacoes")
+async def get_correlacoes(request: Request) -> Any:
+    return {"dados": [
+        {"chave": c["chave"], "origem": c["classe_origem"],
+         "destino": c["classe_destino"],
+         "por": {"origem": c["atributo_origem"],
+                 "destino": c["atributo_destino"]},
+         "relacionamento": c["relacionamento"], "descricao": c["descricao"]}
+        for c in repo.listar_correlacoes(obter_sink(request))
+    ]}
+
+
+@router.get("/correlacoes/{chave_correlacao}")
+async def get_travessia(
+    request: Request, chave_correlacao: str, limite: int = 5
+) -> Any:
+    """Executa a travessia declarada, para o dono conferir que ela funciona.
+
+    Listar o nome de uma correlação não prova que ela atravessa: era o que a
+    tela de gestão fazia, e conferir exigia abrir o banco."""
+    sink = obter_sink(request)
+    try:
+        saida = correlacao.consultar(
+            sink, chave_correlacao, limite=min(max(limite, 1), 50),
+        )
+        # Mesma decoração de /v1: sem ela a tabela mostraria `captura_id` e
+        # `publicado_em_versao` como se fossem atributos da classe.
+        saida["dados"] = proveniencia.decorar(sink, saida["dados"])
+        return saida
+    except correlacao.ErroCorrelacao as e:
+        raise HTTPException(
+            status_code=404,
+            detail={"codigo": "correlacao_nao_declarada", "mensagem": str(e)},
+        ) from e
+
+
 @router.get("/gestao")
 async def get_gestao(request: Request) -> Any:
     """O hub inteiro numa resposta: o que tem, quanto tem, quem consome,
@@ -510,6 +572,10 @@ async def get_gestao(request: Request) -> Any:
             "idade_horas": f.get("idade_horas"),
             "sla_horas": c.get("sla_horas"),
             "ultima_publicacao": f.get("ultima_publicacao"),
+            # A falha vai junto da publicação, não no lugar dela: uma classe
+            # pode estar em dia e ter quebrado ontem, e quem só recebe a
+            # publicação nunca fica sabendo da segunda.
+            "ultima_falha": f.get("ultima_falha"),
         })
 
     bronze = sink.um(

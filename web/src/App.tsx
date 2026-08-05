@@ -35,8 +35,19 @@ const TELAS = [
     resumo: "Schema e amostra" },
 ] as const;
 
+/** A tela é o que vem antes do "?". O que vem depois é argumento dela.
+ *
+ * Sem isto, "#/catalogo?tabela=fato_conta" não casa com tela nenhuma e cai no
+ * padrão — um link que parece funcionar e leva ao lugar errado é pior do que
+ * link que não existe. */
+export function argumento(nome: string): string | null {
+  const hash = window.location.hash.replace("#/", "");
+  const [, consulta = ""] = hash.split("?");
+  return new URLSearchParams(consulta).get(nome);
+}
+
 function telaAtual(): string {
-  const id = window.location.hash.replace("#/", "");
+  const id = window.location.hash.replace("#/", "").split("?")[0];
   // A entrada é a classe de informação, não o histórico de execução: quem
   // abre o portal quer saber o que existe, não o que rodou ontem.
   return TELAS.some((t) => t.id === id) ? id : "classes";

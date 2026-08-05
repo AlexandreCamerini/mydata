@@ -1,7 +1,10 @@
 // Cliente da API de administração. Sem biblioteca: fetch resolve, e cada
 // dependência a menos é imagem menor no Railway.
 
+import type { LinhagemDeAtributo } from "./objetos";
+
 export type Resposta<T> = { dados: T };
+export type { LinhagemDeAtributo } from "./objetos";
 
 export class ErroApi extends Error {
   codigo: string;
@@ -89,6 +92,22 @@ export const api = {
   gestao: () => pedir<Resposta<Gestao>>("/admin/api/gestao"),
   fases: (execucao: number) =>
     pedir<Resposta<Fase[]>>(`/admin/api/execucoes/${execucao}/fases`),
+
+  // Espelhos de /v1/meta/linhagem, /v1/meta/correlacoes e /v1/correlacoes.
+  // A resposta é a mesma; o que muda é quem pode chamar. A versão em /v1
+  // exige chave de API — e a interface de configuração, que roda sem chave
+  // nenhuma em desenvolvimento, recebia dali a mensagem sobre o cabeçalho
+  // X-API-Key.
+  linhagem: (classe: string, atributo: string) =>
+    pedir<Resposta<LinhagemDeAtributo>>(
+      `/admin/api/linhagem?classe=${encodeURIComponent(classe)}` +
+        `&atributo=${encodeURIComponent(atributo)}`,
+    ),
+  correlacoes: () => pedir<Resposta<Correlacao[]>>("/admin/api/correlacoes"),
+  atravessar: (chave: string, limite = 5) =>
+    pedir<{ dados: Record<string, unknown>[] }>(
+      `/admin/api/correlacoes/${encodeURIComponent(chave)}?limite=${limite}`,
+    ),
 
   fontes: () => pedir<Resposta<Fonte[]>>("/admin/api/fontes"),
   salvarFonte: (f: Partial<Fonte>) =>
@@ -370,8 +389,35 @@ export type Frescor = {
   sla_horas: number | null;
   idade_horas: number | null;
   situacao: "em_dia" | "atrasada" | "sem_carga";
-  ultima_publicacao: { id: number; dataset_chave: string; janela: string } | null;
-  ultima_falha: { id: number; status: string; erro: string | null } | null;
+  // O tipo estava incompleto: a consulta em observabilidade.frescor já
+  // devolvia `terminado_em` e `linhas_silver`, e a falha já vinha com janela e
+  // dataset. Faltando aqui, a data absoluta da última publicação era
+  // inalcançável pela tela — o achado 2.4 tinha um segundo motivo além do
+  // desenho.
+  ultima_publicacao: {
+    id: number;
+    dataset_chave: string;
+    janela: string;
+    terminado_em: string | null;
+    linhas_silver: number | null;
+  } | null;
+  ultima_falha: {
+    id: number;
+    dataset_chave: string;
+    janela: string;
+    status: string;
+    erro: string | null;
+    terminado_em: string | null;
+  } | null;
+};
+
+export type Correlacao = {
+  chave: string;
+  origem: string;
+  destino: string;
+  por: { origem: string; destino: string };
+  relacionamento: string | null;
+  descricao: string | null;
 };
 
 export type Fase = {
@@ -572,7 +618,15 @@ export type Gestao = {
     situacao: string | null;
     idade_horas: number | null;
     sla_horas: number | null;
-    ultima_publicacao: string | null;
+    ultima_publicacao: { id: number; terminado_em: string | null } | null;
+    ultima_falha: {
+      id: number;
+      dataset_chave: string;
+      janela: string;
+      status: string;
+      erro: string | null;
+      terminado_em: string | null;
+    } | null;
   }[];
   bronze: { capturas: number; bytes: number };
   consumidores: {

@@ -21,9 +21,8 @@ from .. import bootstrap, repositorio as repo
 from ..motor import (
     contrato, correlacao, custo, ingestao, observabilidade, publicacao,
 )
-from ..motor.ddl import SUFIXO_ORIGEM
 from ..sinks import Sink, criar_sink
-from . import admin, auth
+from . import admin, auth, proveniencia
 from . import metricas as metricas_cat
 
 RAIZ_WEB = Path(__file__).resolve().parents[2] / "web" / "dist"
@@ -143,65 +142,6 @@ async def tratar_http(request: Request, exc: HTTPException):
 # --------------------------------------------------------------------------
 # Proveniência e cache
 # --------------------------------------------------------------------------
-def _proveniencia(sink: Sink, capturas: set[int]) -> dict:
-    if not capturas:
-        return {}
-    marcadores = ",".join("?" for _ in capturas)
-    linhas = sink.consultar(
-        f"SELECT id, url, sha256, capturado_em, nome_arquivo FROM bronze_captura "
-        f"WHERE id IN ({marcadores})",
-        list(capturas),
-    )
-    return {
-        linha["id"]: {
-            "fonte": linha["url"],
-            "arquivo": linha["nome_arquivo"],
-            "sha256": linha["sha256"],
-            "dt_captura": (
-                linha["capturado_em"].isoformat()
-                if hasattr(linha["capturado_em"], "isoformat")
-                else str(linha["capturado_em"])
-            ),
-            # Sem estes dois, o `sha256` acima é um número que o consumidor
-            # teria de aceitar no fio do bigode: a URL de origem é endereço
-            # mutável e não reproduz a captura. Com eles, ele baixa e confere.
-            "captura": linha["id"],
-            "arquivo_em": f"/v1/capturas/{linha['id']}/arquivo",
-        }
-        for linha in linhas
-    }
-
-
-def _decorar(sink: Sink, linhas: list[dict]) -> list[dict]:
-    """Anexa proveniência a cada linha e remove colunas internas.
-
-    Numa classe alimentada por mais de uma fonte, dizer "veio da captura X"
-    não basta: atributos diferentes da mesma linha podem ter vindo de fontes
-    diferentes. As colunas `<atributo>_origem` que a vista resolvida produz
-    viram `proveniencia.por_atributo`, em vez de campos soltos no dado.
-    """
-    prov = _proveniencia(sink, {r["captura_id"] for r in linhas if r.get("captura_id")})
-    saida = []
-    for linha in linhas:
-        captura = linha.pop("captura_id", None)
-        linha.pop("fonte_arquivo", None)
-        versao_pub = linha.pop("publicado_em_versao", None)
-        por_atributo = {
-            chave[: -len(SUFIXO_ORIGEM)]: linha.pop(chave)
-            for chave in [c for c in linha if c.endswith(SUFIXO_ORIGEM)]
-        }
-        item = dict(linha)
-        item["proveniencia"] = {
-            **prov.get(captura, {}),
-            "versao_documento": linha.get("versao"),
-            "publicacao": versao_pub,
-        }
-        if por_atributo:
-            item["proveniencia"]["por_atributo"] = por_atributo
-        saida.append(item)
-    return saida
-
-
 def exigir_vista(sink: Sink, nome: str, chave: dict | None = None) -> None:
     """Porteiro de gold: a vista existe, e esta chave pode ler esta classe.
 
@@ -351,7 +291,7 @@ async def listar_empresas(
 
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "public, max-age=300"
-    return {"dados": _decorar(sink, linhas), "total": total,
+    return {"dados": proveniencia.decorar(sink, linhas), "total": total,
             "proximo_cursor": proximo}
 
 
@@ -374,7 +314,7 @@ async def obter_empresa(
         return r
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "public, max-age=300"
-    return {"dados": _decorar(sink, [linha])[0]}
+    return {"dados": proveniencia.decorar(sink, [linha])[0]}
 
 
 @app.get("/v1/empresas/{cd_cvm}/demonstracoes", tags=["demonstrações"])
@@ -432,7 +372,7 @@ async def demonstracoes(
 
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "public, max-age=300"
-    return {"dados": _decorar(sink, linhas), "proximo_cursor": proximo}
+    return {"dados": proveniencia.decorar(sink, linhas), "proximo_cursor": proximo}
 
 
 @app.get("/v1/empresas/{cd_cvm}/trimestres", tags=["demonstrações"])
@@ -462,7 +402,7 @@ async def trimestres(
     )
     etag = _etag(sink, f"tri:{cd_cvm}:{conta}:{exercicio}:{consolidado}")
     response.headers["ETag"] = etag
-    return {"dados": _decorar(sink, linhas)}
+    return {"dados": proveniencia.decorar(sink, linhas)}
 
 
 @app.get("/v1/empresas/{cd_cvm}/metricas", tags=["demonstrações"])
@@ -537,7 +477,7 @@ async def cotacoes(
 
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "public, max-age=300"
-    return {"dados": _decorar(sink, linhas), "proximo_cursor": proximo}
+    return {"dados": proveniencia.decorar(sink, linhas), "proximo_cursor": proximo}
 
 
 @app.get("/v1/opcoes/{ticker}", tags=["negociação"])
@@ -602,7 +542,7 @@ async def opcoes(
 
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "public, max-age=300"
-    return {"dados": _decorar(sink, linhas), "proximo_cursor": proximo}
+    return {"dados": proveniencia.decorar(sink, linhas), "proximo_cursor": proximo}
 
 
 @app.get("/v1/opcoes/{ticker}/vencimentos", tags=["negociação"])
@@ -990,7 +930,7 @@ async def executar_correlacao(
         # proveniência, não com as colunas internas da vista. Sem isto o
         # consumidor receberia `captura_id` e `publicado_em_versao` crus por
         # esta rota e proveniência decorada por todas as outras.
-        saida["dados"] = _decorar(sink, saida["dados"])
+        saida["dados"] = proveniencia.decorar(sink, saida["dados"])
         return saida
     except correlacao.ErroCorrelacao as e:
         raise HTTPException(

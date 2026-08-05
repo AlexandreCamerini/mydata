@@ -14,6 +14,7 @@ import {
   type Frescor,
 } from "../api";
 import { Botao, Carregando, Erro, Selo, Tabela, Vazio, useDados } from "../ui";
+import { Linhagem, SaudeClasse } from "../objetos";
 import { ClasseForm } from "./ClasseForm";
 
 function idade(f: Frescor | undefined): string {
@@ -129,6 +130,7 @@ export function Classes() {
       {aberta && (
         <Detalhe
           classe={lista.find((c) => c.chave === aberta)!}
+          frescor={porChave.get(aberta)}
           aoEditar={(c) => setEditor({ inicial: classeParaEntrada(c) })}
         />
       )}
@@ -138,12 +140,15 @@ export function Classes() {
 
 function Detalhe({
   classe,
+  frescor,
   aoEditar,
 }: {
   classe: Classe;
+  frescor?: Frescor;
   aoEditar: (c: Classe) => void;
 }) {
   const ddl = useDados(() => api.ddlDaClasse(classe.chave), [classe.chave]);
+  const [rastreado, setRastreado] = useState<string | null>(null);
   const multiplas = classe.datasets.length > 1;
 
   return (
@@ -158,6 +163,20 @@ function Detalhe({
       </div>
       {classe.descricao && (
         <p className="text-sm text-tinta-suave">{classe.descricao}</p>
+      )}
+
+      {frescor && (
+        <SaudeClasse
+          c={{ ...frescor, chave: classe.chave }}
+          acao={
+            <a
+              className="text-sm text-acento underline"
+              href={`#/catalogo?tabela=${classe.tabela}`}
+            >
+              Ver as linhas
+            </a>
+          }
+        />
       )}
 
       {classe.divergencias.length > 0 && (
@@ -175,9 +194,21 @@ function Detalhe({
         }
       >
         {classe.atributos.map((a) => (
+          <>
           <tr key={a.nome} className="border-b border-borda last:border-0 align-top">
             <th scope="row" className="text-left px-3 py-2 font-mono text-xs">
-              {a.nome}
+              {/* O beco sem saída do achado 2.1 morre aqui: do atributo se
+                  chega à fonte, à regra que o vigia e ao arquivo original.
+                  Só busca quem abre — quarenta atributos seriam quarenta
+                  chamadas se todos disparassem na montagem. */}
+              <button
+                onClick={() => setRastreado(rastreado === a.nome ? null : a.nome)}
+                aria-expanded={rastreado === a.nome}
+                className="underline decoration-dotted"
+              >
+                {a.nome}
+                <span className="sr-only"> — de onde veio</span>
+              </button>
               {a.obrigatorio && (
                 <span className="text-erro ml-1" aria-label="obrigatório">
                   *
@@ -206,6 +237,14 @@ function Detalhe({
               {a.descricao ?? "—"}
             </td>
           </tr>
+          {rastreado === a.nome && (
+            <tr key={`${a.nome}-linhagem`}>
+              <td colSpan={multiplas ? 5 : 4} className="px-3 py-3 bg-papel">
+                <LinhagemDe classe={classe.chave} atributo={a.nome} />
+              </td>
+            </tr>
+          )}
+          </>
         ))}
       </Tabela>
 
@@ -222,4 +261,13 @@ function Detalhe({
       </details>
     </section>
   );
+}
+
+/** Busca a linhagem de um atributo e entrega ao objeto que a desenha. */
+function LinhagemDe({ classe, atributo }: { classe: string; atributo: string }) {
+  const l = useDados(() => api.linhagem(classe, atributo), [classe, atributo]);
+  if (l.carregando) return <Carregando oque={`linhagem de ${atributo}`} />;
+  if (l.erro) return <Erro mensagem={l.erro} />;
+  if (!l.dados) return null;
+  return <Linhagem l={l.dados.dados} />;
 }

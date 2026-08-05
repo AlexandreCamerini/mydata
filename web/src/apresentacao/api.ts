@@ -299,42 +299,16 @@ export type Execucao = {
   erro: string | null;
 };
 
-export type FaseExecucao = {
-  fase: string;
-  iniciado_em: string;
-  terminado_em: string | null;
-  duracao_ms: number | null;
-};
-
-export type OrigemLinhagem = {
-  dataset: string;
-  fonte: { chave: string; url_template: string | null };
-  coluna_de_origem: string | null;
-  formato: string | null;
-  expressao: string | null;
-  colunas_que_usa: string[];
-  capturas_recentes: {
-    id: number;
-    nome_arquivo: string;
-    url: string | null;
-    sha256: string;
-    capturado_em: string;
-    tamanho_bytes: number | null;
-  }[];
-  regras: { nome: string; severidade: string; descricao: string | null }[];
-};
-
-export type Linhagem = {
-  classe: string;
-  atributo: string;
-  tipo: string;
-  descricao: string | null;
-  disputado: boolean;
-  precedencia: string[];
-  origens: OrigemLinhagem[];
-  vistas: string[];
-  publicacao_atual: number | null;
-};
+// Os tipos de linhagem e de fase moram em `../objetos`, junto do objeto que os
+// desenha. Há dois módulos `api` neste front — este e o do plano de controle —
+// e um tipo duplicado nos dois divergiria no primeiro campo novo que a API
+// ganhasse. Quem declara o que consome é o objeto.
+import type { Fase as FaseExecucao, LinhagemDeAtributo } from "../objetos";
+export type {
+  LinhagemDeAtributo,
+  OrigemDeLinhagem,
+  Fase as FaseExecucao,
+} from "../objetos";
 
 export const api = {
   empresas: (f: FiltrosEmpresas) => {
@@ -400,7 +374,7 @@ export const api = {
       `/v1/meta/execucoes/${execucao_id}/fases`,
     ),
   linhagem: (classe: string, atributo: string) =>
-    pedir<{ dados: Linhagem }>(
+    pedir<{ dados: LinhagemDeAtributo }>(
       `/v1/meta/linhagem?classe=${encodeURIComponent(classe)}&atributo=${encodeURIComponent(atributo)}`,
     ),
 

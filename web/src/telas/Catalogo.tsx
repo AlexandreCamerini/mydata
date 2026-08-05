@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { api } from "../api";
+import { argumento } from "../App";
 import { Carregando, Erro, Tabela, Vazio, useDados } from "../ui";
 
 export function Catalogo() {
   const lista = useDados(() => api.catalogo());
-  const [alvo, setAlvo] = useState<string | null>(null);
+  // Chegando de "Ver as linhas" na tela de Classes, a tabela vem na rota:
+  // é o que faz a classe deixar de ser beco sem saída.
+  const [alvo, setAlvo] = useState<string | null>(() => argumento("tabela"));
   const detalhe = useDados(
     () => (alvo ? api.tabela(alvo) : Promise.resolve(null)),
     [alvo],
