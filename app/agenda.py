@@ -11,7 +11,11 @@ oferece.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import logging
+from datetime import datetime, timedelta, timezone, tzinfo
+from zoneinfo import ZoneInfo
+
+log = logging.getLogger("portal.agenda")
 
 
 class ErroCron(ValueError):
@@ -83,11 +87,46 @@ def ultima_ocorrencia(cron: str, agora: datetime, limite_dias: int = 400) -> dat
     return None
 
 
+def zona(nome: str | None) -> tzinfo:
+    """O fuso declarado no agendamento, com UTC como piso.
+
+    `cfg_agendamento.timezone` existia desde o início e não era lido por
+    ninguém: todo cron era avaliado em UTC. O efeito era um deslocamento de
+    três horas que ninguém via, porque a hora do dia de uma carga em lote
+    raramente denuncia — o `0 6` da DFP disparava às 03:00 de Brasília. Fuso
+    desconhecido continua valendo UTC, e não é erro: derrubar o agendamento
+    inteiro por causa de um nome de fuso seria pior que rodar deslocado.
+    """
+    if not nome:
+        return timezone.utc
+    try:
+        return ZoneInfo(nome)
+    except Exception:  # noqa: BLE001 — nome inválido não derruba a agenda
+        log.warning("fuso desconhecido em agendamento: %r; usando UTC", nome)
+        return timezone.utc
+
+
+def ocorrencia_devida(cron: str, timezone_nome: str | None = None,
+                      agora: datetime | None = None) -> datetime | None:
+    """O momento em que este cron deveria ter disparado por último, no fuso
+    dele. É de onde a janela sai — e não do relógio de quem acordou."""
+    tz = zona(timezone_nome)
+    agora = (agora or datetime.now(timezone.utc)).astimezone(tz)
+    return ultima_ocorrencia(cron, agora)
+
+
 def esta_vencido(cron: str, ultima_execucao: datetime | None,
-                 agora: datetime | None = None) -> tuple[bool, str]:
+                 agora: datetime | None = None,
+                 timezone_nome: str | None = None) -> tuple[bool, str]:
     """(vencido, motivo). Vencido quando o cron deveria ter disparado depois
-    da última execução bem-sucedida."""
-    agora = agora or datetime.now(timezone.utc)
+    da última execução bem-sucedida.
+
+    O cron é lido no fuso do agendamento — `59 23` quer dizer 23:59 em São
+    Paulo —, e a comparação com a última execução acontece em UTC, que é como
+    o timestamp está gravado.
+    """
+    tz = zona(timezone_nome)
+    agora = (agora or datetime.now(timezone.utc)).astimezone(tz)
     devida = ultima_ocorrencia(cron, agora)
     if devida is None:
         return False, "o cron não tem ocorrência no último ano"

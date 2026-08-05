@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from app import agenda
 from app.agenda import ErroCron, esta_vencido, ultima_ocorrencia
 
 AGORA = datetime(2026, 7, 31, 12, 0, tzinfo=timezone.utc)   # sexta-feira
@@ -76,3 +77,73 @@ def test_execucao_sem_fuso_e_tratada_como_utc():
     um datetime consciente estouraria."""
     vencido, _ = esta_vencido("0 5 * * 1", datetime(2026, 7, 20), AGORA)
     assert vencido
+
+
+# --------------------------------------------------------------------------
+# Fuso — a coluna que existia e ninguém lia
+# --------------------------------------------------------------------------
+def test_cron_e_lido_no_fuso_declarado():
+    """`59 23` em São Paulo é 02:59 do dia seguinte em UTC.
+
+    Avaliado em UTC, o mesmo cron dispararia às 20:59 de Brasília. Três horas
+    de deslocamento que a hora de uma carga em lote raramente denuncia — e
+    que, num agendamento de pregão, muda o dia pedido.
+    """
+    # 03/08/2026 02:30 UTC = 23:30 de 02/08 em São Paulo: ainda não deu 23:59.
+    agora = datetime(2026, 8, 3, 2, 30, tzinfo=timezone.utc)
+    anterior = agenda.ultima_ocorrencia(
+        "59 23 * * 1-5", agora.astimezone(agenda.zona("America/Sao_Paulo"))
+    )
+    assert anterior.strftime("%Y-%m-%d %H:%M") == "2026-07-31 23:59"
+
+    # 04/08 03:30 UTC = 00:30 de terça em São Paulo: a segunda-feira já
+    # disparou, e o pregão pedido é o dela.
+    agora = datetime(2026, 8, 4, 3, 30, tzinfo=timezone.utc)
+    anterior = agenda.ultima_ocorrencia(
+        "59 23 * * 1-5", agora.astimezone(agenda.zona("America/Sao_Paulo"))
+    )
+    assert anterior.strftime("%Y-%m-%d %H:%M") == "2026-08-03 23:59"
+
+
+def test_fuso_desconhecido_cai_em_utc_sem_derrubar_a_agenda():
+    assert agenda.zona(None) is timezone.utc
+    assert agenda.zona("Marte/Olympus") is timezone.utc
+    assert agenda.zona("America/Sao_Paulo") is not timezone.utc
+
+
+def test_janela_hoje_usa_o_fuso_do_agendamento(monkeypatch):
+    """Às 23:59 em São Paulo já é o dia seguinte em UTC. Sem o fuso, o
+    agendamento pediria o pregão de amanhã e tomaria 404 toda noite."""
+    from app import cli
+
+    class Congelado(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 8, 5, 2, 59, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(cli, "datetime", Congelado)
+    assert cli.janela_corrente("hoje", "America/Sao_Paulo") == "2026-08-04"
+    assert cli.janela_corrente("hoje") == "2026-08-05"
+    assert cli.janela_corrente("dia_anterior", "America/Sao_Paulo") == "2026-08-03"
+
+
+def test_a_janela_sai_da_ocorrencia_devida_nao_do_relogio():
+    """O caso que o par cron+janela quase deixou passar.
+
+    O Railway acorda o serviço na frequência dele; `agendados` é que decide o
+    que está vencido. Acordado às 08:00 de terça, com o disparo de 23:59 de
+    segunda ainda pendente, a janela tem de ser a de **segunda** — pelo
+    relógio seria a de terça, cujo pregão nem fechou, e a carga tomaria 404
+    todo dia sem que nada no agendamento parecesse errado.
+    """
+    from app import cli
+
+    # 11:00 UTC de terça = 08:00 em São Paulo.
+    acordou = datetime(2026, 8, 4, 11, 0, tzinfo=timezone.utc)
+    devida = agenda.ocorrencia_devida(
+        "59 23 * * 1-5", "America/Sao_Paulo", acordou
+    )
+    assert devida.strftime("%Y-%m-%d %H:%M") == "2026-08-03 23:59"
+    assert cli.janela_corrente(
+        "hoje", "America/Sao_Paulo", devida
+    ) == "2026-08-03"

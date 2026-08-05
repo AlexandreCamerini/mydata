@@ -60,7 +60,20 @@ integrado está em [contrato-consumidor.md](contrato-consumidor.md).
 
 4. **Agendar o cron.** Um serviço de cron no mesmo projeto, comando
    `python -m app.cli agendados`. Ele lê `cfg_agendamento` e roda o que
-   estiver vencido — DFP anual, ITR trimestral, cadastro semanal.
+   estiver vencido — DFP anual, ITR trimestral, cadastro semanal, pregão
+   diário.
+
+   **A frequência do painel não é o horário das cargas.** O painel só acorda
+   o processo; quem decide o que roda é `cfg_agendamento`. Acordar de hora em
+   hora é suficiente e barato: cada invocação que não tem nada vencido sai em
+   milissegundos. O que importa é acordar pelo menos uma vez entre dois
+   disparos do agendamento mais frequente — hoje o do COTAHIST, às 23:59.
+
+   **O horário declarado vale no fuso declarado.** Até 04/08/2026 a coluna
+   `cfg_agendamento.timezone` era gravada e nunca lida, e todo cron era
+   avaliado em UTC: o `0 6` da DFP disparava às 03:00 de Brasília. Agora
+   `59 23` em `America/Sao_Paulo` é 23:59 em São Paulo. Se você tinha algum
+   horário calibrado contra o comportamento antigo, ele mudou em três horas.
 
 5. **Emitir a chave de cada app**, com o escopo dele:
 

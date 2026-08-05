@@ -10,7 +10,7 @@ import argparse
 import json
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from . import agenda, bootstrap, repositorio as repo, seed_cvm
 from .motor import download, ingestao, publicacao, verificacao
@@ -19,17 +19,31 @@ from .sinks import criar_sink
 log = logging.getLogger("portal")
 
 
-def janela_corrente(padrao: str) -> str:
-    agora = datetime.now(timezone.utc)
+def janela_corrente(
+    padrao: str, timezone_nome: str | None = None,
+    referencia: datetime | None = None,
+) -> str:
+    """A janela que este agendamento pede, no fuso que ele declara.
+
+    `referencia` é o momento em que o cron *deveria* ter disparado — não a
+    hora em que o processo acordou. Os dois se separam porque o Railway
+    acorda o serviço na frequência dele e `agendados` é que decide o que está
+    vencido: acordado às 08:00 com um agendamento de 23:59 pendente da noite
+    anterior, «hoje» pelo relógio pediria o pregão que ainda não fechou.
+
+    O fuso importa pelo mesmo motivo: às 23:59 em São Paulo já é o dia
+    seguinte em UTC, e a janela calculada em UTC pediria o pregão de amanhã.
+    """
+    agora = (referencia or datetime.now(timezone.utc)).astimezone(
+        agenda.zona(timezone_nome)
+    )
     if padrao == "ano_corrente":
         return str(agora.year)
     if padrao == "ano_anterior":
         return str(agora.year - 1)
+    if padrao == "hoje":
+        return agora.date().isoformat()
     if padrao == "dia_anterior":
-        # Fonte de pregão diário: o arquivo do dia só existe depois que ele
-        # fecha, então o agendamento roda de madrugada e pede o dia anterior.
-        from datetime import timedelta
-
         return (agora - timedelta(days=1)).date().isoformat()
     return padrao
 
@@ -88,7 +102,11 @@ def cmd_agendados(args) -> int:
             continue
         if args.chave and ag["chave"] != args.chave:
             continue
-        janela = janela_corrente(ag["janela_padrao"])
+        # A janela sai da ocorrência devida, não do relógio: o Railway acorda
+        # o processo na frequência dele, e um agendamento de 23:59 pendente
+        # da noite anterior pediria, pelo relógio, o pregão de hoje.
+        devida = agenda.ocorrencia_devida(ag["cron"], ag.get("timezone"))
+        janela = janela_corrente(ag["janela_padrao"], ag.get("timezone"), devida)
 
         # O Railway acorda o processo; é aqui que se decide o que fazer.
         # Sem esta checagem um gatilho diário reingeriria tudo todo dia, e o
@@ -98,7 +116,9 @@ def cmd_agendados(args) -> int:
             "WHERE dataset_chave = ? AND status = 'publicado'",
             (ag["dataset_chave"],),
         )
-        vencido, motivo = agenda.esta_vencido(ag["cron"], (ultima or {}).get("q"))
+        vencido, motivo = agenda.esta_vencido(
+            ag["cron"], (ultima or {}).get("q"), timezone_nome=ag.get("timezone")
+        )
         if not vencido and not args.forcar:
             saida.append({"agendamento": ag["chave"], "janela": janela,
                           "status": "nao_vencido", "motivo": motivo})

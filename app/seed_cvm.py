@@ -1125,11 +1125,18 @@ AGENDAMENTOS = [
     # O SGS publica com defasagem de um dia útil. Diário cobre câmbio e CDI;
     # Selic e IPCA mudam menos, e reingerir a mesma janela é no-op.
     *[(f"{chave}_diario", chave, "0 8 * * *") for chave, *_ in SERIES_BCB],
-    # De terça a sábado, pedindo o pregão do dia anterior: cobre segunda a
-    # sexta e nunca tenta um fim de semana. Dia sem pregão responde 404, e
-    # feriado por isso vira execução falha — visível, que é o certo. Tratar
-    # 404 como «sem pregão» esconderia o endereço quebrado no mesmo silêncio.
-    ("b3_cotahist_diario", "b3_cotahist", "0 9 * * 2-6", "dia_anterior"),
+    # 23:59 em São Paulo, de segunda a sexta, sobre o pregão do próprio dia.
+    # O arquivo sai bem antes: às 21:27 de 04/08/2026 o COTAHIST daquele
+    # pregão já estava publicado, então há quase três horas de folga.
+    #
+    # O fuso não é decoração: às 23:59 em São Paulo já é o dia seguinte em
+    # UTC, e uma janela calculada em UTC pediria o pregão de amanhã — 404
+    # toda noite. Quem lê o fuso é `agenda.zona`.
+    #
+    # Fim de semana nunca é tentado. Feriado vira execução falha, visível:
+    # tratar 404 como «sem pregão» esconderia endereço quebrado no mesmo
+    # silêncio.
+    ("b3_cotahist_diario", "b3_cotahist", "59 23 * * 1-5", "hoje"),
 ]
 
 
