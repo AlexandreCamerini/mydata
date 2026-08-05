@@ -20,7 +20,10 @@ from app.motor import ddl
 CLASSES_ESPERADAS = {"demonstracao_financeira": "fato_conta",
                      "empresa": "dim_empresa",
                      "indicador_macro": "fato_indicador",
-                     "negociacao_b3": "fato_negociacao"}
+                     "negociacao_b3": "fato_negociacao",
+                     # Cadastro, não evento: o COTAHIST publica o pregão de um
+                     # instrumento, este publica o instrumento. ADR-20.
+                     "instrumento_b3": "dim_instrumento"}
 
 
 def test_seed_cadastra_as_classes_da_cvm(sink_cvm):

@@ -12,6 +12,16 @@ import { api, type Cotacao, type Opcao, type Vencimento } from "./api";
 const ALTURA_LINHA = 34;
 const FOLGA = 8;
 
+/** Por que a implícita de uma americana é aproximação, e quando não é.
+ *
+ * Call americana sobre papel que não paga provento até o vencimento vale o
+ * mesmo que a europeia — exercer antes nunca compensa. O desvio aparece com
+ * provento no intervalo, e é a mesma limitação que `app/motor/nucleos.py` já
+ * declara ao dizer que o modelo não tem dividendos. */
+const APROXIMA =
+  "Exercício americano. O sigma vem de Black-Scholes europeu: para call " +
+  "americana isso é exato enquanto não houver provento até o vencimento.";
+
 /** Nulo é fato, não zero.
  *
  * Cerca de 10% dos contratos não têm implícita porque o prêmio ficou fora do
@@ -374,6 +384,7 @@ function GridCadeia({
             {[
               "Contrato",
               "Tipo",
+              "Exercício",
               "Strike",
               "Prêmio",
               "Implícita",
@@ -392,14 +403,43 @@ function GridCadeia({
         <tbody>
           {primeira > 0 && (
             <tr aria-hidden="true">
-              <td colSpan={10} style={{ height: primeira * ALTURA_LINHA }} />
+              <td colSpan={11} style={{ height: primeira * ALTURA_LINHA }} />
             </tr>
           )}
           {visiveis.map((o) => (
             <tr key={o.contrato} className="border-b border-borda/60">
               <td className="px-2 numero whitespace-nowrap">{o.contrato}</td>
               <td className="px-2">{o.tipo ?? "—"}</td>
-              <td className="px-2 numero text-right">{ouNulo(o.strike, brl)}</td>
+              {/* Americana com provento no intervalo é onde o sigma europeu
+                  vira aproximação. Sem esta coluna a aproximação existia e
+                  era invisível. */}
+              <td className="px-2 text-xs">
+                {o.estilo_exercicio === "AMER" ? (
+                  <span className="text-alerta" title={APROXIMA}>
+                    americana
+                  </span>
+                ) : o.estilo_exercicio === "EURO" ? (
+                  <span className="text-tinta-suave">europeia</span>
+                ) : (
+                  <span className="text-tinta-suave" title="O cadastro de instrumentos deste pregão ainda não foi carregado — o COTAHIST não publica o estilo.">
+                    —
+                  </span>
+                )}
+              </td>
+              <td className="px-2 numero text-right">
+                {ouNulo(o.strike, brl)}
+                {/* Divergência entre o strike do pregão e o do cadastro é
+                    correção por provento capturada em momentos diferentes. */}
+                {o.strike_cadastro !== null &&
+                  Math.abs(o.strike_cadastro - o.strike) > 0.005 && (
+                    <span
+                      className="block text-xs text-tinta-suave"
+                      title="Strike declarado no cadastro da B3, capturado em outro momento que o pregão."
+                    >
+                      cad. {brl(o.strike_cadastro)}
+                    </span>
+                  )}
+              </td>
               <td className="px-2 numero text-right">{ouNulo(o.premio, brl)}</td>
               <td className="px-2 numero text-right">
                 {ouNulo(

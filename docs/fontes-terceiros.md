@@ -117,10 +117,18 @@ onde o agregador tirava aquilo.
 - **Séries que não negociaram.** O COTAHIST traz o pregão, não o cadastro:
   série listada e parada não existe no dado.
 
-As duas seriam preenchidas pelo **InstrumentsConsolidated**, avaliado no
+**Fechadas em 05/08/2026** pelo **InstrumentsConsolidated**, adotado no
 [ADR-20](arquitetura.md#adr-20--o-cadastro-de-instrumentos-entra-como-classe-própria-e-não-substitui-o-cotahist)
-— que **não** o adota ainda: os Termos de Uso do portal são os mesmos que
-barraram a redistribuição do COTAHIST, e a decisão é do Alex.
+sob o mesmo uso pessoal do COTAHIST. Ele entra como classe própria
+(`instrumento_b3`) e **não** substitui o pregão: não tem preço. O estilo chega
+à cadeia pela correlação `negociacao_cadastro`, declarada em `cfg_correlacao`.
+
+Endereço e formato, para quem for mexer: dois passos —
+`GET /api/download/requestname?fileName=InstrumentsConsolidated&date=` devolve
+um bilhete em JSON, e `GET /api/download/?token=` devolve o CSV (~33 MB,
+ISO-8859-1, `;`, com a primeira linha de status antes do cabeçalho). O
+transporte `http_token` que faz isso é genérico: o campo do bilhete e o segundo
+endereço estão no mapeamento, não no motor.
 
 Registre-se o que a medição desfez: o pedido original era **trocar** a fonte
 de opções por causa de erros. O cadastro conserta 10 dos 941 prêmios

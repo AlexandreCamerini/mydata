@@ -87,7 +87,8 @@ def test_catalogo_esconde_travessia_que_a_chave_nao_alcanca(cliente):
     s.fechar()
 
     completa = cliente.get("/v1/meta/correlacoes").json()["dados"]
-    assert [c["chave"] for c in completa] == ["empresa_demonstracoes"]
+    assert [c["chave"] for c in completa] == [
+        "empresa_demonstracoes", "negociacao_cadastro"]
 
     parcial = cliente.get(
         "/v1/meta/correlacoes", headers={"X-API-Key": restrita.chave_completa}
@@ -168,6 +169,7 @@ def test_gestao_reune_o_que_estava_em_cinco_rotas(cliente, monkeypatch):
 
     assert d["bronze"]["capturas"] >= 2 and d["bronze"]["bytes"] > 0
     assert any(c["consumidor"] == "bolsia" and c["ativa"] for c in d["consumidores"])
-    assert [c["chave"] for c in d["correlacoes"]] == ["empresa_demonstracoes"]
+    assert [c["chave"] for c in d["correlacoes"]] == [
+        "empresa_demonstracoes", "negociacao_cadastro"]
     # O BCB está configurado e nunca foi ingerido nesta fixture.
     assert "indicador_macro" in d["fora_do_sla"]

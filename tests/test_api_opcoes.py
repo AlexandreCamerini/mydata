@@ -199,3 +199,39 @@ def test_vencimentos_seguem_o_mesmo_pregao_da_cadeia(cliente_b3):
         "/v1/opcoes/ABCB4/vencimentos?pregao=2026-07-30").json()["dados"]
     assert [d["dt_vencimento"] for d in antigo] == ["2026-07-30"]
     assert antigo[0]["vence_no_pregao"] == 1
+
+
+def test_cadeia_traz_estilo_de_exercicio(cliente_b3):
+    """O que o COTAHIST não publica, e é a razão do ADR-20.
+
+    Sem o cadastro carregado a coluna vem nula e a cadeia continua
+    respondendo: `LEFT JOIN`, não `JOIN`. A ausência de uma fonte auxiliar
+    não pode apagar a classe principal."""
+    linha = cliente_b3.get("/v1/opcoes/ABCB4").json()["dados"][0]
+    assert "estilo_exercicio" in linha
+    assert linha["estilo_exercicio"] is None
+    assert linha["strike_cadastro"] is None
+
+
+def test_com_o_cadastro_o_estilo_aparece(cliente_b3):
+    from app.api.main import app
+    from app.motor import ingestao
+    from tests.test_instrumentos import arquivo, baixador
+
+    ingestao.executar(app.state.sink, "b3_instrumentos", "2026-08-04",
+                      baixar=baixador(arquivo()))
+    linha = cliente_b3.get("/v1/opcoes/ABCB4").json()["dados"][0]
+    assert linha["contrato"] == "ABCBH255"
+    assert linha["estilo_exercicio"] == "AMER"
+    # O strike do cadastro entra ao lado do que veio do pregão, não no lugar.
+    assert linha["strike"] == pytest.approx(24.40)
+    assert linha["strike_cadastro"] == pytest.approx(24.40)
+
+
+def test_travessia_declarada_liga_pregao_e_cadastro(cliente_b3):
+    """A correlação existe para o consumidor não reinventar a junção."""
+    corrs = cliente_b3.get("/v1/meta/correlacoes").json()["dados"]
+    nossa = next(c for c in corrs if c["chave"] == "negociacao_cadastro")
+    assert nossa["origem"] == "negociacao_b3"
+    assert nossa["destino"] == "instrumento_b3"
+    assert nossa["por"] == {"origem": "codneg", "destino": "ticker"}

@@ -20,9 +20,11 @@ O que atravessa a fronteira vira item em
 negociar com o outro projeto.
 
 Primeira fonte de dado: CVM Dados Abertos. Hoje também Banco Central (SGS) e
-B3 (COTAHIST — pregão diário, incluindo a cadeia de opções com volatilidade
-implícita e gregas, sob a restrição de uso pessoal do
-[ADR-18](docs/arquitetura.md#adr-18--cotahist-entra-sob-uso-pessoal-e-a-classe-é-negociação)).
+B3 — COTAHIST (pregão diário, com a cadeia de opções, volatilidade implícita
+e gregas) e o cadastro consolidado de instrumentos, que traz o estilo de
+exercício que o COTAHIST não publica. As duas sob a restrição de uso pessoal
+do [ADR-18](docs/arquitetura.md#adr-18--cotahist-entra-sob-uso-pessoal-e-a-classe-é-negociação)
+e do [ADR-20](docs/arquitetura.md#adr-20--o-cadastro-de-instrumentos-entra-como-classe-própria-e-não-substitui-o-cotahist).
 
 - Arquitetura e definição do sistema: [docs/arquitetura.md](docs/arquitetura.md)
 - O que depende do painel do Railway: [docs/deploy-railway.md](docs/deploy-railway.md)
@@ -103,6 +105,7 @@ python scripts/demo.py                  # base local com dado de exemplo
 python -m app.cli migrar --seed         # migrações + configuração (idempotente)
 python -m app.cli ingerir cvm_dfp 2023  # uma janela, com rede
 python -m app.cli ingerir b3_cotahist 2026-07-31   # um pregão da B3
+python -m app.cli ingerir b3_instrumentos 2026-08-04  # cadastro do dia
 python -m app.cli recomputar            # refaz tudo do bronze e verifica
 python -m app.cli verificar             # digital de gold, sem mexer em nada
 python -m app.cli chave app --classe empresa   # chave com escopo

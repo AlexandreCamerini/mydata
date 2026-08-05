@@ -122,6 +122,12 @@ export type Opcao = {
     | "sem_premio"
     | "premio_fora_do_modelo";
   hv21_objeto: number | null;
+  /** AMER ou EURO, do cadastro da B3 (ADR-20). Nulo quando o cadastro do
+   *  pregão ainda não foi carregado — o COTAHIST não publica isto. */
+  estilo_exercicio: "AMER" | "EURO" | null;
+  /** O strike que o cadastro declara, ao lado do que veio do pregão.
+   *  Divergir é correção por provento capturada em momentos diferentes. */
+  strike_cadastro: number | null;
   preco_teorico: number | null;
   delta: number | null;
   gamma: number | null;

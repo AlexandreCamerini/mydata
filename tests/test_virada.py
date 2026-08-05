@@ -48,7 +48,8 @@ def test_vistas_vem_da_configuracao(sink_cvm):
 
 def test_tabelas_publicaveis_vem_das_classes(sink_cvm):
     assert set(publicacao.tabelas_publicaveis(sink_cvm)) == {
-        "fato_conta", "dim_empresa", "fato_indicador", "fato_negociacao"
+        "fato_conta", "dim_empresa", "fato_indicador", "fato_negociacao",
+        "dim_instrumento",
     }
 
 

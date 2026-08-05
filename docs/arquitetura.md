@@ -871,14 +871,13 @@ preço — o último negócio do dia comparado com o fechamento do objeto.
 | Adotar dentro de `negociacao_b3`, por precedência | Confundiria cadastro com evento de negociação. [ADR-12](#adr-12--resolução-multi-fonte-é-derivação-não-sobrescrita) resolve atributo disputado entre fontes da *mesma* classe; aqui são coisas diferentes que se juntam, não que disputam |
 | **Classe `instrumento_b3` própria, ligada por correlação** | Mantém cada coisa no que ela é, e a travessia fica declarada em `cfg_correlacao` em vez de embutida numa vista |
 
-**Decisão proposta — pende de confirmação do Alex por causa da licença.**
-Adotar como classe `instrumento_b3`, sob **o mesmo uso pessoal** do ADR-18: os
-Termos de Uso do portal são os mesmos que já barraram a redistribuição do
-COTAHIST. O argumento de que cadastro de instrumento é dado cadastral e não
-cotação é razoável, e é argumento — não muda os termos. Enquanto esta linha
-disser "proposta", nada disto vira código.
+**Decisão.** O Alex autorizou em 05/08/2026. Adotado como classe
+`instrumento_b3`, sob **o mesmo uso pessoal** do ADR-18: os Termos de Uso do
+portal são os mesmos que já barraram a redistribuição do COTAHIST. A restrição
+que continua valendo é a de *redistribuição* — a classe não vai para consumidor
+externo, e abrir a API a terceiros reabre esta decisão em vez de herdá-la.
 
-**Consequências de modelo, se for adotada.**
+**Consequências de modelo.**
 
 - **Identidade `TckrSymb`, não `TckrSymb` + data.** O arquivo é uma fotografia
   diária de 154.606 instrumentos; guardar uma linha por dia são ~38 milhões de
@@ -896,7 +895,8 @@ disser "proposta", nada disto vira código.
   negociação. `gold_opcoes` ganha `estilo_exercicio` pela travessia, não por
   uma coluna copiada.
 
-**Consequências de motor.**
+**Consequências de motor.** Construídas em 05/08/2026, e todas genéricas —
+nenhuma cita a B3 dentro de `app/`.
 
 - **Transporte em dois passos.** `GET requestname?fileName=&date=` devolve um
   JSON com `token`; `GET download/?token=` devolve o CSV. Os transportes hoje
@@ -915,6 +915,25 @@ disser "proposta", nada disto vira código.
 - **`AsstQtnQty`, `UndrlygTckrSymb1` e `CtrctMltplr` vêm 100% vazios** no
   recorte de opções. Declará-los como colunas criaria três atributos que nunca
   se preenchem.
+
+**O que a construção acrescentou ao que estava previsto.**
+
+- A guarda de recarga fora de ordem virou `politica_versao` no mapeamento:
+  `nao_retroceder:<coluna>` ao lado do `max_versao` que já era o padrão. O
+  campo existia em `cfg_dataset` desde a primeira migração e nunca era lido —
+  agora ele distingue fonte que publica **evento** de fonte que publica
+  **fotografia**.
+- As regras de qualidade precisam ser um `SELECT` das linhas erradas, não a
+  condição de erro. Escrevi as duas como condição, e as duas dispararam de uma
+  vez na primeira carga — o motor recusa o que não é `SELECT`, e a recusa
+  chegou como violação em vez de erro de configuração.
+- A vista `gold_opcoes` ganhou `LEFT JOIN`, não `JOIN`. Sem o cadastro
+  carregado a coluna fica nula e a cadeia continua respondendo; com `JOIN`, a
+  ausência de uma fonte auxiliar apagaria a classe principal.
+- Os 666 strikes divergentes que a avaliação mediu contra o pregão de 31/07
+  viraram **zero** quando pregão e cadastro passaram a ser do mesmo dia. Eram a
+  defasagem de quatro dias entre as duas capturas, como a avaliação suspeitava
+  e não podia provar.
 
 **O que esta decisão não resolve.** Preço. O mesmo portal serve
 `TradeInformationConsolidated`, que é a mesma família de market data do

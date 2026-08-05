@@ -159,16 +159,18 @@ juízo de produto, não fato de mercado.
 **InstrumentsConsolidated** como fonte de opções, e a ingestão dele pertence ao
 MyData: dado que o mercado publicou é de um lugar só.
 
-Avaliado no
-[ADR-20](arquitetura.md#adr-20--o-cadastro-de-instrumentos-entra-como-classe-própria-e-não-substitui-o-cotahist).
-O que atravessa a fronteira e precisa de decisão do Alex:
+**Adotado em 05/08/2026** pelo
+[ADR-20](arquitetura.md#adr-20--o-cadastro-de-instrumentos-entra-como-classe-própria-e-não-substitui-o-cotahist),
+sob o mesmo uso pessoal do COTAHIST — a restrição de redistribuição continua
+valendo, então a classe não vai para consumidor externo.
 
-1. **A licença.** Os Termos de Uso do portal são os mesmos que barraram a
-   redistribuição do COTAHIST. Adotar sob o uso pessoal do ADR-18 é o proposto;
-   confirmar é dele.
-2. **O que o b3-agente consumiria**, se adotado: `estilo_exercicio` e a cadeia
-   completa, pela API deste hub — não pelo arquivo, que ele não deve baixar em
-   paralelo.
+**O que o b3-agente ganha, e por onde:** `estilo_exercicio` e `strike_cadastro`
+em cada linha de `/v1/opcoes/{ticker}`, e a travessia `negociacao_cadastro` em
+`/v1/correlacoes/`. Pela API deste hub — não baixando o arquivo em paralelo,
+que criaria duas capturas do mesmo dado com proveniências diferentes.
+
+O cadastro roda às 23:30, meia hora antes do COTAHIST: chegar depois deixaria
+a noite com a negociação publicada e o estilo ausente.
 
 Duas coisas da mensagem foram verificadas e não conferem com este repositório:
 a pendência "opções: Pendente" é do outro projeto — aqui a cadeia está fechada
