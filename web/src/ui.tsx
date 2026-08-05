@@ -150,8 +150,10 @@ export function Botao(props: {
   carregando?: boolean;
 }) {
   const estilos = {
-    primario: "bg-tinta text-white hover:bg-tinta-suave",
-    secundario: "bg-white text-tinta border border-borda hover:bg-gray-50",
+    // O acento existe para dizer "isto aqui é a ação". Antes era tinta —
+    // mesma cor do texto —, e por isso nada competia pela atenção.
+    primario: "bg-acento text-papel hover:opacity-90",
+    secundario: "bg-superficie text-tinta border border-borda hover:bg-acento-suave",
     destrutivo: "bg-erro text-white hover:opacity-90",
   }[props.variante ?? "secundario"];
 
@@ -250,8 +252,8 @@ export function Selo({ texto }: { texto: string }) {
       bloqueada: "bg-amber-50 text-alerta border-alerta",
       atrasada: "bg-amber-50 text-alerta border-alerta",
       falha: "bg-red-50 text-erro border-erro",
-      sem_carga: "bg-gray-50 text-tinta-suave border-borda",
-    }[texto] ?? "bg-gray-50 text-tinta-suave border-borda";
+      sem_carga: "bg-superficie text-tinta-suave border-borda",
+    }[texto] ?? "bg-superficie text-tinta-suave border-borda";
   // O rótulo textual carrega o significado; a cor é reforço, não a
   // informação — daí "em dia" escrito, e não só um ponto verde.
   const legivel = texto.replace(/_/g, " ");

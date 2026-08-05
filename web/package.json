@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "a11y": "axe http://localhost:8420/admin/ --exit"
+    "a11y": "axe http://localhost:8420/admin/ http://localhost:8420/ --exit"
   },
   "dependencies": {
     "react": "^19.2.0",

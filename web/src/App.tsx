@@ -84,7 +84,7 @@ export function App() {
                     aria-current={t.id === rota ? "page" : undefined}
                     className={`inline-block px-3 py-2 text-sm border-b-2 ${
                       t.id === rota
-                        ? "border-tinta font-medium"
+                        ? "border-acento text-acento font-medium"
                         : "border-transparent text-tinta-suave hover:text-tinta"
                     }`}
                   >

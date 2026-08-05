@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./temas.css";
 
 /* Foco visível em tudo que recebe foco — requisito de aceite, não estilo. */
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
@@ -7,26 +8,32 @@
   border-radius: 2px;
 }
 
-@theme {
-  --color-tinta: #10151c;
-  --color-tinta-suave: #46505e;
-  --color-papel: #fbfbf9;
-  --color-borda: #d7dbe0;
-  --color-acento: #10151c;
-  --color-alerta: #8a4b00;
-  --color-erro: #99131a;
-  --color-ok: #1c5c34;
-}
-
 :root {
-  --cor-foco: #1f5fb8;
+  /* O foco acompanha o acento da direção vigente. Uma cor de foco fixa
+     brigaria com a paleta na hora de trocar de tema — e trocar de tema é
+     justamente o que o arquivo de temas existe para tornar barato. */
+  --cor-foco: var(--color-acento);
   color-scheme: light;
 }
 
 body {
   background: var(--color-papel);
   color: var(--color-tinta);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--font-corpo);
+}
+
+/* Display serifado só em título. Serifa em grid de número atrapalha a leitura,
+   então o dado continua em grotesca e o número em monoespaçado. */
+h1,
+h2 {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+/* Número tabular: coluna de valor só alinha se o dígito tiver largura fixa. */
+.numero {
+  font-family: var(--font-numero);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Pular para o conteúdo: primeiro tab da página. */
@@ -39,6 +46,6 @@ body {
   top: 0.5rem;
   z-index: 50;
   background: var(--color-tinta);
-  color: #fff;
+  color: var(--color-papel);
   padding: 0.5rem 0.75rem;
 }
