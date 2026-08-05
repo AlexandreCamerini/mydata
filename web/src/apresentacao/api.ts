@@ -23,7 +23,18 @@ export class ErroApi extends Error {
  *
  * A apresentação lê `/v1` sob a sessão do dono, então 401 aqui significa
  * sempre a mesma coisa — a sessão acabou ou nunca existiu. */
-function humanizar(mensagem: string, status: number): string {
+/** Redirecionar para o login, ou já tentamos?
+ *
+ * A guarda de `destino` não é zelo: sem ela isto vira laço. A raiz serve a
+ * própria apresentação, então 401 redirecionava para `/?destino=/`, que
+ * renderiza a apresentação, que busca, que recebe 401 — medido na aba de rede
+ * antes de existir esta função. */
+export function deveRedirecionar(status: number, query: string): boolean {
+  if (status !== 401) return false;
+  return !new URLSearchParams(query).has("destino");
+}
+
+export function humanizar(mensagem: string, status: number): string {
   if (status === 401) {
     return "Sua sessão expirou ou ainda não foi aberta. Entre para continuar.";
   }
@@ -48,14 +59,7 @@ async function pedir<T>(caminho: string): Promise<T> {
     // Sem sessão, toda tela responderia 401 e a pessoa veria uma sucessão de
     // erros sem saber que bastava entrar. Rebate para o login levando o
     // caminho de volta.
-    //
-    // A guarda de `destino` não é zelo: sem ela isto vira laço. A raiz serve a
-    // própria apresentação, então 401 aqui redirecionava para `/?destino=/`,
-    // que renderiza a apresentação, que busca, que recebe 401 — medido na aba
-    // de rede antes de existir esta linha. Com a marca na URL, a segunda
-    // passagem mostra a mensagem em vez de redirecionar de novo.
-    const jaTentou = new URLSearchParams(window.location.search).has("destino");
-    if (resp.status === 401 && !jaTentou) {
+    if (deveRedirecionar(resp.status, window.location.search)) {
       const volta = encodeURIComponent(
         window.location.pathname + window.location.hash,
       );

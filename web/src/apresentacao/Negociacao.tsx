@@ -37,6 +37,45 @@ const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 const num3 = (n: number) => n.toFixed(3);
 const int = (n: number) => n.toLocaleString("pt-BR");
 
+/** Qual vencimento a cadeia abre.
+ *
+ * Não o primeiro da lista: o primeiro com prazo de verdade. A cadeia costuma
+ * começar pelo vencimento do próprio pregão, e ali o prazo é zero — sem tempo
+ * não existe sigma que resolva Black-Scholes, então *toda* implícita sai nula.
+ * A tela abria com 43 contratos e nenhuma volatilidade, o que parece defeito
+ * da tela e é aritmética.
+ *
+ * Sem pregão conhecido, ou quando todos vencem no dia, cai no primeiro — é
+ * melhor mostrar a cadeia sem implícita do que não mostrar cadeia. */
+export function vencimentoInicial(
+  vencs: Pick<Vencimento, "dt_vencimento">[],
+  dtPregao?: string,
+): string {
+  if (vencs.length === 0) return "";
+  const comPrazo = dtPregao
+    ? vencs.find((v) => v.dt_vencimento > dtPregao)
+    : undefined;
+  return (comPrazo ?? vencs[0]).dt_vencimento;
+}
+
+/** A fatia de linhas que precisa existir no DOM.
+ *
+ * Separada do componente porque é aritmética, e aritmética se testa sem
+ * navegador. `primeira` nunca é negativa e `quantas` cobre a altura visível
+ * mais folga nas duas pontas, senão a rolagem rápida mostra buraco. */
+export function janela(
+  topo: number,
+  altura: number,
+  total: number,
+): { primeira: number; quantas: number } {
+  const primeira = Math.max(0, Math.floor(topo / ALTURA_LINHA) - FOLGA);
+  const quantas = Math.min(
+    total - primeira,
+    Math.ceil(altura / ALTURA_LINHA) + FOLGA * 2,
+  );
+  return { primeira, quantas: Math.max(0, quantas) };
+}
+
 export function Negociacao({ ticker: inicial }: { ticker: string }) {
   const [ticker, setTicker] = useState(inicial);
   const [busca, setBusca] = useState(inicial);
@@ -61,16 +100,7 @@ export function Negociacao({ ticker: inicial }: { ticker: string }) {
         if (!vivo) return;
         setVencs(v);
         setCotacao(c);
-        // Não o primeiro vencimento: o primeiro com prazo de verdade.
-        //
-        // A cadeia costuma abrir com o vencimento do próprio pregão, e ali o
-        // prazo é zero — não existe sigma que resolva Black-Scholes sem tempo,
-        // então *toda* implícita sai nula. A tela abria mostrando 43 contratos
-        // e nenhuma volatilidade, o que parece defeito e é aritmética.
-        const comPrazo = c
-          ? v.find((x) => x.dt_vencimento > c.dt_pregao)
-          : undefined;
-        setVenc((comPrazo ?? v[0])?.dt_vencimento ?? "");
+        setVenc(vencimentoInicial(v, c?.dt_pregao));
       })
       .catch((e) => vivo && setErro((e as Error).message));
     return () => {
@@ -288,8 +318,7 @@ function GridCadeia({
     return () => ro.disconnect();
   }, []);
 
-  const primeira = Math.max(0, Math.floor(topo / ALTURA_LINHA) - FOLGA);
-  const quantas = Math.ceil(altura / ALTURA_LINHA) + FOLGA * 2;
+  const { primeira, quantas } = janela(topo, altura, linhas.length);
   const visiveis = linhas.slice(primeira, primeira + quantas);
 
   return (
