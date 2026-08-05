@@ -18,7 +18,9 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import bootstrap, repositorio as repo
-from ..motor import contrato, correlacao, ingestao, observabilidade, publicacao
+from ..motor import (
+    contrato, correlacao, custo, ingestao, observabilidade, publicacao,
+)
 from ..motor.ddl import SUFIXO_ORIGEM
 from ..sinks import Sink, criar_sink
 from . import admin, auth
@@ -491,6 +493,51 @@ async def metricas(
     sink = obter_sink(request)
     pedidos = [n.strip() for n in (nomes or "").split(",") if n.strip()] or None
     return {"dados": calcular(sink, cd_cvm, consolidado, pedidos)}
+
+
+@app.get("/v1/meta/carga", tags=["catálogo"])
+async def meta_carga(
+    request: Request,
+    dataset: str | None = None,
+    limite: int = Query(50, ge=1, le=500),
+    _chave: dict = Depends(exigir_chave),
+) -> Any:
+    """Relatório por execução: o que a carga trouxe e o que ela pesa.
+
+    Físico é medido — bytes vêm do catálogo do banco e da coluna do bronze.
+    Financeiro é derivado: GB medidos vezes a tarifa vigente em `cfg_tarifa`,
+    e o câmbio sai da série que a configuração indica. O `resumo`
+    traz o retrato de agora, sem depender de o consumidor somar nada.
+    """
+    sink = obter_sink(request)
+    onde, params = "", []
+    if dataset:
+        onde, params = " WHERE dataset_chave = ?", [dataset]
+    linhas = sink.consultar(
+        f"SELECT * FROM relatorio_carga{onde} ORDER BY gerado_em DESC, id DESC "
+        f"LIMIT ?", [*params, limite],
+    )
+    ultimo = linhas[0] if linhas else None
+    tarifa = custo.tarifa_vigente(sink, "armazenamento")
+    return {
+        "dados": linhas,
+        "resumo": {
+            "bytes_banco": ultimo["bytes_banco"] if ultimo else None,
+            "gb_armazenados": ultimo["gb_armazenados"] if ultimo else None,
+            "custo_mes_usd": ultimo["custo_mes_usd"] if ultimo else None,
+            "custo_mes_brl": ultimo["custo_mes_brl"] if ultimo else None,
+            "crescimento_gb_dia": ultimo["crescimento_gb_dia"] if ultimo else None,
+            "projecao_12m_gb": ultimo["projecao_12m_gb"] if ultimo else None,
+            "projecao_12m_usd": ultimo["projecao_12m_usd"] if ultimo else None,
+        },
+        "tarifa": dict(tarifa) if tarifa else None,
+        "medicao": {
+            "fisico": "medido no catálogo do banco e no tamanho da captura",
+            "financeiro": "derivado: GB medidos × tarifa declarada",
+            "nao_coberto": "CPU e memória do Railway não são observáveis daqui "
+                           "com precisão útil, e não entram no custo.",
+        },
+    }
 
 
 @app.get("/v1/cotacoes/{ticker}", tags=["negociação"])

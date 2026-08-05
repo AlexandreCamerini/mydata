@@ -49,6 +49,29 @@ def _agora() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _relatar(sink: Sink, ds: dict, res: "Resultado", exec_id: int) -> None:
+    """Mede e grava o relatório de carga. Nunca derruba a execução.
+
+    Um relatório que quebra a carga que ele deveria descrever inverte a
+    prioridade: o dado é o produto, a medição é sobre ele. Falha aqui vira
+    aviso no log e a carga segue publicada.
+    """
+    from . import custo
+
+    try:
+        gasto = sink.um(
+            "SELECT COALESCE(sum(duracao_ms), 0) AS ms FROM log_fase "
+            "WHERE execucao_id = ?",
+            (exec_id,),
+        )
+        relatorio = custo.gerar(sink, ds, res, int(gasto["ms"] or 0))
+        # O eco no log é o que o operador vê sem abrir nada — é o cron do
+        # Railway imprimindo o que a noite custou.
+        log.info("%s", custo.resumo(relatorio))
+    except Exception as e:  # noqa: BLE001 — medir não pode custar o dado
+        log.warning("relatório de carga falhou (a carga não): %s", e)
+
+
 # --------------------------------------------------------------------------
 # Bronze
 # --------------------------------------------------------------------------
@@ -379,6 +402,10 @@ def executar(
                 erro="; ".join(f"{v['nome']}: {v['linhas']} linhas" for v in bloqueia)
                      + f" | {descartadas} linhas descartadas de silver",
             )
+            # Carga bloqueada também pesa: o bronze foi capturado e continua
+            # no banco. Relatar só o sucesso esconderia justamente o custo que
+            # não virou dado publicado.
+            _relatar(sink, ds, res, exec_id)
             return res
 
         # ---------- publicação ----------
@@ -391,6 +418,7 @@ def executar(
             linhas_silver=res.linhas_silver, delta_linhas=res.delta_linhas,
             publicacao=res.publicacao, terminado_em=_agora(),
         )
+        _relatar(sink, ds, res, exec_id)
         return res
 
     except Exception as e:  # noqa: BLE001 — o erro vira estado no log

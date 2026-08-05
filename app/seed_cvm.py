@@ -1114,6 +1114,31 @@ CORRELACOES = [
     ),
 ]
 
+# --------------------------------------------------------------------------
+# Tarifas — o preço que o relatório de carga usa para virar dinheiro
+# --------------------------------------------------------------------------
+# Configuração, não constante no código, por dois motivos. Preço muda, e um
+# relatório de meses atrás tem de continuar explicável pela tarifa que valia
+# quando foi gerado — por isso `vigente_desde` e nenhuma edição no lugar.
+#
+# **Confira antes de confiar no número.** Estes valores são a tabela pública
+# do Railway como conhecida em 04/08/2026, digitada aqui, não consultada por
+# API: o painel é a fonte, e ele não expõe preço por API. Tarifa errada é uma
+# linha de UPDATE, não um deploy.
+#
+# Só `armazenamento` é usada hoje. CPU e memória ficam registradas porque o
+# relatório vai precisar delas se um dia o custo de processamento importar —
+# e porque deixar o preço à vista evita a tentação de estimá-lo de cabeça.
+VIGENCIA_TARIFA = "2026-08-04"
+
+TARIFAS = [
+    ("armazenamento", "GB-mês", 0.15,
+     "Volume e disco de banco, por GB armazenado por mês."),
+    ("egresso", "GB", 0.05, "Tráfego de saída."),
+    ("memoria", "GB-mês", 10.00, "Memória alocada."),
+    ("cpu", "vCPU-mês", 20.00, "Processamento alocado."),
+]
+
 AGENDAMENTOS = [
     ("cvm_dfp_anual", "cvm_dfp", "0 6 1 4 *"),
     ("cvm_dfp_empresa_anual", "cvm_dfp_empresa", "0 7 1 4 *"),
@@ -1211,6 +1236,28 @@ def aplicar(sink: Sink, forcar: bool = False) -> bool:
             sink, chave, dataset_chave, cron,
             janela_padrao=resto[0] if resto else "ano_corrente", autor="seed",
         )
+    # Qual série converte dólar em real no relatório de carga. Fica aqui,
+    # onde o nome do indicador é decidido, e não no motor — que não sabe
+    # quais indicadores existem.
+    sink.executar("DELETE FROM cfg_parametro WHERE chave = 'indicador_cambio'")
+    sink.executar(
+        "INSERT INTO cfg_parametro (chave, valor, descricao) VALUES (?,?,?)",
+        ("indicador_cambio", "cambio_usd_brl",
+         "Série usada para converter o custo em dólar para real."),
+    )
+    for recurso, unidade, preco, descricao in TARIFAS:
+        # Idempotente pela unicidade (recurso, vigente_desde): reaplicar o
+        # seed não cria versão nova nem reescreve preço já registrado.
+        if not sink.um(
+            "SELECT 1 AS ok FROM cfg_tarifa WHERE recurso = ? AND vigente_desde = ?",
+            (recurso, VIGENCIA_TARIFA),
+        ):
+            sink.executar(
+                "INSERT INTO cfg_tarifa (id, recurso, unidade, preco_usd, "
+                "vigente_desde, fonte, descricao) VALUES (?,?,?,?,?,?,?)",
+                (sink.proximo_id("cfg_tarifa"), recurso, unidade, preco,
+                 VIGENCIA_TARIFA, "tabela pública do Railway, digitada", descricao),
+            )
     aplicar_metricas(sink)
 
     sink.executar("DELETE FROM cfg_seed WHERE chave = 'cvm'")

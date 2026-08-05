@@ -438,6 +438,72 @@ MIGRACOES: list[Migracao] = [
             "DROP TABLE cfg_campo_calculado_ate_v12",
         ],
     ),
+    Migracao(
+        # Relatório de carga: o que cada execução acrescentou em disco e o que
+        # isso custa. A tabela de risco da arquitetura já dizia «bronze cresce
+        # além do plano» sem nada que medisse o crescimento — dava para saber
+        # que uma carga rodou, não o que ela pesou.
+        #
+        # A tarifa é configuração versionada, não constante no código: preço
+        # muda, e um relatório antigo tem de continuar explicável pela tarifa
+        # que valia quando ele foi gerado.
+        nome="0014_relatorio_de_carga",
+        sql=[
+            "CREATE SEQUENCE IF NOT EXISTS seq_cfg_tarifa START 1",
+            "CREATE SEQUENCE IF NOT EXISTS seq_relatorio_carga START 1",
+            """CREATE TABLE IF NOT EXISTS cfg_tarifa (
+                 id            {INT} PRIMARY KEY,
+                 recurso       {TEXTO} NOT NULL,
+                 unidade       {TEXTO} NOT NULL,
+                 preco_usd     {NUM}  NOT NULL,
+                 vigente_desde {TEXTO} NOT NULL,
+                 fonte         {TEXTO},
+                 descricao     {TEXTO},
+                 UNIQUE (recurso, vigente_desde)
+               )""",
+            """CREATE TABLE IF NOT EXISTS relatorio_carga (
+                 id                {INT} PRIMARY KEY,
+                 execucao_id       {INT} NOT NULL,
+                 dataset_chave     {TEXTO} NOT NULL,
+                 classe_chave      {TEXTO},
+                 janela            {TEXTO} NOT NULL,
+                 status            {TEXTO} NOT NULL,
+                 gerado_em         {TSTZ} NOT NULL DEFAULT {AGORA},
+                 -- físico
+                 linhas_carregadas {INT},
+                 delta_linhas      {INT},
+                 capturas_novas    {INT},
+                 bytes_capturados  {INT},
+                 linhas_classe     {INT},
+                 bytes_classe      {INT},
+                 bytes_bronze      {INT},
+                 bytes_banco       {INT},
+                 delta_bytes_banco {INT},
+                 duracao_ms        {INT},
+                 -- financeiro
+                 gb_armazenados    {NUM},
+                 custo_mes_usd     {NUM},
+                 custo_mes_brl     {NUM},
+                 cambio_usd_brl    {NUM},
+                 crescimento_gb_dia {NUM},
+                 projecao_12m_gb   {NUM},
+                 projecao_12m_usd  {NUM},
+                 tarifa_id         {INT},
+                 FOREIGN KEY (execucao_id) REFERENCES log_execucao(id)
+               )""",
+            "CREATE INDEX IF NOT EXISTS ix_relatorio_dataset "
+            "ON relatorio_carga (dataset_chave, gerado_em)",
+            # Parâmetro do sistema, genérico. Nasceu de o relatório precisar
+            # saber *qual* série converte dólar em real: fixar a chave no
+            # motor seria o mesmo acoplamento que `cfg_dataset` existe para
+            # evitar — o motor não sabe quais indicadores existem.
+            """CREATE TABLE IF NOT EXISTS cfg_parametro (
+                 chave     {TEXTO} PRIMARY KEY,
+                 valor     {TEXTO},
+                 descricao {TEXTO}
+               )""",
+        ],
+    ),
 ]
 
 # Tabelas silver que participam do ciclo de publicação. A partir da Etapa 3
