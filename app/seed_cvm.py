@@ -813,7 +813,15 @@ CALCULADOS_NEGOCIACAO = [
         CampoCalculado(
             nome=f"hv{janela}",
             classe="janela",
-            expressao="stddev_samp(log_retorno) {OVER} * sqrt(252)",
+            # A janela só vale cheia. Sem o `count`, a moldura entrega o
+            # que houver — no terceiro pregão da série, uma «volatilidade de
+            # 21 dias» calculada sobre dois retornos, sentada na mesma coluna
+            # e com a mesma cara de uma calculada sobre vinte e um. Nulo diz
+            # «ainda não sei», que é o fato.
+            expressao=(
+                "CASE WHEN count(log_retorno) {OVER} >= " + str(janela) + " "
+                "THEN stddev_samp(log_retorno) {OVER} * sqrt(252) END"
+            ),
             colunas_origem=["log_retorno", "codneg", "dt_pregao"],
             particao_por=["codneg"],
             ordena_por=["dt_pregao"],

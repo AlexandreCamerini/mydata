@@ -233,3 +233,34 @@ def test_a_carga_no_fim_e_reconhecida_como_tal(dois_pregoes):
         dois_pregoes, "fato_negociacao", ["dt_pregao"], do_fim) is True
     assert calc._carga_no_fim(
         dois_pregoes, "fato_negociacao", ["dt_pregao"], do_comeco) is False
+
+
+# --------------------------------------------------------------------------
+# A janela só vale cheia
+# --------------------------------------------------------------------------
+def test_hv_e_nula_enquanto_a_janela_nao_enche(dois_pregoes):
+    """Dois pregões dão um retorno; `hv21` pede vinte e um.
+
+    Sem esta guarda a moldura entregava o que houvesse, e o terceiro pregão da
+    série já trazia uma «volatilidade de 21 dias» calculada sobre dois
+    retornos — mesma coluna, mesmo nome, mesma cara de uma calculada sobre
+    vinte e um. É a descrição do atributo que o código não cumpria.
+    """
+    valores = dois_pregoes.consultar(
+        "SELECT dt_pregao, hv21, hv63 FROM fato_negociacao "
+        "WHERE codneg = 'PETR4' AND tp_mercado = '010' ORDER BY dt_pregao"
+    )
+    assert [v["hv21"] for v in valores] == [None, None]
+    assert [v["hv63"] for v in valores] == [None, None]
+
+
+def test_a_moldura_e_o_count_usam_a_mesma_janela(sink):
+    """`{OVER}` é substituído em todas as ocorrências: se o `count` recebesse
+    moldura diferente da do `stddev`, a guarda contaria outra coisa."""
+    seed_cvm.aplicar(sink)
+    campo = sink.um(
+        "SELECT expressao, moldura FROM cfg_campo_calculado WHERE nome = 'hv21' "
+        "ORDER BY id DESC LIMIT 1"
+    )
+    assert campo["expressao"].count("{OVER}") == 2
+    assert campo["moldura"] == "ROWS BETWEEN 20 PRECEDING AND CURRENT ROW"
