@@ -68,7 +68,8 @@ integrado está em [contrato-consumidor.md](contrato-consumidor.md).
    o processo; quem decide o que roda é `cfg_agendamento`. Acordar de hora em
    hora é suficiente e barato: cada invocação que não tem nada vencido sai em
    milissegundos. O que importa é acordar pelo menos uma vez entre dois
-   disparos do agendamento mais frequente — hoje o do COTAHIST, às 23:59.
+   disparos do agendamento mais frequente — hoje o do COTAHIST, às 23:59, com
+   o cadastro de instrumentos meia hora antes.
 
    **O horário declarado vale no fuso declarado.** Até 04/08/2026 a coluna
    `cfg_agendamento.timezone` era gravada e nunca lida, e todo cron era
@@ -132,8 +133,17 @@ importa preservar:
 ```bash
 python -m app.cli ingerir cvm_dfp 2023
 python -m app.cli ingerir cvm_cadastro atual
+python -m app.cli ingerir b3_instrumentos 2026-08-04   # o cadastro de hoje
 python -m app.cli verificar
 ```
+
+O cadastro de instrumentos merece um parágrafo à parte, porque ele é o mais
+caro em bronze de tudo que este hub ingere: ~33 MB por pregão contra ~0,5 MB do
+COTAHIST. Carregar dias antigos **acumula**, não substitui — a identidade é o
+ticker, e cada dia antigo insere as séries que já saíram do cadastro atual sem
+sobrescrever o estado de hoje. Isso é o que dá estilo de exercício às cadeias
+retroativas, e é também o que multiplica o bronze. Decida quantos dias você
+quer antes de carregá-los.
 
 Depois disso, `python -m app.cli recomputar` reconstrói todo o derivado do
 bronze e compara a digital antes e depois. É o caminho de volta de qualquer

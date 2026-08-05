@@ -935,6 +935,33 @@ nenhuma cita a B3 dentro de `app/`.
   defasagem de quatro dias entre as duas capturas, como a avaliação suspeitava
   e não podia provar.
 
+**O custo que a avaliação não mediu, e a carga revelou.** A conta do ADR olhou
+silver — os 38 milhões de linhas por ano que a identidade sem data evita — e
+não olhou bronze. Medido em 05/08/2026, carregando os 30 pregões de 24/06 a
+04/08:
+
+| | por pregão | 30 pregões | 252 pregões (1 ano) |
+|---|---|---|---|
+| `b3_instrumentos` | 33,6 MB | **1.009 MB** | **8,5 GB** |
+| `b3_cotahist` | 0,5 MB | 14 MB | 0,13 GB |
+
+O cadastro é **71× o COTAHIST em bronze**, e um ano dele seria quatro vezes o
+banco de produção inteiro, que hoje ocupa 2,11 GB. Isso é decisão de custo sob
+a regra do Railway, e fica registrada aqui como pendente.
+
+O que **não** resolve: carregar menos dias. Testei três dias (o mais antigo, um
+do meio e o de hoje) contra os trinta — dão 71,7% de cobertura, não os 100%.
+As séries somem do cadastro em datas espalhadas pelo mês, não de uma vez, então
+não há um punhado de fotografias que substitua a sequência.
+
+O que resolve, e é a próxima decisão: **comprimir o payload em bronze.** O
+arquivo tem 35,0 MB crus e 2,1 MB em gzip — 6%. Um ano cairia de 8,5 GB para
+0,54 GB. A imutabilidade não muda: o que se guarda continua sendo o byte que a
+fonte publicou, com o mesmo `sha256` do original; muda a codificação de
+armazenamento, e a descompressão fica na leitura. É mudança na semântica de
+`bronze_captura`, atinge todas as fontes, e por isso é ADR próprio — não um
+detalhe desta carga.
+
 **O que esta decisão não resolve.** Preço. O mesmo portal serve
 `TradeInformationConsolidated`, que é a mesma família de market data do
 COTAHIST e presumivelmente a mesma restrição — mas isso é decisão separada, e
