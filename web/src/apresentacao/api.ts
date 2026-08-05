@@ -16,16 +16,54 @@ export class ErroApi extends Error {
   }
 }
 
+/** A mensagem de `chave_invalida` é escrita para quem consome a API por
+ * programa — "informe uma chave válida no cabeçalho X-API-Key". Exibida a
+ * quem abriu um site, ela instrui sobre um cabeçalho HTTP que essa pessoa não
+ * tem como definir, e não diz a única coisa que resolve: entrar.
+ *
+ * A apresentação lê `/v1` sob a sessão do dono, então 401 aqui significa
+ * sempre a mesma coisa — a sessão acabou ou nunca existiu. */
+function humanizar(mensagem: string, status: number): string {
+  if (status === 401) {
+    return "Sua sessão expirou ou ainda não foi aberta. Entre para continuar.";
+  }
+  if (status === 429) {
+    return "Muitas consultas em pouco tempo. Espere um instante e tente de novo.";
+  }
+  if (status >= 500) {
+    return "O servidor falhou ao responder. Se persistir, veja as execuções em /admin.";
+  }
+  return mensagem || `Falha ${status}`;
+}
+
 async function pedir<T>(caminho: string): Promise<T> {
   const resp = await fetch(caminho, {
     headers: { Accept: "application/json" },
+    credentials: "same-origin",
   });
   const corpo = await resp.json().catch(() => null);
   if (!resp.ok) {
     const erro = corpo?.erro ?? {};
+    const codigo = erro.codigo ?? "erro_desconhecido";
+    // Sem sessão, toda tela responderia 401 e a pessoa veria uma sucessão de
+    // erros sem saber que bastava entrar. Rebate para o login levando o
+    // caminho de volta.
+    //
+    // A guarda de `destino` não é zelo: sem ela isto vira laço. A raiz serve a
+    // própria apresentação, então 401 aqui redirecionava para `/?destino=/`,
+    // que renderiza a apresentação, que busca, que recebe 401 — medido na aba
+    // de rede antes de existir esta linha. Com a marca na URL, a segunda
+    // passagem mostra a mensagem em vez de redirecionar de novo.
+    const jaTentou = new URLSearchParams(window.location.search).has("destino");
+    if (resp.status === 401 && !jaTentou) {
+      const volta = encodeURIComponent(
+        window.location.pathname + window.location.hash,
+      );
+      window.location.assign(`/?destino=${volta}`);
+    }
     throw new ErroApi(
-      erro.codigo ?? "erro_desconhecido",
-      erro.mensagem ?? `Falha ${resp.status} em ${caminho}`,
+      codigo,
+      humanizar(erro.mensagem ?? "", resp.status),
       resp.status,
     );
   }
