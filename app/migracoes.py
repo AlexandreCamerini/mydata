@@ -395,6 +395,49 @@ MIGRACOES: list[Migracao] = [
             "ALTER TABLE cfg_dataset ADD COLUMN filtro_linha {TEXTO}",
         ],
     ),
+    Migracao(
+        # Campo calculado que SQL não exprime. Volatilidade implícita é a
+        # inversão de Black-Scholes: não tem forma fechada, é busca. A classe
+        # `numerico` resolve o nome da função contra o registro de
+        # `motor/nucleos.py` — o motor continua sem avaliar texto livre.
+        #
+        # `moldura` é a janela deslizante que faltava: sem frame, uma função
+        # de janela com ORDER BY acumula desde o início da partição, e uma
+        # volatilidade de 21 pregões viraria volatilidade desde sempre.
+        #
+        # A tabela é recriada porque o CHECK antigo fixa as duas classes. É a
+        # forma portátil: DuckDB não derruba constraint nomeada.
+        nome="0013_campo_numerico",
+        sql=[
+            "ALTER TABLE cfg_campo_calculado RENAME TO cfg_campo_calculado_ate_v12",
+            """CREATE TABLE cfg_campo_calculado (
+                 id             {INT} PRIMARY KEY,
+                 dataset_id     {INT} NOT NULL,
+                 nome           {TEXTO} NOT NULL,
+                 classe         {TEXTO} NOT NULL DEFAULT 'escalar',
+                 expressao      {TEXTO} NOT NULL,
+                 colunas_origem {TEXTO} NOT NULL,
+                 tipo_retorno   {TEXTO} NOT NULL DEFAULT 'numeric',
+                 particao_por   {TEXTO},
+                 ordena_por     {TEXTO},
+                 moldura        {TEXTO},
+                 materializacao {TEXTO} NOT NULL DEFAULT 'coluna',
+                 descricao      {TEXTO},
+                 ativo          {BOOL} NOT NULL DEFAULT TRUE,
+                 ordem          {INT} NOT NULL DEFAULT 0,
+                 CHECK (classe IN ('escalar','janela','numerico'))
+               )""",
+            """INSERT INTO cfg_campo_calculado
+                 (id, dataset_id, nome, classe, expressao, colunas_origem,
+                  tipo_retorno, particao_por, ordena_por, moldura,
+                  materializacao, descricao, ativo, ordem)
+               SELECT id, dataset_id, nome, classe, expressao, colunas_origem,
+                      tipo_retorno, particao_por, ordena_por, NULL,
+                      materializacao, descricao, ativo, ordem
+                 FROM cfg_campo_calculado_ate_v12""",
+            "DROP TABLE cfg_campo_calculado_ate_v12",
+        ],
+    ),
 ]
 
 # Tabelas silver que participam do ciclo de publicação. A partir da Etapa 3

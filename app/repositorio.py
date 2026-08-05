@@ -37,10 +37,13 @@ class CampoCalculado:
     nome: str
     expressao: str
     colunas_origem: list[str]
-    classe: str = "escalar"        # escalar | janela
+    classe: str = "escalar"        # escalar | janela | numerico
     tipo_retorno: str = "numeric"
     particao_por: list[str] | None = None
     ordena_por: list[str] | None = None
+    # Frame da função de janela, ex.: "ROWS BETWEEN 20 PRECEDING AND CURRENT
+    # ROW". Sem ele, ORDER BY acumula desde o início da partição.
+    moldura: str | None = None
     materializacao: str = "coluna"
     descricao: str | None = None
     ativo: bool = True
@@ -503,13 +506,14 @@ def salvar_dataset(sink: Sink, d: Dataset, autor: str = "sistema") -> int:
         sink.executar(
             """INSERT INTO cfg_campo_calculado
                (id, dataset_id, nome, classe, expressao, colunas_origem,
-                tipo_retorno, particao_por, ordena_por, materializacao,
-                descricao, ativo, ordem) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                tipo_retorno, particao_por, ordena_por, moldura,
+                materializacao, descricao, ativo, ordem)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (sink.proximo_id("cfg_campo_calculado"), novo_id, cc.nome, cc.classe,
              cc.expressao, ",".join(cc.colunas_origem), cc.tipo_retorno,
              ",".join(cc.particao_por) if cc.particao_por else None,
              ",".join(cc.ordena_por) if cc.ordena_por else None,
-             cc.materializacao, cc.descricao, cc.ativo, cc.ordem),
+             cc.moldura, cc.materializacao, cc.descricao, cc.ativo, cc.ordem),
         )
     for r in d.regras:
         sink.executar(

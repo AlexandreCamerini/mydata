@@ -515,6 +515,42 @@ CLASSE_NEGOCIACAO = Classe(
         _atr("ticker_objeto", origem="calculado", ordem=26,
              descricao="Código de negociação do ativo-objeto, resolvido pelo "
                        "ISIN contra os registros à vista do mesmo pregão."),
+        _atr("preco_objeto", "numero", origem="calculado", ordem=27,
+             descricao="Fechamento do ativo-objeto no mesmo pregão — o spot "
+                       "que entra em Black-Scholes."),
+        _atr("taxa_livre_risco", "numero", origem="calculado", ordem=28,
+             unidade="fração ao ano",
+             descricao="CDI vigente na data, em fração (0,105 = 10,5% a.a.). "
+                       "Nulo enquanto a classe de indicador não tiver carga."),
+        _atr("log_retorno", "numero", origem="calculado", ordem=29,
+             descricao="Log-retorno do fechamento contra o pregão anterior do "
+                       "mesmo instrumento."),
+        _atr("hv21", "numero", origem="calculado", ordem=30, unidade="fração ao ano",
+             descricao="Volatilidade histórica de 21 pregões, anualizada por "
+                       "raiz de 252. Nula até haver 21 pregões carregados."),
+        _atr("hv63", "numero", origem="calculado", ordem=31, unidade="fração ao ano",
+             descricao="Volatilidade histórica de 63 pregões, anualizada."),
+        _atr("hv21_objeto", "numero", origem="calculado", ordem=32,
+             unidade="fração ao ano",
+             descricao="HV21 do ativo-objeto, trazida para a linha da opção."),
+        _atr("prazo_anos", "numero", origem="calculado", ordem=33, unidade="anos",
+             descricao="Dias úteis até o vencimento sobre 252. Não desconta "
+                       "feriado — exigiria um calendário, que é outra fonte."),
+        _atr("volatilidade_implicita", "numero", origem="calculado", ordem=34,
+             unidade="fração ao ano",
+             descricao="Sigma que faz o preço BSM igualar o prêmio negociado. "
+                       "Nula quando o prêmio está fora do que o modelo alcança."),
+        _atr("preco_teorico", "numero", origem="calculado", ordem=35,
+             descricao="Preço BSM com a volatilidade implícita. Reproduz o "
+                       "prêmio quando a inversão convergiu — é a conferência."),
+        _atr("delta", "numero", origem="calculado", ordem=36),
+        _atr("gamma", "numero", origem="calculado", ordem=37),
+        _atr("vega", "numero", origem="calculado", ordem=38,
+             descricao="Por ponto de volatilidade (1%), não por unidade."),
+        _atr("theta", "numero", origem="calculado", ordem=39,
+             descricao="Por dia útil: a perda de valor de um pregão."),
+        _atr("rho", "numero", origem="calculado", ordem=40,
+             descricao="Por ponto percentual de taxa."),
     ],
 )
 
@@ -677,6 +713,132 @@ CALCULADOS_NEGOCIACAO = [
                   "do mesmo pregão.",
         ordem=1,
     ),
+    CampoCalculado(
+        nome="preco_objeto",
+        classe="escalar",
+        expressao=(
+            "(SELECT min(objeto.preco_fechamento) FROM fato_negociacao AS objeto "
+            " WHERE objeto.dt_pregao = fato_negociacao.dt_pregao "
+            "   AND objeto.codneg = fato_negociacao.ticker_objeto "
+            "   AND objeto.tp_mercado = '010')"
+        ),
+        colunas_origem=["dt_pregao", "ticker_objeto", "tp_mercado",
+                        "preco_fechamento"],
+        descricao="Spot do ativo-objeto no mesmo pregão.",
+        ordem=2,
+    ),
+    CampoCalculado(
+        nome="taxa_livre_risco",
+        classe="escalar",
+        # O CDI sai do BCB em % ao ano; Black-Scholes quer fração. A data
+        # exata pode não existir na série — fim de semana, feriado —, então
+        # vale a última publicada até o pregão.
+        expressao=(
+            "(SELECT max(taxa.valor) / 100.0 FROM fato_indicador AS taxa "
+            " WHERE taxa.indicador = 'cdi' AND taxa.dt_referencia = "
+            "   (SELECT max(anterior.dt_referencia) FROM fato_indicador AS anterior "
+            "     WHERE anterior.indicador = 'cdi' "
+            "       AND anterior.dt_referencia <= fato_negociacao.dt_pregao))"
+        ),
+        colunas_origem=["dt_pregao"],
+        descricao="CDI vigente na data do pregão, em fração ao ano.",
+        ordem=3,
+    ),
+    CampoCalculado(
+        nome="log_retorno",
+        classe="janela",
+        # Fechamento zero existe em contrato que não negociou; `ln(0)` é erro
+        # de execução, e derrubaria a carga do pregão inteiro.
+        expressao=(
+            "CASE WHEN preco_fechamento > 0 "
+            "      AND lag(preco_fechamento) {OVER} > 0 "
+            "     THEN ln(preco_fechamento / lag(preco_fechamento) {OVER}) END"
+        ),
+        colunas_origem=["preco_fechamento", "codneg", "dt_pregao"],
+        particao_por=["codneg"],
+        ordena_por=["dt_pregao"],
+        descricao="Log-retorno contra o pregão anterior do mesmo instrumento.",
+        ordem=4,
+    ),
+    *[
+        CampoCalculado(
+            nome=f"hv{janela}",
+            classe="janela",
+            expressao="stddev_samp(log_retorno) {OVER} * sqrt(252)",
+            colunas_origem=["log_retorno", "codneg", "dt_pregao"],
+            particao_por=["codneg"],
+            ordena_por=["dt_pregao"],
+            # Sem a moldura, o ORDER BY acumula desde a primeira captura e a
+            # «volatilidade de 21 pregões» vira a volatilidade desde sempre.
+            moldura=f"ROWS BETWEEN {janela - 1} PRECEDING AND CURRENT ROW",
+            descricao=f"Volatilidade histórica de {janela} pregões, anualizada "
+                      f"por raiz de 252.",
+            ordem=5,
+        )
+        for janela in (21, 63)
+    ],
+    CampoCalculado(
+        nome="hv21_objeto",
+        classe="escalar",
+        expressao=(
+            "(SELECT min(objeto.hv21) FROM fato_negociacao AS objeto "
+            " WHERE objeto.dt_pregao = fato_negociacao.dt_pregao "
+            "   AND objeto.codneg = fato_negociacao.ticker_objeto "
+            "   AND objeto.tp_mercado = '010')"
+        ),
+        colunas_origem=["dt_pregao", "ticker_objeto", "tp_mercado", "hv21"],
+        descricao="HV21 do ativo-objeto, na linha da opção.",
+        ordem=6,
+    ),
+    # --------------------------------------------------------------------
+    # O que SQL não exprime. Uma onda por `ordem`: o prazo alimenta a
+    # inversão, e a inversão alimenta as gregas.
+    # --------------------------------------------------------------------
+    CampoCalculado(
+        nome="prazo_anos",
+        classe="numerico",
+        expressao="prazo_anos(dt_pregao, dt_vencimento)",
+        colunas_origem=["dt_pregao", "dt_vencimento"],
+        descricao="Dias úteis até o vencimento sobre 252.",
+        ordem=10,
+    ),
+    CampoCalculado(
+        nome="volatilidade_implicita",
+        classe="numerico",
+        expressao=(
+            "bs_iv(tp_mercado, preco_fechamento, preco_objeto, "
+            "preco_exercicio, prazo_anos, taxa_livre_risco)"
+        ),
+        colunas_origem=["tp_mercado", "preco_fechamento", "preco_objeto",
+                        "preco_exercicio", "prazo_anos", "taxa_livre_risco"],
+        descricao="Inversão de Black-Scholes sobre o prêmio negociado.",
+        ordem=11,
+    ),
+    *[
+        CampoCalculado(
+            nome=nome,
+            classe="numerico",
+            expressao=(
+                f"{funcao}(tp_mercado, preco_objeto, preco_exercicio, "
+                f"prazo_anos, taxa_livre_risco, volatilidade_implicita)"
+            ),
+            colunas_origem=["tp_mercado", "preco_objeto", "preco_exercicio",
+                            "prazo_anos", "taxa_livre_risco",
+                            "volatilidade_implicita"],
+            descricao=descricao,
+            ordem=12,
+        )
+        for nome, funcao, descricao in [
+            ("preco_teorico", "bs_preco",
+             "Preço BSM com a volatilidade implícita — reproduz o prêmio "
+             "quando a inversão convergiu."),
+            ("delta", "bs_delta", "Variação do prêmio por real do ativo-objeto."),
+            ("gamma", "bs_gamma", "Variação do delta por real do ativo-objeto."),
+            ("vega", "bs_vega", "Por ponto de volatilidade (1%)."),
+            ("theta", "bs_theta", "Por dia útil."),
+            ("rho", "bs_rho", "Por ponto percentual de taxa."),
+        ]
+    ],
 ]
 
 REGRAS_NEGOCIACAO = [

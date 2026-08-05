@@ -349,7 +349,10 @@ def executar(
         # ---------- calculados ----------
         repo.atualizar_execucao(sink, exec_id, status="recomputando")
         with obs.fase(sink, exec_id, "calcular"):
-            calc.aplicar(sink, ds, repo.calculados_do(sink, ds["id"]))
+            calc.aplicar(
+                sink, ds, repo.calculados_do(sink, ds["id"]),
+                capturas=[c["id"] for c in capturas],
+            )
 
         # ---------- qualidade ----------
         repo.atualizar_execucao(sink, exec_id, status="validando")
