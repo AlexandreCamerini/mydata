@@ -344,5 +344,6 @@ def test_boot_sem_nada_a_fazer_continua_barato(sink_cvm):
     from app.motor import ddl
 
     assert ddl.garantir_classes(sink_cvm) == {
-        c: [] for c in ("demonstracao_financeira", "empresa", "indicador_macro")
+        c: [] for c in ("demonstracao_financeira", "empresa",
+                        "indicador_macro", "negociacao_b3")
     }

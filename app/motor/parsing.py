@@ -87,6 +87,12 @@ def converter(valor: str, tipo: str, formato: str | None) -> Any:
     if tipo == "booleano":
         return _bool(valor, formato)
     v = valor.strip()
+    if not v and formato and formato.startswith("vazio:"):
+        # Arquivo posicional preenche com espaço o campo que não se aplica.
+        # Quando esse campo está na identidade, o branco vira NULL e o
+        # `ON CONFLICT` deixa de conflitar: cada recarga insere de novo, sem
+        # erro e sem sintoma. Declarar o literal é o que fecha esse buraco.
+        return formato.split(":", 1)[1]
     return v if v else None
 
 

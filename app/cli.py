@@ -25,6 +25,12 @@ def janela_corrente(padrao: str) -> str:
         return str(agora.year)
     if padrao == "ano_anterior":
         return str(agora.year - 1)
+    if padrao == "dia_anterior":
+        # Fonte de pregão diário: o arquivo do dia só existe depois que ele
+        # fecha, então o agendamento roda de madrugada e pede o dia anterior.
+        from datetime import timedelta
+
+        return (agora - timedelta(days=1)).date().isoformat()
     return padrao
 
 

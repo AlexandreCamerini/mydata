@@ -422,7 +422,141 @@ SERIES_BCB = [
      "Taxa CDI anualizada, base 252 dias úteis", "% a.a."),
 ]
 
-CLASSES = [CLASSE_DEMONSTRACAO, CLASSE_EMPRESA, CLASSE_INDICADOR]
+# --------------------------------------------------------------------------
+# B3 — séries históricas de negociação (COTAHIST)
+# --------------------------------------------------------------------------
+# Primeira fonte de layout posicional: 245 bytes por linha, campo em faixa de
+# posições, três tipos de registro no mesmo arquivo. O motor aprendeu isso
+# como formato (`formato_registro='larguras'`), então aqui é declaração.
+#
+# O arquivo é o mesmo para ação, opção, termo e fracionário — o que distingue
+# é `TPMERC`/`CODBDI`. Por isso a classe é *negociação*, não *opção*: o
+# arquivo publica um pregão de um instrumento, e opção é um recorte dele.
+# Fazer duas classes obrigaria a filtrar na carga, e o filtro viraria juízo
+# do motor sobre qual linha do arquivo oficial merece existir.
+FONTE_B3_SERIE = Fonte(
+    chave="b3_serie_historica",
+    nome="B3 — séries históricas de cotação (COTAHIST)",
+    descricao="Pregão diário de todos os instrumentos: ação, opção, termo, "
+              "fracionário e índice. Arquivo posicional de 245 bytes.",
+    tipo_transporte="http_zip",
+    # O endereço de download da página de pesquisa devolve ZIP vazio para
+    # requisição direta — ele depende da sessão do formulário. Este é o
+    # endereço do arquivo em si, que responde a um GET simples.
+    url_template=(
+        "https://bvmf.bmfbovespa.com.br/InstDados/SerHist/"
+        "COTAHIST_D{dia}{mes}{ano}.ZIP"
+    ),
+    encoding="latin-1",   # acento de NOMRES; utf-8 estrito recusa o arquivo
+    formato_registro="larguras",
+)
+
+CHAVE_NEGOCIACAO = ["dt_pregao", "codneg", "tp_mercado", "cod_bdi", "prazo_termo"]
+
+CLASSE_NEGOCIACAO = Classe(
+    chave="negociacao_b3",
+    nome="Negociação na B3",
+    descricao="O pregão de um instrumento num dia: preços, volume e, quando "
+              "é derivativo, strike e vencimento.",
+    tabela="fato_negociacao",
+    # `prazo_termo` parece supérfluo até você contar as linhas: sem ele, no
+    # pregão de 31/07/2026, quinze contratos a termo do mesmo papel com
+    # prazos diferentes colidiam na mesma chave e o upsert guardava um só.
+    chave_identidade=CHAVE_NEGOCIACAO,
+    indices=[["dt_pregao", "isin", "tp_mercado"], ["codneg"],
+             ["dt_vencimento"]],
+    sla_horas=24 * 4,     # pregão é diário; feriado prolongado cabe em quatro dias
+    atributos=[
+        _atr("dt_pregao", "data", obrigatorio=True, ordem=1),
+        _atr("codneg", obrigatorio=True, ordem=2,
+             descricao="Código de negociação do instrumento. Para opção é o "
+                       "código do contrato, ex.: ABCBH255."),
+        _atr("tp_mercado", obrigatorio=True, ordem=3,
+             descricao="010 vista, 070 opção de compra, 080 opção de venda, "
+                       "030 termo, 012/013 exercício de opção."),
+        _atr("cod_bdi", obrigatorio=True, ordem=4,
+             descricao="02 lote padrão, 78 opção de compra, 82 opção de "
+                       "venda, 74/75 opção de índice, 96 fracionário."),
+        _atr("prazo_termo", ordem=5,
+             descricao="Prazo em dias do contrato a termo. Vazio fora do termo, "
+                       "e parte da identidade porque dois termos do mesmo papel "
+                       "só se distinguem por ele."),
+        _atr("nome_resumido", ordem=6),
+        _atr("especificacao", ordem=7, descricao="ON, PN, UNT, DRN…"),
+        _atr("moeda_referencia", ordem=8),
+        _atr("preco_abertura", "numero", ordem=9, guarda_texto=True),
+        _atr("preco_maximo", "numero", ordem=10, guarda_texto=True),
+        _atr("preco_minimo", "numero", ordem=11, guarda_texto=True),
+        _atr("preco_medio", "numero", ordem=12, guarda_texto=True),
+        _atr("preco_fechamento", "numero", ordem=13, guarda_texto=True,
+             descricao="Preço do último negócio. Para opção é o prêmio."),
+        _atr("melhor_oferta_compra", "numero", ordem=14),
+        _atr("melhor_oferta_venda", "numero", ordem=15),
+        _atr("total_negocios", "inteiro", ordem=16),
+        _atr("quantidade_negociada", "inteiro", ordem=17),
+        _atr("volume_financeiro", "numero", ordem=18),
+        _atr("preco_exercicio", "numero", ordem=19, guarda_texto=True,
+             descricao="Strike. Zero fora de opção e termo."),
+        _atr("indicador_correcao_exercicio", ordem=20),
+        _atr("dt_vencimento", "data", ordem=21,
+             descricao="Vencimento do derivativo. Ação traz a sentinela "
+                       "9999-12-31, que é o que a B3 grava — a vista de gold "
+                       "é que decide o que isso significa."),
+        _atr("fator_cotacao", "inteiro", ordem=22,
+             descricao="1 = preço unitário; 1000 = cotação por lote de mil."),
+        _atr("preco_exercicio_pontos", "numero", ordem=23,
+             descricao="Strike em pontos, para opção referenciada em índice "
+                       "ou dólar. Seis casas decimais implícitas."),
+        _atr("isin", ordem=24,
+             descricao="Código ISIN. Num registro de opção ele é o do "
+                       "*ativo-objeto*, não o do contrato — é o que liga a "
+                       "opção ao papel sem inferir pelo prefixo do código."),
+        _atr("num_distribuicao", ordem=25),
+        _atr("ticker_objeto", origem="calculado", ordem=26,
+             descricao="Código de negociação do ativo-objeto, resolvido pelo "
+                       "ISIN contra os registros à vista do mesmo pregão."),
+    ],
+)
+
+# As faixas vêm do layout oficial da B3 (SeriesHistoricas_Layout.pdf, rev. 01)
+# e foram conferidas contra o arquivo de 31/07/2026. Posição 1-indexada e
+# inclusiva, como no PDF; `implicito:N` é a vírgula que o arquivo não tem.
+COLUNAS_COTAHIST = [
+    Coluna("DATA@3-10", "dt_pregao", "data", obrigatoria=True, ordem=1),
+    Coluna("CODNEG@13-24", "codneg", "texto", obrigatoria=True, ordem=2),
+    Coluna("TPMERC@25-27", "tp_mercado", "texto", obrigatoria=True, ordem=3),
+    Coluna("CODBDI@11-12", "cod_bdi", "texto", obrigatoria=True, ordem=4),
+    # `000` é o que a própria B3 grava fora do termo — nas opções, por
+    # exemplo. Fora dele o campo vem em branco, e branco na identidade
+    # significa recarga que duplica em silêncio.
+    Coluna("PRAZOT@50-52", "prazo_termo", "texto", "vazio:000", ordem=5),
+    Coluna("NOMRES@28-39", "nome_resumido", "texto", ordem=6),
+    Coluna("ESPECI@40-49", "especificacao", "texto", ordem=7),
+    Coluna("MODREF@53-56", "moeda_referencia", "texto", ordem=8),
+    Coluna("PREABE@57-69", "preco_abertura", "numero", "implicito:2", ordem=9),
+    Coluna("PREMAX@70-82", "preco_maximo", "numero", "implicito:2", ordem=10),
+    Coluna("PREMIN@83-95", "preco_minimo", "numero", "implicito:2", ordem=11),
+    Coluna("PREMED@96-108", "preco_medio", "numero", "implicito:2", ordem=12),
+    Coluna("PREULT@109-121", "preco_fechamento", "numero", "implicito:2", ordem=13),
+    Coluna("PREOFC@122-134", "melhor_oferta_compra", "numero", "implicito:2",
+           ordem=14),
+    Coluna("PREOFV@135-147", "melhor_oferta_venda", "numero", "implicito:2",
+           ordem=15),
+    Coluna("TOTNEG@148-152", "total_negocios", "inteiro", ordem=16),
+    Coluna("QUATOT@153-170", "quantidade_negociada", "inteiro", ordem=17),
+    Coluna("VOLTOT@171-188", "volume_financeiro", "numero", "implicito:2", ordem=18),
+    Coluna("PREEXE@189-201", "preco_exercicio", "numero", "implicito:2", ordem=19),
+    Coluna("INDOPC@202-202", "indicador_correcao_exercicio", "texto", ordem=20),
+    Coluna("DATVEN@203-210", "dt_vencimento", "data", ordem=21),
+    Coluna("FATCOT@211-217", "fator_cotacao", "inteiro", ordem=22),
+    Coluna("PTOEXE@218-230", "preco_exercicio_pontos", "numero", "implicito:6",
+           ordem=23),
+    Coluna("CODISI@231-242", "isin", "texto", ordem=24),
+    Coluna("DISMES@243-245", "num_distribuicao", "texto", ordem=25),
+]
+
+CLASSES = [CLASSE_DEMONSTRACAO, CLASSE_EMPRESA, CLASSE_INDICADOR,
+           CLASSE_NEGOCIACAO]
 
 # --------------------------------------------------------------------------
 # Vistas de gold — o contrato que o consumidor lê
@@ -517,6 +651,74 @@ COLUNAS_CADASTRO = [
 ]
 
 
+# O ativo-objeto sai do próprio arquivo. Num registro de opção o `CODISI` é o
+# ISIN do papel subjacente, não o do contrato — então casar a opção com o
+# registro à vista do mesmo pregão resolve a ligação com dado publicado, sem
+# arquivo auxiliar e sem inferir pelo prefixo do código de negociação. No
+# pregão de 31/07/2026 isso resolve 11.320 de 11.321 opções.
+#
+# `min()` em vez de subconsulta escalar simples: um ISIN com dois códigos à
+# vista faria o `=` explodir na carga inteira. Não acontece hoje — 1.403
+# ISINs, nenhum ambíguo — e a regra de qualidade abaixo avisa se passar a
+# acontecer, em vez de a carga cair.
+CALCULADOS_NEGOCIACAO = [
+    CampoCalculado(
+        nome="ticker_objeto",
+        classe="escalar",
+        expressao=(
+            "(SELECT min(objeto.codneg) FROM fato_negociacao AS objeto "
+            " WHERE objeto.dt_pregao = fato_negociacao.dt_pregao "
+            "   AND objeto.isin = fato_negociacao.isin "
+            "   AND objeto.tp_mercado = '010')"
+        ),
+        colunas_origem=["dt_pregao", "isin", "tp_mercado", "codneg"],
+        tipo_retorno="text",
+        descricao="Código à vista do ativo-objeto, resolvido pelo ISIN dentro "
+                  "do mesmo pregão.",
+        ordem=1,
+    ),
+]
+
+REGRAS_NEGOCIACAO = [
+    RegraQualidade(
+        nome="negociacao_isin_a_vista_ambiguo",
+        expressao_sql=(
+            "SELECT dt_pregao, isin FROM fato_negociacao "
+            "WHERE tp_mercado = '010' AND isin IS NOT NULL "
+            "GROUP BY dt_pregao, isin HAVING count(DISTINCT codneg) > 1"
+        ),
+        severidade="alerta",
+        descricao="Dois códigos à vista para o mesmo ISIN no mesmo pregão: a "
+                  "resolução do ativo-objeto passou a escolher, e o critério "
+                  "vira arbitrário.",
+    ),
+    RegraQualidade(
+        nome="negociacao_opcao_sem_ativo_objeto",
+        expressao_sql=(
+            "SELECT dt_pregao, codneg FROM fato_negociacao "
+            "WHERE tp_mercado IN ('070','080') AND ticker_objeto IS NULL"
+        ),
+        severidade="alerta",
+        # Acontece de verdade: no pregão medido, uma opção ficou órfã porque o
+        # papel dela não negociou naquele dia. É informação, não defeito.
+        tolerancia=0.02,
+        descricao="Opção cujo ativo-objeto não negociou no mesmo pregão. "
+                  "Esperado em papel ilíquido; em massa, é o ISIN mudando.",
+    ),
+    RegraQualidade(
+        nome="negociacao_preco_sem_numero",
+        expressao_sql=(
+            "SELECT dt_pregao, codneg FROM fato_negociacao "
+            "WHERE preco_fechamento IS NULL AND preco_fechamento_txt IS NOT NULL "
+            "AND preco_fechamento_txt <> ''"
+        ),
+        severidade="bloqueia",
+        descricao="Texto presente e número nulo: as posições do layout "
+                  "deslocaram, ou a escala implícita mudou.",
+    ),
+]
+
+
 def datasets() -> list[Dataset]:
     comum = dict(
         fonte_chave="cvm",
@@ -561,6 +763,25 @@ def datasets() -> list[Dataset]:
                     severidade="alerta",
                 ),
             ],
+        ),
+        Dataset(
+            chave="b3_cotahist",
+            fonte_chave="b3_serie_historica",
+            nome="Séries históricas de cotação (COTAHIST diário)",
+            descricao="Um pregão inteiro: ação, opção, termo e fracionário no "
+                      "mesmo arquivo posicional. A janela é a data do pregão.",
+            # Um único TXT por ZIP, homônimo do arquivo.
+            padrao_arquivo=r"^COTAHIST_D\d{8}\.TXT$",
+            # Cabeçalho e encerramento têm os mesmos 245 bytes de uma cotação.
+            # Sem o recorte, `COTAHIST.202` entraria como código de negociação.
+            filtro_linha=r"^01",
+            tabela_destino="fato_negociacao",
+            classe_chave="negociacao_b3",
+            chave_natural=CHAVE_NEGOCIACAO,
+            particao="dia",
+            colunas=COLUNAS_COTAHIST,
+            calculados=CALCULADOS_NEGOCIACAO,
+            regras=REGRAS_NEGOCIACAO,
         ),
         Dataset(
             chave="b3_listadas",
@@ -702,6 +923,11 @@ AGENDAMENTOS = [
     # O SGS publica com defasagem de um dia útil. Diário cobre câmbio e CDI;
     # Selic e IPCA mudam menos, e reingerir a mesma janela é no-op.
     *[(f"{chave}_diario", chave, "0 8 * * *") for chave, *_ in SERIES_BCB],
+    # De terça a sábado, pedindo o pregão do dia anterior: cobre segunda a
+    # sexta e nunca tenta um fim de semana. Dia sem pregão responde 404, e
+    # feriado por isso vira execução falha — visível, que é o certo. Tratar
+    # 404 como «sem pregão» esconderia o endereço quebrado no mesmo silêncio.
+    ("b3_cotahist_diario", "b3_cotahist", "0 9 * * 2-6", "dia_anterior"),
 ]
 
 
@@ -732,7 +958,8 @@ def impressao() -> str:
             "classes": [asdict(c) for c in CLASSES],
             "vistas": [asdict(v) for v in VISTAS],
             "fontes": [asdict(FONTE), asdict(FONTE_CADASTRO), asdict(FONTE_B3),
-                       asdict(FONTE_BCB), asdict(FONTE_BRAPI)],
+                       asdict(FONTE_BCB), asdict(FONTE_BRAPI),
+                       asdict(FONTE_B3_SERIE)],
             "correlacoes": [asdict(c) for c in CORRELACOES],
             "datasets": [asdict(d) for d in datasets()],
             "metricas": METRICAS,
@@ -765,12 +992,16 @@ def aplicar(sink: Sink, forcar: bool = False) -> bool:
     salvar_fonte(sink, FONTE_B3, autor="seed")
     salvar_fonte(sink, FONTE_BCB, autor="seed")
     salvar_fonte(sink, FONTE_BRAPI, autor="seed")
+    salvar_fonte(sink, FONTE_B3_SERIE, autor="seed")
     for corr in CORRELACOES:
         salvar_correlacao(sink, corr, autor="seed")
     for d in datasets():
         salvar_dataset(sink, d, autor="seed")
-    for chave, dataset_chave, cron in AGENDAMENTOS:
-        salvar_agendamento(sink, chave, dataset_chave, cron, autor="seed")
+    for chave, dataset_chave, cron, *resto in AGENDAMENTOS:
+        salvar_agendamento(
+            sink, chave, dataset_chave, cron,
+            janela_padrao=resto[0] if resto else "ano_corrente", autor="seed",
+        )
     aplicar_metricas(sink)
 
     sink.executar("DELETE FROM cfg_seed WHERE chave = 'cvm'")

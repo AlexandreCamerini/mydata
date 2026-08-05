@@ -19,7 +19,8 @@ from app.motor import ddl
 
 CLASSES_ESPERADAS = {"demonstracao_financeira": "fato_conta",
                      "empresa": "dim_empresa",
-                     "indicador_macro": "fato_indicador"}
+                     "indicador_macro": "fato_indicador",
+                     "negociacao_b3": "fato_negociacao"}
 
 
 def test_seed_cadastra_as_classes_da_cvm(sink_cvm):

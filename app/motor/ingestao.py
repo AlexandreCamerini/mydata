@@ -162,8 +162,20 @@ def carregar_arquivo(
         )
 
     def valores():
-        yield [primeira.get(c) for c in campos]
-        for linha in linhas:
+        for linha in (primeira, *linhas):
+            # Chave natural com NULL não conflita: o índice único trata cada
+            # NULL como distinto, o upsert vira insert e a recarga duplica a
+            # linha sem erro e sem sintoma — descoberto num campo que a B3
+            # deixa em branco quando não se aplica. Falhar aqui é caro de
+            # ler e barato de rodar; o silêncio custava a tabela.
+            nulas = [c for c in chave_natural if linha.get(c) is None]
+            if nulas:
+                raise ErroIngestao(
+                    f"chave natural do dataset '{ds['chave']}' veio nula em "
+                    f"{', '.join(nulas)}. Chave nula não deduplica: declare um "
+                    f"literal com formato 'vazio:<valor>' ou tire a coluna da "
+                    f"chave."
+                )
             yield [linha.get(c) for c in campos]
 
     return sink.carregar_em_lote(
@@ -186,6 +198,13 @@ def _urls_da_janela(fonte: dict, ds: dict, janela: str) -> list[str]:
 
     template = fonte["url_template"]
     contexto = {"ano": janela, "janela": janela, "dataset": ds["chave"]}
+    # Janela diária: a partição é um pregão, não um ano, e o endereço da
+    # fonte costuma nomear o arquivo pelos pedaços da data. Decompor aqui
+    # mantém a janela em ISO — ordenável, comparável e igual à do resto do
+    # sistema — em vez de obrigar o dataset a guardá-la no formato do
+    # arquivo só para conseguir montar a URL.
+    if len(janela) == 10 and janela[4] == "-" and janela[7] == "-":
+        contexto["ano"], contexto["mes"], contexto["dia"] = janela.split("-")
     # Parâmetro declarado no dataset. O sufixo do nome fica como último
     # recurso: era a regra antiga, e adivinhava errado assim que dois
     # datasets passaram a ler o mesmo arquivo com nomes diferentes.
