@@ -44,6 +44,11 @@ class CampoCalculado:
     # Frame da função de janela, ex.: "ROWS BETWEEN 20 PRECEDING AND CURRENT
     # ROW". Sem ele, ORDER BY acumula desde o início da partição.
     moldura: str | None = None
+    # Uma linha nova muda o valor de linhas já gravadas? `is_latest` sim — a
+    # reapresentação rebaixa a versão anterior. `hv21` não — o pregão de hoje
+    # não altera a volatilidade de ontem. Quem não retroage só reescreve as
+    # linhas da própria carga; quem retroage reescreve a tabela.
+    retroage: bool = True
     materializacao: str = "coluna"
     descricao: str | None = None
     ativo: bool = True
@@ -506,14 +511,15 @@ def salvar_dataset(sink: Sink, d: Dataset, autor: str = "sistema") -> int:
         sink.executar(
             """INSERT INTO cfg_campo_calculado
                (id, dataset_id, nome, classe, expressao, colunas_origem,
-                tipo_retorno, particao_por, ordena_por, moldura,
+                tipo_retorno, particao_por, ordena_por, moldura, retroage,
                 materializacao, descricao, ativo, ordem)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (sink.proximo_id("cfg_campo_calculado"), novo_id, cc.nome, cc.classe,
              cc.expressao, ",".join(cc.colunas_origem), cc.tipo_retorno,
              ",".join(cc.particao_por) if cc.particao_por else None,
              ",".join(cc.ordena_por) if cc.ordena_por else None,
-             cc.moldura, cc.materializacao, cc.descricao, cc.ativo, cc.ordem),
+             cc.moldura, cc.retroage, cc.materializacao, cc.descricao,
+             cc.ativo, cc.ordem),
         )
     for r in d.regras:
         sink.executar(

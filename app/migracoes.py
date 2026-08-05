@@ -504,6 +504,24 @@ MIGRACOES: list[Migracao] = [
                )""",
         ],
     ),
+    Migracao(
+        # Campo de janela reescrevia a tabela inteira a cada carga. Ler tudo é
+        # necessário — a partição cruza janelas —, mas *escrever* tudo não:
+        # depende de a linha nova mudar, ou não, o valor de linhas já
+        # gravadas. E isso não dá para inferir da expressão.
+        #
+        # `is_latest` muda: quando chega reapresentação, é a linha antiga que
+        # vira falsa. `hv21` não muda: um pregão novo não altera a
+        # volatilidade de ontem.
+        #
+        # O padrão é `TRUE` — reescreve tudo — porque é o comportamento que já
+        # valia. Ganhar velocidade exige declarar, e errar a declaração é caro
+        # demais para ser o silêncio.
+        nome="0015_escopo_da_escrita",
+        sql=[
+            "ALTER TABLE cfg_campo_calculado ADD COLUMN retroage {BOOL} DEFAULT TRUE",
+        ],
+    ),
 ]
 
 # Tabelas silver que participam do ciclo de publicação. A partir da Etapa 3

@@ -248,6 +248,27 @@ def aplicar(
                     f"'{campo['nome']}' não tem como casar linha a linha"
                 )
             expressao = campo["expressao"].replace("{OVER}", f"OVER ({over})")
+            # A subconsulta lê a tabela inteira, sempre: a partição cruza
+            # janelas de carga, e recortar a leitura daria janela truncada —
+            # a volatilidade de 21 pregões passaria a olhar só o que esta
+            # carga trouxe.
+            #
+            # A escrita é outra pergunta: a linha nova muda o valor das que já
+            # estavam gravadas? Quem retroage reescreve tudo, porque é
+            # exatamente a linha *antiga* que precisa mudar — é o caso da
+            # reapresentação rebaixando `is_latest`. Quem não retroage só
+            # reescreve o que esta carga trouxe, e aí o custo do UPDATE para
+            # de crescer com o histórico.
+            condicao = [
+                f"(alvo.{c} = origem.{c} OR "
+                f"(alvo.{c} IS NULL AND origem.{c} IS NULL))"
+                for c in chaves
+            ]
+            parametros_janela: list = []
+            if not campo.get("retroage", True) and capturas:
+                marcadores = ",".join("?" for _ in capturas)
+                condicao.append(f"alvo.captura_id IN ({marcadores})")
+                parametros_janela = list(capturas)
             sink.executar(
                 f"""UPDATE {tabela} AS alvo
                     SET {campo['nome']} = origem.valor_calculado
@@ -255,12 +276,8 @@ def aplicar(
                       SELECT {', '.join(chaves)}, {expressao} AS valor_calculado
                       FROM {tabela}
                     ) AS origem
-                    WHERE """
-                + " AND ".join(
-                    f"(alvo.{c} = origem.{c} OR "
-                    f"(alvo.{c} IS NULL AND origem.{c} IS NULL))"
-                    for c in chaves
-                )
+                    WHERE """ + " AND ".join(condicao),
+                parametros_janela,
             )
         aplicados.append(campo["nome"])
         log.info("campo calculado aplicado: %s (%s)", campo["nome"], campo["classe"])

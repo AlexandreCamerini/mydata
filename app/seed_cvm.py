@@ -152,6 +152,11 @@ CALCULADOS_CONTA = [
         colunas_origem=["versao", "cd_cvm", "tipo_doc", "dt_refer"],
         particao_por=["cd_cvm", "tipo_doc", "dt_refer"],
         tipo_retorno="boolean",
+        # Retroage, e é o exemplo canônico: quando chega uma reapresentação, é
+        # a linha *antiga* que precisa virar falsa. Escopar a escrita aqui
+        # deixaria duas versões marcadas como última, e gold duplicaria a
+        # conta sem nenhum erro aparecer.
+        retroage=True,
         descricao="Armadilha 1: reapresentação. Partição global — reingerir um "
                   "ano antigo pode rebaixar documento de outro ano, então este "
                   "campo é recomputado sobre a tabela inteira.",
@@ -797,6 +802,10 @@ CALCULADOS_NEGOCIACAO = [
         colunas_origem=["preco_fechamento", "codneg", "dt_pregao"],
         particao_por=["codneg"],
         ordena_por=["dt_pregao"],
+        # O pregão de hoje não muda o retorno de ontem: só as linhas desta
+        # carga precisam ser escritas. A leitura continua olhando tudo, senão
+        # o primeiro pregão da carga ficaria sem anterior com que comparar.
+        retroage=False,
         descricao="Log-retorno contra o pregão anterior do mesmo instrumento.",
         ordem=4,
     ),
@@ -811,6 +820,9 @@ CALCULADOS_NEGOCIACAO = [
             # Sem a moldura, o ORDER BY acumula desde a primeira captura e a
             # «volatilidade de 21 pregões» vira a volatilidade desde sempre.
             moldura=f"ROWS BETWEEN {janela - 1} PRECEDING AND CURRENT ROW",
+            # A moldura olha para trás, nunca para frente: um pregão novo não
+            # altera a volatilidade já calculada dos anteriores.
+            retroage=False,
             descricao=f"Volatilidade histórica de {janela} pregões, anualizada "
                       f"por raiz de 252.",
             ordem=5,
