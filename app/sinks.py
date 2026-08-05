@@ -123,6 +123,7 @@ class Sink(Protocol):
     def consultar(self, sql: str, params: Iterable[Any] = ()) -> list[dict]: ...
     def um(self, sql: str, params: Iterable[Any] = ()) -> dict | None: ...
     def proximo_id(self, tabela: str) -> int: ...
+    def transacao(self): ...
     def fechar(self) -> None: ...
 
 
@@ -138,6 +139,19 @@ class SinkDuckDB:
             pasta = os.path.dirname(os.path.abspath(caminho))
             os.makedirs(pasta, exist_ok=True)
         self.con = duckdb.connect(caminho)
+
+    @contextmanager
+    def transacao(self):
+        """Tudo ou nada. Migração pela metade deixa schema irreconhecível —
+        e o conserto teria de adivinhar até onde ela chegou."""
+        self.con.begin()
+        try:
+            yield
+        except Exception:
+            self.con.rollback()
+            raise
+        else:
+            self.con.commit()
 
     def executar(self, sql: str, params: Iterable[Any] = ()) -> None:
         self.con.execute(sql, list(params))
@@ -235,6 +249,14 @@ class SinkPostgres:
         # dialeto está embaixo. Precisão: `vl_conta` é valor contábil em reais,
         # bem dentro do que o double representa exatamente.
         self.con.adapters.register_loader("numeric", FloatLoader)
+
+    @contextmanager
+    def transacao(self):
+        """A conexão é autocommit — cada statement confirma sozinho. Sem isto,
+        uma migração que renomeia, recria e copia deixaria a tabela de
+        configuração no chão se falhasse no meio."""
+        with self.con.transaction():
+            yield
 
     def executar(self, sql: str, params: Iterable[Any] = ()) -> None:
         with self.con.cursor() as cur:

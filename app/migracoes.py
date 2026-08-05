@@ -522,12 +522,19 @@ def aplicar(sink: Sink, ate: str | None = None) -> list[str]:
     for mig in MIGRACOES:
         if mig.nome in aplicadas:
             continue
-        for stmt in mig.sql:
-            sink.executar(render(stmt, sink.dialeto))
-        if sink.dialeto == "postgres":
-            for stmt in mig.so_postgres:
+        # Uma migração é atômica, incluindo o registro dela. A conexão de
+        # produção é autocommit: sem isto, `0013` — que renomeia, recria e
+        # copia `cfg_campo_calculado` — deixaria a configuração no chão se
+        # falhasse no meio, e o conserto teria de adivinhar até onde chegou.
+        with sink.transacao():
+            for stmt in mig.sql:
                 sink.executar(render(stmt, sink.dialeto))
-        sink.executar("INSERT INTO schema_migracao (nome) VALUES (?)", (mig.nome,))
+            if sink.dialeto == "postgres":
+                for stmt in mig.so_postgres:
+                    sink.executar(render(stmt, sink.dialeto))
+            sink.executar(
+                "INSERT INTO schema_migracao (nome) VALUES (?)", (mig.nome,)
+            )
         novas.append(mig.nome)
         if ate and mig.nome == ate:
             break
