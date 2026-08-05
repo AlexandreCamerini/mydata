@@ -183,3 +183,53 @@ def test_o_update_recortado_toca_menos_linhas(dois_pregoes, monkeypatch):
     sql, params = executados[-1]
     assert "captura_id IN" in sql, "o recorte não chegou ao UPDATE"
     assert params == capturas
+
+
+# --------------------------------------------------------------------------
+# Carregar histórico — a ordem em que o recorte deixa de valer
+# --------------------------------------------------------------------------
+def test_carregar_um_pregao_anterior_reescreve_o_posterior(sink):
+    """Fazer histórico é carregar para trás, e aí o recorte não vale.
+
+    Ao ingerir 31/07 *depois* de 03/08, a linha de 03/08 ganha um antecessor
+    e o retorno dela deixa de ser nulo. Se a escrita continuasse escopada à
+    carga, ela ficaria nula para sempre — e nula é o valor plausível de quem
+    é o primeiro pregão da série, então ninguém notaria.
+    """
+    import math
+
+    seed_cvm.aplicar(sink)
+    ingestao.executar(sink, "b3_cotahist", "2026-08-03",
+                      baixar=lambda url, cabecalhos=None: ARQ_D2)
+    posterior = sink.um(
+        "SELECT log_retorno FROM fato_negociacao "
+        "WHERE codneg = 'PETR4' AND dt_pregao = '2026-08-03'"
+    )
+    assert posterior["log_retorno"] is None, "sem anterior, nulo"
+
+    # Agora o pregão de trás.
+    ingestao.executar(sink, "b3_cotahist", "2026-07-31",
+                      baixar=lambda url, cabecalhos=None: ARQ_D1)
+
+    posterior = sink.um(
+        "SELECT log_retorno FROM fato_negociacao "
+        "WHERE codneg = 'PETR4' AND dt_pregao = '2026-08-03'"
+    )
+    assert posterior["log_retorno"] == pytest.approx(math.log(44.42 / 43.42))
+
+
+def test_a_carga_no_fim_e_reconhecida_como_tal(dois_pregoes):
+    from app import repositorio as repo
+    from app.motor import calculados as calc
+
+    ds = repo.dataset_vigente(dois_pregoes, "b3_cotahist")
+    del ds
+    do_fim = [c["id"] for c in ingestao.capturas_da_janela(
+        dois_pregoes, "b3_cotahist", "2026-08-03")]
+    do_comeco = [c["id"] for c in ingestao.capturas_da_janela(
+        dois_pregoes, "b3_cotahist", "2026-07-31")]
+
+    assert calc._carga_no_fim(
+        dois_pregoes, "fato_negociacao", ["dt_pregao"], do_fim) is True
+    assert calc._carga_no_fim(
+        dois_pregoes, "fato_negociacao", ["dt_pregao"], do_comeco) is False

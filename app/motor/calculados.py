@@ -116,6 +116,43 @@ def _recorte(capturas: list[int] | None) -> tuple[str, list[int]]:
     return f" WHERE captura_id IN ({marcadores})", list(capturas)
 
 
+def _carga_no_fim(
+    sink: Sink, tabela: str, ordena: list[str], capturas: list[int]
+) -> bool:
+    """Esta carga entra depois de tudo o que já existe na tabela?
+
+    É a condição que autoriza escopar a escrita de um campo que não retroage.
+    A moldura olha para trás: escrever só as linhas da carga é correto quando
+    nenhuma linha anterior passa a ter um vizinho novo à frente.
+
+    Carregar histórico viola isso — e é justamente o que fazer histórico
+    significa. Ao ingerir 03/08 depois de 04/08, a linha de 04/08 ganha um
+    antecessor e o retorno dela deixa de ser nulo; sem reescrevê-la, ela fica
+    nula para sempre, com a plausibilidade de quem é o primeiro pregão da
+    série. Nesse caso a escrita volta a ser da tabela inteira.
+
+    Sem coluna de ordenação declarada não há "depois", e o recorte não se
+    justifica.
+    """
+    if not ordena:
+        return False
+    coluna = ordena[0]
+    marcadores = ",".join("?" for _ in capturas)
+    carga = sink.um(
+        f"SELECT min({coluna}) AS limite FROM {tabela} "
+        f"WHERE captura_id IN ({marcadores})", list(capturas),
+    )
+    existente = sink.um(
+        f"SELECT max({coluna}) AS limite FROM {tabela} "
+        f"WHERE captura_id NOT IN ({marcadores})", list(capturas),
+    )
+    if carga is None or carga["limite"] is None:
+        return False
+    if existente is None or existente["limite"] is None:
+        return True      # tabela só tem esta carga
+    return carga["limite"] >= existente["limite"]
+
+
 def _aplicar_numericos(
     sink: Sink, ds: dict, campos: list[dict], capturas: list[int] | None = None
 ) -> list[str]:
@@ -265,7 +302,8 @@ def aplicar(
                 for c in chaves
             ]
             parametros_janela: list = []
-            if not campo.get("retroage", True) and capturas:
+            if (not campo.get("retroage", True) and capturas
+                    and _carga_no_fim(sink, tabela, ordena, capturas)):
                 marcadores = ",".join("?" for _ in capturas)
                 condicao.append(f"alvo.captura_id IN ({marcadores})")
                 parametros_janela = list(capturas)
