@@ -48,10 +48,29 @@ def sessao_admin(request) -> bool:
     O cookie é `HttpOnly` e `SameSite=Lax` — Lax não acompanha requisição
     cruzada que não seja navegação de topo, e é o que segura CSRF nas rotas
     de escrita da administração. O cabeçalho continua valendo para script e
-    `curl`, que não têm cookie."""
-    return admin_ok(request.cookies.get(COOKIE_SESSAO)) or admin_ok(
-        request.headers.get("X-Admin-Token")
-    )
+    `curl`, que não têm cookie.
+
+    Três caminhos, nesta ordem, e o ADR-19 é o motivo de serem três:
+
+    1. `X-Admin-Token`. Vale sempre, com ou sem passkey registrada. É o que
+       garante que ninguém fica trancado fora do terminal.
+    2. O cookie como identificador de sessão, com linha em `sessao_admin`.
+       É o caminho novo, e o único que carrega identidade e expiração.
+    3. O cookie carregando o próprio token. É o formato antigo; continua
+       aceito porque um cookie já emitido não deve parar de valer no deploy.
+    """
+    if admin_ok(request.headers.get("X-Admin-Token")):
+        return True
+    biscoito = request.cookies.get(COOKIE_SESSAO)
+    if not biscoito:
+        return False
+    sink = getattr(request.app.state, "sink", None)
+    if sink is not None:
+        from . import acesso
+
+        if acesso.sessao_valida(sink, biscoito):
+            return True
+    return admin_ok(biscoito)
 
 
 @dataclass

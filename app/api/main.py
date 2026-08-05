@@ -22,7 +22,7 @@ from ..motor import (
     contrato, correlacao, custo, ingestao, observabilidade, publicacao,
 )
 from ..sinks import Sink, criar_sink
-from . import admin, auth, proveniencia
+from . import acesso, admin, auth, proveniencia
 from . import metricas as metricas_cat
 
 RAIZ_WEB = Path(__file__).resolve().parents[2] / "web" / "dist"
@@ -1027,26 +1027,84 @@ PAGINA_ENTRAR = """<!doctype html>
 <style>
  body {{ font-family: system-ui, sans-serif; display: grid; place-items: center;
         min-height: 100vh; margin: 0; background: #fafaf9; color: #1c1917; }}
- form {{ background: #fff; border: 1px solid #d6d3d1; border-radius: 6px;
+ main {{ background: #fff; border: 1px solid #d6d3d1; border-radius: 6px;
         padding: 2rem; max-width: 22rem; width: 100%; }}
+ form {{ margin: 0; }}
  label {{ display: block; font-weight: 600; margin-bottom: .5rem; }}
  input {{ width: 100%; box-sizing: border-box; padding: .5rem; font-size: 1rem;
          border: 1px solid #d6d3d1; border-radius: 4px; margin-bottom: 1rem; }}
  button {{ background: #1c1917; color: #fff; border: 0; border-radius: 4px;
-          padding: .5rem 1rem; font-size: 1rem; cursor: pointer; }}
+          padding: .5rem 1rem; font-size: 1rem; cursor: pointer; width: 100%; }}
+ #pk {{ margin-bottom: 1rem; }}
+ button:focus-visible, input:focus-visible {{ outline: 3px solid #2f3d8f;
+          outline-offset: 2px; }}
  p.erro {{ color: #b91c1c; }}
 </style></head>
 <body>
-<form method="post" action="/entrar">
+<main>
   <h1 style="font-size:1.1rem">MyData</h1>
   <p style="font-size:.9rem;color:#57534e">{convite}</p>
   {erro}
+  {passkey}
+  {formulario}
+</main>
+</body></html>"""
+
+# O bloco do passkey. JavaScript à mão, sem empacotador: esta página é servida
+# pelo FastAPI antes de qualquer bundle existir, e é justamente a página que
+# precisa funcionar quando o resto não carregou.
+BLOCO_PASSKEY = """
+<button id="pk" type="button">Entrar com passkey</button>
+<p id="pkerro" class="erro" role="alert" hidden></p>
+<script>
+const b64 = (s) => Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),
+                                   c => c.charCodeAt(0));
+const b64u = (b) => btoa(String.fromCharCode(...new Uint8Array(b)))
+                    .replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
+const erro = (t) => {{ const p = document.getElementById('pkerro');
+                       p.textContent = t; p.hidden = false; }};
+document.getElementById('pk').addEventListener('click', async () => {{
+  try {{
+    const r = await fetch('/acesso/desafio', {{method:'POST'}});
+    if (!r.ok) return erro('Nenhum autenticador registrado neste portal.');
+    const o = await r.json();
+    o.challenge = b64(o.challenge);
+    (o.allowCredentials || []).forEach(c => {{ c.id = b64(c.id); }});
+    const cred = await navigator.credentials.get({{publicKey: o}});
+    const env = await fetch('/acesso/passkey', {{
+      method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{destino: {destino_js},  credencial: {{
+        id: cred.id, rawId: b64u(cred.rawId), type: cred.type,
+        response: {{
+          clientDataJSON: b64u(cred.response.clientDataJSON),
+          authenticatorData: b64u(cred.response.authenticatorData),
+          signature: b64u(cred.response.signature),
+          userHandle: cred.response.userHandle
+                      ? b64u(cred.response.userHandle) : null,
+        }},
+      }}}}),
+    }});
+    const corpo = await env.json();
+    if (!env.ok) return erro(corpo?.erro?.mensagem || 'Não consegui entrar.');
+    window.location.assign(corpo.destino || '/');
+  }} catch (e) {{
+    // `NotAllowedError` é o cancelamento do gesto — não é falha do portal, e
+    // dizer "erro" nesse caso mandaria o dono procurar defeito que não existe.
+    erro(e && e.name === 'NotAllowedError'
+         ? 'Autenticação cancelada.' : 'Este navegador não completou o passkey.');
+  }}
+}});
+</script>
+"""
+
+FORMULARIO_TOKEN = """
+<form method="post" action="/entrar">
   <input type="hidden" name="destino" value="{destino}">
   <label for="token">Token</label>
   <input id="token" name="token" type="password" autocomplete="current-password" required>
   <button type="submit">Entrar</button>
 </form>
-</body></html>"""
+"""
 
 
 def destino_local(valor: str | None) -> str:
@@ -1058,21 +1116,50 @@ def destino_local(valor: str | None) -> str:
     return valor
 
 
-def _pagina_entrar(erro: str = "", status: int = 401,
+def _pagina_entrar(sink: Sink, erro: str = "", status: int = 401,
                    destino: str = "/") -> Response:
+    import json
     from html import escape
 
     destino = destino_local(destino)
-    convite = ("A administração é privada. Informe o token para entrar."
-               if destino.startswith("/admin")
-               else "A apresentação é privada. Informe o token de "
-                    "administração para entrar.")
+    onde = "A administração" if destino.startswith("/admin") else "A apresentação"
+    com_token = acesso.token_no_formulario(sink)
+    com_passkey = acesso.ha_passkey(sink)
+
+    if com_passkey and com_token:
+        convite = f"{onde} é privada. Entre com o passkey, ou com o token."
+    elif com_passkey:
+        convite = f"{onde} é privada. Entre com o passkey registrado."
+    else:
+        convite = f"{onde} é privada. Informe o token de administração."
+
     corpo = PAGINA_ENTRAR.format(
-        erro=f'<p class="erro" role="alert">{erro}</p>' if erro else "",
-        destino=escape(destino, quote=True),
+        erro=f'<p class="erro" role="alert">{escape(erro)}</p>' if erro else "",
         convite=convite,
+        # `json.dumps` e não aspas à mão: o destino entra num literal de
+        # JavaScript, e escapar HTML não escapa JavaScript.
+        passkey=(BLOCO_PASSKEY.format(destino_js=json.dumps(destino))
+                 if com_passkey else ""),
+        formulario=(FORMULARIO_TOKEN.format(destino=escape(destino, quote=True))
+                    if com_token else ""),
     )
     return Response(content=corpo, status_code=status, media_type="text/html")
+
+
+def _plantar_sessao(resposta: Response, request: Request, ident: str) -> Response:
+    """O cookie de sessão, nas mesmas condições de antes.
+
+    Muda o que vai dentro — identificador opaco em vez do próprio token — e
+    não muda nada do que protegia: `HttpOnly` mantém o JavaScript fora,
+    `SameSite=Lax` segura CSRF nas rotas de escrita, e `secure` acompanha o
+    esquema para não quebrar o desenvolvimento em http.
+    """
+    resposta.set_cookie(
+        COOKIE_SESSAO, ident, httponly=True, samesite="lax",
+        secure=request.url.scheme == "https", path="/",
+        max_age=60 * 60 * 24 * acesso.DIAS_DE_SESSAO,
+    )
+    return resposta
 
 
 @app.post("/entrar", include_in_schema=False)
@@ -1081,22 +1168,70 @@ async def entrar(request: Request):
     # dependência nova.
     from urllib.parse import parse_qs
 
+    sink = obter_sink(request)
     corpo = parse_qs((await request.body()).decode())
     token = (corpo.get("token") or [""])[0]
     destino = destino_local((corpo.get("destino") or ["/"])[0])
     if not _admin_ok(token):
-        return _pagina_entrar("Token inválido.", destino=destino)
-    resposta = Response(status_code=303, headers={"Location": destino})
-    resposta.set_cookie(
-        COOKIE_SESSAO, token, httponly=True, samesite="lax",
-        secure=request.url.scheme == "https", path="/",
-        max_age=60 * 60 * 24 * 30,
+        return _pagina_entrar(sink, "Token inválido.", destino=destino)
+    if not acesso.token_no_formulario(sink):
+        # Passkey registrada e `PORTAL_ACESSO_LEGADO` desligado: o formulário
+        # não deveria estar na tela, então aceitar o POST seria manter aberta
+        # a porta que a tela diz estar fechada.
+        return _pagina_entrar(
+            sink, "O acesso por token está desligado. Use o passkey.",
+            destino=destino,
+        )
+    return _plantar_sessao(
+        Response(status_code=303, headers={"Location": destino}),
+        request, acesso.abrir_sessao(sink, "token"),
     )
-    return resposta
+
+
+@app.post("/acesso/desafio", include_in_schema=False)
+async def acesso_desafio(request: Request):
+    """As opções que o navegador precisa para assinar. Rota pública de
+    propósito: é o passo anterior a entrar, e exigir sessão aqui seria exigir
+    estar dentro para poder entrar."""
+    sink = obter_sink(request)
+    if not acesso.ha_passkey(sink):
+        raise HTTPException(
+            status_code=404,
+            detail={"codigo": "sem_passkey",
+                    "mensagem": "Nenhum autenticador registrado neste portal."},
+        )
+    origem = request.headers.get("origin")
+    return Response(
+        content=acesso.opcoes_de_entrada(sink, origem),
+        media_type="application/json",
+    )
+
+
+@app.post("/acesso/passkey", include_in_schema=False)
+async def acesso_passkey(request: Request):
+    sink = obter_sink(request)
+    corpo = await request.json()
+    destino = destino_local(corpo.get("destino"))
+    try:
+        ident = acesso.entrar_com_passkey(
+            sink, corpo.get("credencial") or {}, request.headers.get("origin")
+        )
+    except acesso.ErroAcesso as e:
+        raise HTTPException(
+            status_code=401,
+            detail={"codigo": "passkey_recusada", "mensagem": str(e)},
+        ) from e
+    return _plantar_sessao(
+        JSONResponse({"destino": destino}), request, ident
+    )
 
 
 @app.get("/sair", include_in_schema=False)
-async def sair():
+async def sair(request: Request):
+    # Sair apaga a linha, não só o cookie. Um cookie descartado pelo navegador
+    # deixaria a sessão de pé no servidor, e "sair" passaria a significar
+    # "esconder" — que é o contrário do que a palavra promete.
+    acesso.fechar_sessao(obter_sink(request), request.cookies.get(COOKIE_SESSAO))
     resposta = Response(status_code=303, headers={"Location": "/"})
     resposta.delete_cookie(COOKIE_SESSAO, path="/")
     return resposta
@@ -1114,7 +1249,8 @@ if RAIZ_WEB.exists():
             # `destino` volta para onde a interface mandou o dono — o /admin
             # rebate para cá quando a sessão não existe.
             return _pagina_entrar(
-                destino=request.query_params.get("destino", "/")
+                obter_sink(request),
+                destino=request.query_params.get("destino", "/"),
             )
         pagina = RAIZ_WEB / "apresentacao.html"
         if not pagina.exists():

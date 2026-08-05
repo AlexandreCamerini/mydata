@@ -104,6 +104,30 @@ export const api = {
         `&atributo=${encodeURIComponent(atributo)}`,
     ),
   correlacoes: () => pedir<Resposta<Correlacao[]>>("/admin/api/correlacoes"),
+
+  // Camada de acesso (ADR-19). Registrar exige sessão — é o que impede que
+  // um visitante registre o próprio autenticador e vire dono.
+  acesso: () => pedir<Resposta<EstadoDeAcesso>>("/admin/api/acesso"),
+  opcoesDePasskey: (rotulo: string) =>
+    pedir<OpcoesDeRegistro>("/admin/api/acesso/passkeys/opcoes", {
+      method: "POST",
+      body: JSON.stringify({ rotulo }),
+    }),
+  registrarPasskey: (rotulo: string, credencial: unknown) =>
+    pedir<Resposta<{ credential_id: string }>>("/admin/api/acesso/passkeys", {
+      method: "POST",
+      body: JSON.stringify({ rotulo, credencial }),
+    }),
+  revogarPasskey: (credentialId: string) =>
+    pedir<Resposta<{ restantes: number }>>(
+      `/admin/api/acesso/passkeys/${encodeURIComponent(credentialId)}`,
+      { method: "DELETE" },
+    ),
+  encerrarSessao: (id: string) =>
+    pedir<Resposta<unknown>>(
+      `/admin/api/acesso/sessoes/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    ),
   atravessar: (chave: string, limite = 5) =>
     pedir<{ dados: Record<string, unknown>[] }>(
       `/admin/api/correlacoes/${encodeURIComponent(chave)}?limite=${limite}`,
@@ -409,6 +433,43 @@ export type Frescor = {
     erro: string | null;
     terminado_em: string | null;
   } | null;
+};
+
+export type Passkey = {
+  credential_id: string;
+  rotulo: string;
+  transportes: string | null;
+  criada_em: string | null;
+  ultimo_uso_em: string | null;
+  sign_count: number;
+};
+
+export type Sessao = {
+  id: string;
+  origem: string;
+  criada_em: string | null;
+  expira_em: string | null;
+  ultimo_uso_em: string | null;
+};
+
+export type EstadoDeAcesso = {
+  passkeys: Passkey[];
+  sessoes: Sessao[];
+  token_configurado: boolean;
+  /** O formulário de token aparece na tela de entrada? */
+  token_no_formulario: boolean;
+  acesso_legado: boolean;
+  /** O `rp_id` do WebAuthn — o domínio a que a credencial fica presa. */
+  identidade: string;
+};
+
+/** O que `py_webauthn` serializa: binário em base64url, não bytes. */
+export type OpcoesDeRegistro = {
+  challenge: string;
+  rp: { id: string; name: string };
+  user: { id: string; name: string; displayName: string };
+  excludeCredentials?: { id: string; type: string }[];
+  [k: string]: unknown;
 };
 
 export type Correlacao = {

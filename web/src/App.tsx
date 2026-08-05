@@ -9,6 +9,7 @@ import { Execucoes } from "./telas/Execucoes";
 import { Carga } from "./telas/Carga";
 import { Chaves } from "./telas/Chaves";
 import { Catalogo } from "./telas/Catalogo";
+import { Acesso } from "./telas/Acesso";
 
 // Roteamento por hash: funciona servido estaticamente em /admin sem
 // configuração de servidor e sem dependência de biblioteca de rotas.
@@ -33,6 +34,8 @@ const TELAS = [
     resumo: "Consumidores e quotas" },
   { id: "catalogo", titulo: "Catálogo", componente: Catalogo,
     resumo: "Schema e amostra" },
+  { id: "acesso", titulo: "Acesso", componente: Acesso,
+    resumo: "Quem entra no portal, por onde, e como revogar" },
 ] as const;
 
 /** A tela é o que vem antes do "?". O que vem depois é argumento dela.

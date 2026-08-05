@@ -50,7 +50,7 @@ integrado está em [contrato-consumidor.md](contrato-consumidor.md).
    | `PORTAL_URL_PUBLICA` | `https://mydata.acamerini.app` |
    | `PORTAL_ORIGENS` | as origens dos consumidores, separadas por vírgula |
    | `PORTAL_ADMIN_TOKEN` | segredo do dono. Gere com `python -c "import secrets; print(secrets.token_urlsafe(32))"` — o painel do Railway não tem gerador para isto. Sem a variável, `/admin/api` fica aberto (modo de desenvolvimento local) |
-   | `PORTAL_ACESSO_LEGADO` | `1` reabilita o caminho do token depois de o passkey entrar. **É a saída de emergência** ([ADR-19](arquitetura.md#adr-19--passkey-entra-ao-lado-do-token-não-no-lugar)): se o autenticador se perder, defina esta variável no painel e entre com o token de novo |
+   | `PORTAL_ACESSO_LEGADO` | `1` reabilita o formulário de token depois de o passkey entrar. **É a saída de emergência** ([ADR-19](arquitetura.md#adr-19--passkey-entra-ao-lado-do-token-não-no-lugar)): se o autenticador se perder, defina esta variável no painel e entre com o token de novo |
 
    `PORTAL_URL_PUBLICA` é o que faz o OpenAPI anunciar o domínio real. Sem
    ela, o cliente gerado a partir do schema aponta para `localhost`.
@@ -84,6 +84,34 @@ integrado está em [contrato-consumidor.md](contrato-consumidor.md).
    ```
 
    A chave completa aparece uma única vez. No banco fica só o hash.
+
+## Primeiro acesso, e o passkey
+
+A camada de acesso é aditiva: o token continua sendo o que abre a porta, e é
+por ele que o primeiro autenticador entra.
+
+1. Abra `https://mydata.acamerini.app/` e entre com `PORTAL_ADMIN_TOKEN`.
+2. Vá em **Acesso** no `/admin` e registre um autenticador, com rótulo.
+3. **Registre um segundo, em outro aparelho.** É a saída mais barata do risco
+   desta decisão, e a tela avisa enquanto houver só um.
+
+A partir do primeiro registro, o formulário de token some da tela de entrada —
+o campo de segredo digitado era a queixa que motivou a mudança. O que **não**
+muda:
+
+- `X-Admin-Token` continua valendo sempre, para `curl` e script. Quem opera
+  por terminal nunca fica trancado, e é por ele que se revoga um autenticador
+  que não se tem mais em mãos.
+- A chave de API por consumidor em `/v1` não é tocada. São mecanismos
+  diferentes para públicos diferentes.
+
+Perdeu todos os autenticadores e não quer usar o terminal: defina
+`PORTAL_ACESSO_LEGADO=1` no painel, entre com o token, revogue o que se
+perdeu, registre outro, e desligue a variável.
+
+**A credencial fica presa ao domínio.** O `rp_id` sai de `PORTAL_URL_PUBLICA`;
+trocar o endereço público invalida os passkeys registrados no anterior, e o
+caminho de volta é o mesmo `PORTAL_ACESSO_LEGADO=1`.
 
 ## Verificação depois do DNS propagar
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from .. import repositorio as repo
@@ -19,7 +19,7 @@ from ..repositorio import (
     CampoCalculado, Coluna, Dataset, ErroConfiguracao, Fonte, RegraQualidade,
 )
 from ..sinks import Sink
-from . import auth, metricas, proveniencia
+from . import acesso, auth, metricas, proveniencia
 
 async def exigir_admin(request: Request) -> None:
     """Sessão do dono, por cookie ou por cabeçalho.
@@ -470,6 +470,78 @@ async def get_carga(
     """Relatório de carga para a interface. Mesma resposta de `/v1/meta/carga`
     — a diferença entre as rotas é quem pode chamar, não o que respondem."""
     return custo.painel(obter_sink(request), dataset, min(max(limite, 1), 500))
+
+
+# --------------------------------------------------------------------------
+# Camada de acesso (ADR-19)
+# --------------------------------------------------------------------------
+# Registrar exige sessão. É o que impede que qualquer visitante registre o
+# próprio autenticador e passe a ser dono — o primeiro passkey entra por quem
+# já tem o token, que é exatamente o papel que o token conserva.
+class PasskeyEntrada(BaseModel):
+    rotulo: str
+    credencial: dict
+
+
+@router.get("/acesso")
+async def get_acesso(request: Request) -> Any:
+    """O estado da camada de acesso: autenticadores, sessões e qual caminho
+    está aberto."""
+    sink = obter_sink(request)
+    return {"dados": {
+        "passkeys": acesso.passkeys(sink),
+        "sessoes": acesso.sessoes(sink),
+        "token_configurado": bool(os.getenv("PORTAL_ADMIN_TOKEN")),
+        "token_no_formulario": acesso.token_no_formulario(sink),
+        "acesso_legado": os.getenv("PORTAL_ACESSO_LEGADO") == "1",
+        "identidade": acesso.identidade_do_site(request.headers.get("origin"))[0],
+    }}
+
+
+@router.post("/acesso/passkeys/opcoes")
+async def post_passkey_opcoes(request: Request) -> Any:
+    corpo = await request.json()
+    return Response(
+        content=acesso.opcoes_de_registro(
+            obter_sink(request), (corpo or {}).get("rotulo", ""),
+            request.headers.get("origin"),
+        ),
+        media_type="application/json",
+    )
+
+
+@router.post("/acesso/passkeys")
+async def post_passkey(request: Request, entrada: PasskeyEntrada) -> Any:
+    try:
+        return {"dados": acesso.registrar(
+            obter_sink(request), entrada.credencial, entrada.rotulo,
+            request.headers.get("origin"),
+        )}
+    except acesso.ErroAcesso as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"codigo": "passkey_invalida", "mensagem": str(e)},
+        ) from e
+
+
+@router.delete("/acesso/passkeys/{credential_id:path}")
+async def delete_passkey(credential_id: str, request: Request) -> Any:
+    """Revogar um autenticador sem derrubar os outros — a segunda falta que a
+    auditoria registrou no §5.2."""
+    sink = obter_sink(request)
+    if not acesso.esquecer_passkey(sink, credential_id):
+        raise HTTPException(
+            status_code=404,
+            detail={"codigo": "passkey_nao_encontrada", "mensagem": credential_id},
+        )
+    return {"dados": {"revogada": credential_id,
+                      "restantes": len(acesso.passkeys(sink))}}
+
+
+@router.delete("/acesso/sessoes/{sessao_id:path}")
+async def delete_sessao(sessao_id: str, request: Request) -> Any:
+    acesso.fechar_sessao(obter_sink(request), sessao_id)
+    return {"dados": {"encerrada": sessao_id}}
 
 
 # --------------------------------------------------------------------------

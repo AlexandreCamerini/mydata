@@ -3,7 +3,7 @@
 Leia este arquivo antes de qualquer outra coisa. Reescreva-o ao fim de cada
 etapa concluída.
 
-**Atualizado:** 05/08/2026, manhã — fim da etapa 5 da fase 3.
+**Atualizado:** 05/08/2026 — fim da fase 3. Todas as etapas construídas.
 
 ## Pronto
 
@@ -11,67 +11,63 @@ etapa concluída.
 - **Fase 1 — auditoria** (`docs/auditoria-apresentacao.md`, `bfc6e17`). Onze
   achados localizados, cinco frentes, acessibilidade medida.
 - **Fase 2 — direção e ADR-19** (`docs/direcao-apresentacao.md`, `f6047ba`).
-  Quatro conjuntos de token, seis objetos gráficos especificados, passkey
-  decidido como aditivo.
-- **Fase 3, etapa 1** (`b3b8356`) — acento vivo, `temas.css` com as quatro
-  direções, `a11y` cobrindo as duas superfícies.
-- **Fase 3, etapa 2** (`c583ae7`) — erro de API humanizado na apresentação,
-  com guarda contra o laço de redirecionamento.
-- **Fase 3, etapa 3** (`270d42a`) — a tela de `negociacao_b3`. Grid
-  virtualizado, cadeia de opções com implícita e gregas, proveniência
-  alcançável por clique.
-- **Runner de teste** (`7df22e4`) — `vitest`, e os dois defeitos da noite
-  virados regressão.
-- **Fase 3, etapa 5** — `SaudeClasse`, `Linhagem`, `LinhaDoTempo` e `Serie` em
-  `web/src/objetos.tsx`, fechando os achados 2.1, 2.2, 3.2 e 2.4.
+- **Etapa 1** (`b3b8356`) — acento vivo, `temas.css`, `a11y` nas duas telas.
+- **Etapa 2** (`c583ae7`) — erro de API humanizado, com guarda contra o laço.
+- **Etapa 3** (`270d42a`) — a tela de `negociacao_b3`, grid virtualizado.
+- **Runner de teste** (`7df22e4`) — `vitest`, e os dois defeitos virados
+  regressão.
+- **Etapa 5** (`536ffeb`) — `SaudeClasse`, `Linhagem`, `LinhaDoTempo` e
+  `Serie`; achados 2.1, 2.2, 3.2 e 2.4 fechados.
+- **Etapa 6** — a camada de acesso do ADR-19. Passkey ao lado do token.
 
 ## Em voo
 
-Nada.
+Nada. As seis etapas da ordem em `docs/direcao-apresentacao.md` estão feitas.
 
 ## Decidido, e por quê
 
-- **Sem deploy em produção durante a execução noturna.** Tudo commitado no
-  branch e verificado localmente. O Alex sobe depois de olhar.
-- **O grid nasceu virtualizado**, como a auditoria exigiu.
-- **A cadeia abre no primeiro vencimento com prazo real**, não no primeiro da
-  lista — sem prazo não existe implícita, e a tela parecia quebrada.
+- **Sem deploy em produção durante a execução.** Tudo commitado no branch e
+  verificado localmente. O Alex sobe depois de olhar.
 - **Objeto recebe dado por prop; quem busca é a tela.** Há dois módulos `api`
-  neste front, um por bundle. Um objeto que buscasse sozinho teria de escolher
-  um deles e deixaria de ser reutilizável na fronteira que existe para
-  atravessar.
-- **Linhagem e correlações ganharam espelho em `/admin/api`.** As rotas de
-  `/v1` respondem o mesmo; o que muda é quem pode chamar. Tentei antes
-  presumir sessão de dono quando `PORTAL_ADMIN_TOKEN` não existe, e o teste
-  `test_sem_chave_recusa_com_codigo_estavel` mostrou que aquilo abriria `/v1`
-  em qualquer instalação sem token de admin — não só em desenvolvimento.
-- **A decoração de proveniência saiu de `main` para `app/api/proveniencia.py`.**
-  As duas superfícies decoram; com o código em `main`, o plano de controle
-  teria de importar quem já o importa.
-- **`/v1/capturas/{id}/arquivo` continua sendo o endereço do arquivo**, também
-  no plano de controle. É o que a própria API publica em `proveniencia.
-  arquivo_em` de toda resposta; um segundo endereço para os mesmos bytes seria
-  pior que o 401 que ele dá localmente sem token configurado.
-- **O gate de acessibilidade cobre seis superfícies**, não duas. Foi ele que
-  pegou o `p` solto dentro do `dl` da tela de gestão — invisível a olho.
+  neste front, um por bundle.
+- **Linhagem e correlações ganharam espelho em `/admin/api`.** Tentei antes
+  presumir sessão de dono sem `PORTAL_ADMIN_TOKEN`, e um teste mostrou que
+  aquilo abriria `/v1` em qualquer instalação sem token de admin.
+- **A sessão deixou de ser o token e virou identificador opaco**, com linha em
+  `sessao_admin`. É o que dá as três coisas que faltavam ao §5.2: identidade,
+  revogação individual e expiração real. O cookie no formato antigo continua
+  aceito — um cookie já emitido não pode parar de valer no deploy.
+- **O desafio do WebAuthn mora no servidor**, em tabela. Em cookie, quem ataca
+  escolheria o valor e a proteção contra repetição cairia junto.
+- **Registrar exige sessão; entrar não.** Sem isso qualquer visitante
+  registraria o próprio autenticador e viraria dono — é o papel que o token
+  conserva.
+- **`X-Admin-Token` nunca passa pelo portão da tela.** Vale sempre. É por ele
+  que se revoga o autenticador perdido.
 
 ## Verificado nesta etapa
 
-- Da classe `negociacao_b3` ao atributo `volatilidade_implicita`, dele à
-  expressão do núcleo, às colunas que usa, às três regras que o vigiam, à URL
-  oficial da B3 e ao arquivo capturado. `COTAHIST_D31072026.ZIP` baixado pela
-  rota: 402.103 bytes, sha256 `0a5e23de292b…`, idêntico ao que a tela exibe.
-- Travessia `empresa_demonstracoes` executada pela interface, com proveniência
-  decorada — sem `captura_id` nem `publicado_em_versao` posando de atributo.
-- 418 testes Python, 35 no front, `tsc` limpo, `axe` com zero violação nas
-  seis superfícies.
+- Ciclo inteiro do passkey, com um autenticador de software escrito em
+  `tests/autenticador.py` — chave ECDSA P-256, `authenticatorData` montado
+  byte a byte. Sem ele, a parte que decide quem entra iria para produção sem
+  nunca ter rodado, porque o gesto não acontece fora do navegador.
+- Os quatro casos negativos passam pelo motivo certo: assinatura de outra
+  chave, assertiva repetida, origem trocada, credencial revogada.
+- Pelas rotas HTTP do servidor no ar: registro, entrada, sessão com origem
+  `passkey:notebook de verificação`, contador subindo.
+- Na tela: sem passkey, só o formulário de token; com passkey, só o botão;
+  com `PORTAL_ACESSO_LEGADO=1`, os dois. O clique sem autenticador diz
+  "Autenticação cancelada" e não "erro" — `NotAllowedError` é o gesto
+  cancelado, não falha do portal.
+- 457 testes Python, 35 no front, `tsc` limpo, `axe` com zero violação em
+  sete superfícies, incluindo os dois estados da tela de entrada.
+- O que a verificação registrou no banco de demonstração foi apagado.
 
-## Próxima ação
+## O que continua faltando
 
-Etapa 6: a camada de acesso aditiva do
-[ADR-19](arquitetura.md#adr-19--passkey-entra-ao-lado-do-token-não-no-lugar).
-Passkey ao lado do token, nunca no lugar — `PORTAL_ACESSO_LEGADO` é a saída de
-emergência e já está documentada em `deploy-railway.md`.
-
-Duas decisões do Alex continuam abertas: qual das quatro direções visuais fica,
-e quando subir (o branch está à frente de `origin/main`).
+- **Testar num aparelho de verdade.** O autenticador de software cobre o que o
+  servidor confere; não cobre biometria, presença de usuário real nem atestado
+  de fabricante. É o passo do Alex, e é o que o ADR-19 chama de "verificar num
+  navegador limpo" antes de mandar remover o token.
+- **Qual das quatro direções visuais fica.** `web/src/temas.css`, oito linhas.
+- **Subir.** O branch está à frente de `origin/main`.
