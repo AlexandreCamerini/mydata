@@ -6,7 +6,7 @@
 // exatamente o que teste de regressão existe para não repetir.
 import { describe, expect, it } from "vitest";
 import { deveRedirecionar, humanizar } from "./api";
-import { janela, vencimentoInicial } from "./Negociacao";
+import { janela, motivoDoSigma, vencimentoInicial } from "./Negociacao";
 
 describe("humanizar", () => {
   it("traduz 401 para a única ação que resolve", () => {
@@ -116,5 +116,31 @@ describe("janela do grid virtualizado", () => {
     // DOM; com ela, o que cabe na tela mais folga.
     const { quantas } = janela(0, 480, 748);
     expect(quantas).toBeLessThan(748 / 10);
+  });
+});
+
+describe("motivoDoSigma", () => {
+  it("distingue prazo zero de prêmio fora do modelo", () => {
+    // O tooltip antigo dizia "prêmio fora do alcance" para todo nulo. Estava
+    // errado em 584 das 1.542 séries sem IV, que só venciam naquele pregão.
+    expect(motivoDoSigma("vence_no_pregao")).toMatch(/[Vv]ence/);
+    expect(motivoDoSigma("vence_no_pregao")).not.toMatch(/prêmio/i);
+    expect(motivoDoSigma("premio_fora_do_modelo")).toMatch(/prêmio/i);
+  });
+
+  it("cada situação tem explicação própria", () => {
+    const situacoes = [
+      "vence_no_pregao",
+      "premio_fora_do_modelo",
+      "sem_preco_objeto",
+      "sem_premio",
+    ] as const;
+    const textos = situacoes.map(motivoDoSigma);
+    expect(new Set(textos).size).toBe(situacoes.length);
+    for (const t of textos) expect(t.length).toBeGreaterThan(30);
+  });
+
+  it("linha invertida não vira motivo — ela tem valor", () => {
+    expect(motivoDoSigma("invertido")).toBe("sem valor");
   });
 });

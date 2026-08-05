@@ -114,6 +114,13 @@ export type Opcao = {
   volume_financeiro: number | null;
   preco_objeto: number | null;
   volatilidade_implicita: number | null;
+  /** Por que não há sigma, quando não há. Nulo mudo parecia defeito. */
+  situacao_sigma:
+    | "invertido"
+    | "vence_no_pregao"
+    | "sem_preco_objeto"
+    | "sem_premio"
+    | "premio_fora_do_modelo";
   hv21_objeto: number | null;
   preco_teorico: number | null;
   delta: number | null;
@@ -128,6 +135,10 @@ export type Opcao = {
 export type Vencimento = {
   dt_vencimento: string;
   contratos: number;
+  /** Quantos contratos deste vencimento têm volatilidade implícita. */
+  com_sigma: number;
+  /** 1 quando o vencimento é o próprio pregão — prazo zero, cadeia sem sigma. */
+  vence_no_pregao: number;
   menor_strike: number;
   maior_strike: number;
 };

@@ -544,7 +544,12 @@ CLASSE_NEGOCIACAO = Classe(
         _atr("volatilidade_implicita", "numero", origem="calculado", ordem=34,
              unidade="fração ao ano",
              descricao="Sigma que faz o preço BSM igualar o prêmio negociado. "
-                       "Nula quando o prêmio está fora do que o modelo alcança."),
+                       "Nula quando o prêmio está fora do que o modelo alcança "
+                       "— `situacao_sigma` diz por quê. O modelo é europeu: na "
+                       "B3 não existe put americana, então para put isso é "
+                       "exato; a call americana só difere da europeia quando há "
+                       "provento antes do vencimento, que é a limitação já "
+                       "declarada em `app/motor/nucleos.py`."),
         _atr("preco_teorico", "numero", origem="calculado", ordem=35,
              descricao="Preço BSM com a volatilidade implícita. Reproduz o "
                        "prêmio quando a inversão convergiu — é a conferência."),
@@ -698,6 +703,21 @@ VISTAS = [
                melhor_oferta_venda, total_negocios, quantidade_negociada,
                volume_financeiro, preco_objeto, taxa_livre_risco,
                volatilidade_implicita, hv21_objeto, preco_teorico,
+               -- Por que não há sigma. Sem esta coluna, 13,6% da cadeia sai
+               -- como nulo mudo e parece defeito do portal; medido em
+               -- 31/07/2026, dos 1.542 sem IV, 584 venciam naquele mesmo
+               -- pregão e 941 tinham prêmio fora do alcance do modelo.
+               -- Nenhum dos dois é erro: um é prazo zero, o outro é o último
+               -- negócio do dia comparado com o fechamento do objeto.
+               CASE
+                 WHEN volatilidade_implicita IS NOT NULL THEN 'invertido'
+                 WHEN prazo_anos IS NULL OR prazo_anos <= 0
+                   THEN 'vence_no_pregao'
+                 WHEN preco_objeto IS NULL THEN 'sem_preco_objeto'
+                 WHEN preco_fechamento IS NULL OR preco_fechamento <= 0
+                   THEN 'sem_premio'
+                 ELSE 'premio_fora_do_modelo'
+               END AS situacao_sigma,
                delta, gamma, vega, theta, rho, isin,
                captura_id, fonte_arquivo, publicado_em_versao
         FROM fato_negociacao

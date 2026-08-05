@@ -17,6 +17,27 @@ const FOLGA = 8;
  * Cerca de 10% dos contratos não têm implícita porque o prêmio ficou fora do
  * que o modelo alcança — fechamento ilíquido de horas antes, às vezes abaixo
  * do valor intrínseco. Um traço mudo faria isso parecer defeito da tela. */
+/** Por que esta linha não tem sigma, na palavra de quem lê a tela.
+ *
+ * O tooltip antes dizia "prêmio fora do alcance do modelo" para todo nulo.
+ * Estava certo para 941 das 1.542 séries sem IV em 31/07/2026 e errado para
+ * as outras 584, que apenas venciam naquele pregão. Motivo errado é pior que
+ * motivo nenhum: manda procurar defeito onde não há. */
+export function motivoDoSigma(situacao: Opcao["situacao_sigma"]): string {
+  switch (situacao) {
+    case "vence_no_pregao":
+      return "Vence neste pregão: sem tempo até o vencimento não existe sigma que resolva Black-Scholes.";
+    case "premio_fora_do_modelo":
+      return "O prêmio está fora do que o modelo alcança. O prêmio é o último negócio do dia, e pode ser de horas antes do fechamento usado no preço do objeto.";
+    case "sem_preco_objeto":
+      return "O ativo-objeto não negociou neste pregão, então não há preço à vista para inverter.";
+    case "sem_premio":
+      return "A série não registrou negócio com preço neste pregão.";
+    default:
+      return "sem valor";
+  }
+}
+
 function ouNulo(
   valor: number | null | undefined,
   formatar: (n: number) => string,
@@ -223,6 +244,17 @@ export function Negociacao({ ticker: inicial }: { ticker: string }) {
               >
                 {v.dt_vencimento}
                 <span className="text-tinta-suave"> · {v.contratos}</span>
+                {/* Vencimento do próprio pregão tem prazo zero: nenhum sigma
+                    resolve Black-Scholes sem tempo, e a cadeia inteira sai
+                    sem volatilidade. Sem dizer isso no botão, ele parece
+                    igual aos outros até o clique. */}
+                {v.vence_no_pregao ? (
+                  <span className="block text-xs text-alerta">vence hoje</span>
+                ) : v.com_sigma < v.contratos ? (
+                  <span className="block text-xs text-tinta-suave">
+                    {v.com_sigma} com sigma
+                  </span>
+                ) : null}
               </button>
             ))}
           </div>
@@ -373,7 +405,7 @@ function GridCadeia({
                 {ouNulo(
                   o.volatilidade_implicita,
                   pct,
-                  "prêmio fora do alcance do modelo — sem sigma que resolva",
+                  motivoDoSigma(o.situacao_sigma),
                 )}
               </td>
               <td className="px-2 numero text-right text-tinta-suave">

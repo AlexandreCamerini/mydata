@@ -110,8 +110,34 @@ def test_vencimentos_resume_a_cadeia(cliente_b3):
     dados = cliente_b3.get("/v1/opcoes/ABCB4/vencimentos").json()["dados"]
     assert dados == [{
         "dt_vencimento": "2026-08-21", "contratos": 1,
+        # `com_sigma` separa vencimento útil de vencimento morto: sem ele, um
+        # vencimento cuja cadeia inteira saiu sem volatilidade parecia igual
+        # aos outros até o consumidor abri-lo.
+        "com_sigma": 1, "vence_no_pregao": 0,
         "menor_strike": pytest.approx(24.40), "maior_strike": pytest.approx(24.40),
     }]
+
+
+def test_vencimento_do_proprio_pregao_se_anuncia(cliente_b3):
+    """Prazo zero não tem sigma, e a lista precisa dizer isso antes do clique.
+
+    Em 31/07/2026 eram 584 séries assim — 38% de tudo que aparecia sem
+    volatilidade implícita, com a tela sugerindo defeito onde havia
+    aritmética."""
+    # A API e o teste falam com o mesmo banco; é o `app.state.sink` que a
+    # fixture já abriu.
+    from app.api.main import app
+
+    # Prazo zero e sigma nulo andam juntos: é o que `bs_iv` produz quando não
+    # há tempo até o vencimento. Zerar só o prazo montaria um estado que o
+    # pipeline nunca gera, e o teste passaria a afirmar coisa que não existe.
+    app.state.sink.executar(
+        "UPDATE fato_negociacao SET dt_vencimento = dt_pregao, prazo_anos = 0, "
+        "volatilidade_implicita = NULL WHERE tp_mercado IN ('070','080')"
+    )
+    dados = cliente_b3.get("/v1/opcoes/ABCB4/vencimentos").json()["dados"]
+    assert dados and dados[0]["vence_no_pregao"] == 1
+    assert dados[0]["com_sigma"] == 0
 
 
 # --------------------------------------------------------------------------
@@ -149,3 +175,27 @@ def test_chave_sem_a_classe_no_escopo_nao_le_a_cadeia(cliente_b3, tmp_path):
         "/v1/opcoes/ABCB4", headers={"X-API-Key": restrita.chave_completa}
     )
     assert r.status_code == 403
+
+
+def test_vencimentos_seguem_o_mesmo_pregao_da_cadeia(cliente_b3):
+    """Sem isto a lista agrega o histórico inteiro e oferece vencimento já
+    liquidado. Com trinta pregões carregados, PETR4 listava seis vencimentos
+    vencidos antes do primeiro válido — e todos rotulados «vence hoje»,
+    porque no dia deles o prazo era mesmo zero."""
+    from app.api.main import app
+
+    # Um segundo pregão, anterior, com um vencimento que só existia lá.
+    app.state.sink.executar(
+        "INSERT INTO fato_negociacao (captura_id, fonte_arquivo, origem_dataset, "
+        " dt_pregao, codneg, tp_mercado, cod_bdi, prazo_termo, ticker_objeto, "
+        " dt_vencimento, preco_exercicio, prazo_anos, publicado_em_versao) "
+        "VALUES (0,'x','b3_cotahist','2026-07-30','ABCBG100','070','078','000',"
+        " 'ABCB4','2026-07-30', 10.0, 0, 1)"
+    )
+    dados = cliente_b3.get("/v1/opcoes/ABCB4/vencimentos").json()["dados"]
+    assert [d["dt_vencimento"] for d in dados] == ["2026-08-21"]
+    # E pedindo o pregão antigo, ele aparece — o dado não sumiu, mudou o corte.
+    antigo = cliente_b3.get(
+        "/v1/opcoes/ABCB4/vencimentos?pregao=2026-07-30").json()["dados"]
+    assert [d["dt_vencimento"] for d in antigo] == ["2026-07-30"]
+    assert antigo[0]["vence_no_pregao"] == 1

@@ -552,16 +552,37 @@ async def vencimentos(
     _chave: dict = Depends(exigir_chave),
 ) -> Any:
     """Vencimentos disponíveis, para o consumidor não varrer a cadeia inteira
-    só para descobrir o que existe."""
+    só para descobrir o que existe.
+
+    Sem `pregao`, vale o último pregão *daquele papel* — a mesma regra de
+    `/v1/opcoes`. Sem isso as duas rotas discordavam: a cadeia respondia um
+    pregão e a lista agregava o histórico inteiro, oferecendo vencimento já
+    liquidado como se ainda existisse. Com trinta pregões carregados, PETR4
+    listava seis vencimentos vencidos antes do primeiro válido.
+    """
     sink = obter_sink(request)
     exigir_vista(sink, "gold_opcoes", _chave)
-    onde = ["ticker_objeto = ?"]
-    params: list[Any] = [ticker.upper()]
-    if pregao:
-        onde.append("dt_pregao = ?")
-        params.append(pregao)
+    alvo = ticker.upper()
+    if not pregao:
+        ultimo = sink.um(
+            "SELECT max(dt_pregao) AS dia FROM gold_opcoes WHERE ticker_objeto = ?",
+            (alvo,),
+        )
+        pregao = ultimo["dia"] if ultimo else None
+        if pregao is None:
+            return {"dados": []}
+    onde = ["ticker_objeto = ?", "dt_pregao = ?"]
+    params: list[Any] = [alvo, pregao]
+    # `com_sigma` é o que separa vencimento útil de vencimento morto. O que
+    # vence no próprio pregão tem prazo zero: não existe sigma que resolva
+    # Black-Scholes sem tempo, então a cadeia inteira sai sem volatilidade e
+    # sem grega. Devolver só a contagem de contratos fazia esse vencimento
+    # parecer igual aos outros até o consumidor abri-lo.
     return {"dados": sink.consultar(
         f"SELECT dt_vencimento, count(*) AS contratos, "
+        f"       sum(CASE WHEN volatilidade_implicita IS NOT NULL THEN 1 ELSE 0 END)"
+        f"         AS com_sigma, "
+        f"       max(CASE WHEN prazo_anos > 0 THEN 0 ELSE 1 END) AS vence_no_pregao, "
         f"       min(strike) AS menor_strike, max(strike) AS maior_strike "
         f"FROM gold_opcoes WHERE {' AND '.join(onde)} "
         f"GROUP BY dt_vencimento ORDER BY dt_vencimento",
