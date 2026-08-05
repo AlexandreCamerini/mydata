@@ -127,7 +127,7 @@ def test_sem_cambio_carregado_o_custo_em_real_fica_nulo(carregado):
 @pytest.mark.parametrize("dias,delta_gb,esperado", [
     (1.0, 2.0, 2.0),
     (2.0, 1.0, 0.5),
-    (0.5, 0.5, 1.0),
+    (7.0, 7.0, 1.0),
 ])
 def test_crescimento_por_dia(dias, delta_gb, esperado):
     from datetime import datetime, timedelta, timezone
@@ -220,3 +220,49 @@ def test_endpoint_lista_as_cargas_mais_recentes_primeiro(cliente):
 def test_endpoint_filtra_por_dataset(cliente):
     dados = cliente.get("/v1/meta/carga?dataset=cvm_dfp").json()["dados"]
     assert {d["dataset_chave"] for d in dados} == {"cvm_dfp"}
+
+
+@pytest.mark.parametrize("horas", [0.0, 1.0, 6.0, 19.0])
+def test_intervalo_curto_nao_vira_taxa_diaria(horas):
+    """O defeito que a primeira medição em produção mostrou.
+
+    Duas cargas separadas por uma hora, com 24,5 MB de diferença, projetaram
+    205 GB em doze meses — vinte e quatro vezes o crescimento real, porque a
+    conta extrapolava relógio e não pregão. Abaixo da idade mínima a resposta
+    é nula: projeção inventada é pior que projeção ausente, porque ela decide.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    agora = datetime(2026, 8, 5, 2, 39, tzinfo=timezone.utc)
+    anterior = {
+        "bytes_banco": 1_505_367_743,
+        "gerado_em": agora - timedelta(hours=horas),
+    }
+    assert custo._crescimento_por_dia(
+        anterior, 1_529_874_000, agora) is None
+
+
+def test_delta_e_taxa_usam_baselines_diferentes(carregado):
+    """São duas perguntas: quanto esta carga somou, e quanto isto cresce por
+    dia. A primeira é contra o relatório anterior, qualquer que seja o
+    intervalo; a segunda precisa de régua com idade.
+
+    As linhas são sintéticas porque o DuckDB não mede disco — e é o valor de
+    `bytes_banco` que separa uma baseline da outra.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    agora = datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc)
+    for idade_horas, bytes_banco in ((72, 1_000_000_000), (1, 1_100_000_000)):
+        carregado.executar(
+            "INSERT INTO relatorio_carga (id, execucao_id, dataset_chave, "
+            "janela, status, gerado_em, bytes_banco) VALUES (?,1,'sintetico',"
+            "'2026','publicado',?,?)",
+            (carregado.proximo_id("relatorio_carga"),
+             agora - timedelta(hours=idade_horas), bytes_banco),
+        )
+
+    # O último é o de uma hora atrás; a régua pula para o de três dias.
+    assert custo._ultimo(carregado, "sintetico")["bytes_banco"] == 1_100_000_000
+    assert custo._regua(
+        carregado, "sintetico", agora)["bytes_banco"] == 1_000_000_000

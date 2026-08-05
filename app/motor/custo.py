@@ -26,7 +26,7 @@ para evitar.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from ..sinks import Sink
 
@@ -98,7 +98,17 @@ def cambio_do_dia(sink: Sink, quando: str | None = None) -> float | None:
     return float(linha["valor"]) if linha and linha["valor"] is not None else None
 
 
-def _anterior(sink: Sink, dataset_chave: str) -> dict | None:
+# Intervalo mínimo entre dois relatórios para a diferença virar taxa diária.
+# Menos que isto não é amostra de crescimento por dia: duas cargas separadas
+# por uma hora extrapolariam vinte e quatro vezes o valor real — foi o que
+# aconteceu na primeira medição em produção, que projetou 205 GB onde o
+# crescimento verdadeiro dá cerca de nove.
+HORAS_MINIMAS = 20
+
+
+def _ultimo(sink: Sink, dataset_chave: str) -> dict | None:
+    """O relatório imediatamente anterior. Serve para o delta desta carga —
+    quanto o disco cresceu desde a última vez, seja qual for o intervalo."""
     return sink.um(
         "SELECT bytes_banco, gerado_em FROM relatorio_carga "
         "WHERE dataset_chave = ? AND bytes_banco IS NOT NULL "
@@ -107,12 +117,30 @@ def _anterior(sink: Sink, dataset_chave: str) -> dict | None:
     )
 
 
+def _regua(sink: Sink, dataset_chave: str, agora: datetime) -> dict | None:
+    """O relatório mais recente já velho o bastante para virar taxa por dia.
+
+    Deliberadamente não é o último: o último pode ser de minutos atrás, e a
+    diferença entre dois relatórios próximos mede o intervalo entre eles, não
+    o crescimento diário.
+    """
+    corte = agora - timedelta(hours=HORAS_MINIMAS)
+    return sink.um(
+        "SELECT bytes_banco, gerado_em FROM relatorio_carga "
+        "WHERE dataset_chave = ? AND bytes_banco IS NOT NULL AND gerado_em <= ? "
+        "ORDER BY gerado_em DESC LIMIT 1",
+        (dataset_chave, corte),
+    )
+
+
 def _crescimento_por_dia(anterior: dict | None, bytes_agora: int | None,
                          agora: datetime) -> float | None:
-    """GB por dia entre este relatório e o anterior do mesmo dataset.
+    """GB por dia entre este relatório e uma régua velha o bastante.
 
-    Duas cargas no mesmo instante dariam divisão por zero; menos de um minuto
-    de intervalo não é amostra de crescimento diário, é ruído.
+    A régua tem de ter ao menos `HORAS_MINIMAS`: a diferença entre dois
+    relatórios próximos mede o intervalo entre eles, não o crescimento por
+    dia. Sem régua utilizável, nulo — projeção inventada é pior que projeção
+    ausente, porque ela decide.
     """
     if anterior is None or bytes_agora is None or anterior["bytes_banco"] is None:
         return None
@@ -120,7 +148,7 @@ def _crescimento_por_dia(anterior: dict | None, bytes_agora: int | None,
     if antes.tzinfo is None:
         antes = antes.replace(tzinfo=timezone.utc)
     dias = (agora - antes).total_seconds() / 86400
-    if dias < 1 / 1440:
+    if dias < HORAS_MINIMAS / 24:
         return None
     delta_gb = (int(bytes_agora) - int(anterior["bytes_banco"])) / BYTES_POR_GB
     return delta_gb / dias
@@ -147,11 +175,16 @@ def gerar(sink: Sink, ds: dict, resultado, duracao_ms: int | None = None) -> dic
         (ds["chave"], resultado.janela),
     )
 
-    anterior = _anterior(sink, ds["chave"])
-    crescimento = _crescimento_por_dia(anterior, bytes_banco, agora)
+    # Duas baselines, porque são duas perguntas. O delta é "quanto esta carga
+    # somou" e sai do relatório imediatamente anterior; a taxa é "quanto isto
+    # cresce por dia" e precisa de uma régua com idade.
+    ultimo = _ultimo(sink, ds["chave"])
+    crescimento = _crescimento_por_dia(
+        _regua(sink, ds["chave"], agora), bytes_banco, agora
+    )
     delta_banco = (
-        int(bytes_banco) - int(anterior["bytes_banco"])
-        if anterior and bytes_banco is not None and anterior["bytes_banco"] is not None
+        int(bytes_banco) - int(ultimo["bytes_banco"])
+        if ultimo and bytes_banco is not None and ultimo["bytes_banco"] is not None
         else None
     )
 
