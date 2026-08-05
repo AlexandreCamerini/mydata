@@ -21,17 +21,31 @@ from ..repositorio import (
 from ..sinks import Sink
 from . import auth, metricas
 
-async def exigir_admin(
-    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
-) -> None:
-    esperado = os.getenv("PORTAL_ADMIN_TOKEN")
-    if not esperado:
+async def exigir_admin(request: Request) -> None:
+    """Sessão do dono, por cookie ou por cabeçalho.
+
+    Antes só o cabeçalho valia, e a interface o lia do `localStorage` — que
+    nada preenchia: não havia tela de login no /admin, então entrar exigia
+    abrir o console do navegador. O cookie que `/entrar` já emitia servia à
+    apresentação e parava na porta da administração.
+
+    Aceitar os dois fecha isso sem criar credencial nova. O cabeçalho segue
+    valendo para `curl` e script, que não têm cookie.
+
+    **CSRF.** Aceitar cookie numa rota de escrita abre a porta que o cabeçalho
+    fechava por construção — um formulário de outro site não consegue definir
+    cabeçalho. Três coisas seguram: o cookie é `SameSite=Lax`, que não
+    acompanha POST vindo de outra origem; o CORS nega origem cruzada por
+    omissão; e a interface só fala JSON, que dispara verificação prévia.
+    """
+    if not os.getenv("PORTAL_ADMIN_TOKEN"):
         return  # dev: sem token configurado, administração fica aberta local
-    if x_admin_token != esperado:
+    if not auth.sessao_admin(request):
         raise HTTPException(
             status_code=401,
             detail={"codigo": "admin_nao_autorizado",
-                    "mensagem": "Informe X-Admin-Token válido."},
+                    "mensagem": "Entre em / para abrir uma sessão, ou informe "
+                                "X-Admin-Token."},
         )
 
 

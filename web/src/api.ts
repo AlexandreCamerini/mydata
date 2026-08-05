@@ -30,15 +30,32 @@ async function pedir<T>(
     "Content-Type": "application/json",
     ...((opcoes.headers as Record<string, string>) ?? {}),
   };
+  // O token no `localStorage` continua valendo — é o caminho de quem prefere
+  // colá-lo à mão. Mas o normal agora é não haver token nenhum aqui: a
+  // sessão vem do cookie que `/entrar` emite, e `credentials: same-origin`
+  // é o que o faz acompanhar a requisição.
   const token = tokenAdmin();
   if (token) cabecalhos["X-Admin-Token"] = token;
 
-  const resp = await fetch(caminho, { ...opcoes, headers: cabecalhos });
+  const resp = await fetch(caminho, {
+    ...opcoes,
+    headers: cabecalhos,
+    credentials: "same-origin",
+  });
   if (resp.status === 204) return undefined as T;
 
   const corpo = await resp.json().catch(() => null);
   if (!resp.ok) {
     const erro = corpo?.erro ?? {};
+    // Sem sessão, a interface inteira responderia 401 em toda tela e o dono
+    // veria uma sucessão de erros sem saber que bastava entrar. Rebate para
+    // o login levando o caminho de volta.
+    if (resp.status === 401 && erro.codigo === "admin_nao_autorizado") {
+      const volta = encodeURIComponent(
+        window.location.pathname + window.location.hash,
+      );
+      window.location.assign(`/?destino=${volta}`);
+    }
     throw new ErroApi(
       erro.codigo ?? "erro_desconhecido",
       erro.mensagem ?? `Falha ${resp.status} em ${caminho}`,

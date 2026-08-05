@@ -87,27 +87,12 @@ def erro(codigo: str, mensagem: str, status: int, detalhe: Any = None) -> JSONRe
     )
 
 
-def _admin_ok(valor: str | None) -> bool:
-    """O valor confere com PORTAL_ADMIN_TOKEN? Sem a variável, não há sessão
-    de admin — o modo aberto de dev é PORTAL_API_ABERTA, não isto."""
-    import hmac
-
-    esperado = os.getenv("PORTAL_ADMIN_TOKEN")
-    if not esperado or not valor:
-        return False
-    return hmac.compare_digest(valor, esperado)
-
-
-def sessao_admin(request: Request) -> bool:
-    """Sessão do dono: cookie HttpOnly criado em /entrar, ou o header que o
-    admin já usa. O navegador nunca vê chave de API — a sessão é a credencial,
-    e o servidor responde por ela perante /v1."""
-    return _admin_ok(request.cookies.get(COOKIE_SESSAO)) or _admin_ok(
-        request.headers.get("X-Admin-Token")
-    )
-
-
-COOKIE_SESSAO = "portal_sessao"
+# A checagem de sessão mora em `auth`: as duas superfícies precisam dela, e
+# `admin` não pode importar `main`. O navegador nunca vê chave de API — a
+# sessão é a credencial, e o servidor responde por ela perante /v1.
+_admin_ok = auth.admin_ok
+sessao_admin = auth.sessao_admin
+COOKIE_SESSAO = auth.COOKIE_SESSAO
 
 
 async def exigir_chave(
@@ -1114,9 +1099,9 @@ PAGINA_ENTRAR = """<!doctype html>
 <body>
 <form method="post" action="/entrar">
   <h1 style="font-size:1.1rem">MyData</h1>
-  <p style="font-size:.9rem;color:#57534e">A apresentação é privada.
-  Informe o token de administração para entrar.</p>
+  <p style="font-size:.9rem;color:#57534e">{convite}</p>
   {erro}
+  <input type="hidden" name="destino" value="{destino}">
   <label for="token">Token</label>
   <input id="token" name="token" type="password" autocomplete="current-password" required>
   <button type="submit">Entrar</button>
@@ -1124,9 +1109,28 @@ PAGINA_ENTRAR = """<!doctype html>
 </body></html>"""
 
 
-def _pagina_entrar(erro: str = "", status: int = 401) -> Response:
+def destino_local(valor: str | None) -> str:
+    """Só caminho do próprio site. `//outro.site` é URL absoluta protocolo-
+    relativa: sem esta checagem, um link com `?destino=//exemplo.com` faria o
+    formulário de login mandar o dono para fora depois de autenticar."""
+    if not valor or not valor.startswith("/") or valor.startswith("//"):
+        return "/"
+    return valor
+
+
+def _pagina_entrar(erro: str = "", status: int = 401,
+                   destino: str = "/") -> Response:
+    from html import escape
+
+    destino = destino_local(destino)
+    convite = ("A administração é privada. Informe o token para entrar."
+               if destino.startswith("/admin")
+               else "A apresentação é privada. Informe o token de "
+                    "administração para entrar.")
     corpo = PAGINA_ENTRAR.format(
-        erro=f'<p class="erro" role="alert">{erro}</p>' if erro else ""
+        erro=f'<p class="erro" role="alert">{erro}</p>' if erro else "",
+        destino=escape(destino, quote=True),
+        convite=convite,
     )
     return Response(content=corpo, status_code=status, media_type="text/html")
 
@@ -1139,9 +1143,10 @@ async def entrar(request: Request):
 
     corpo = parse_qs((await request.body()).decode())
     token = (corpo.get("token") or [""])[0]
+    destino = destino_local((corpo.get("destino") or ["/"])[0])
     if not _admin_ok(token):
-        return _pagina_entrar("Token inválido.")
-    resposta = Response(status_code=303, headers={"Location": "/"})
+        return _pagina_entrar("Token inválido.", destino=destino)
+    resposta = Response(status_code=303, headers={"Location": destino})
     resposta.set_cookie(
         COOKIE_SESSAO, token, httponly=True, samesite="lax",
         secure=request.url.scheme == "https", path="/",
@@ -1166,7 +1171,11 @@ if RAIZ_WEB.exists():
     @app.get("/", include_in_schema=False)
     async def raiz(request: Request):
         if os.getenv("PORTAL_ADMIN_TOKEN") and not sessao_admin(request):
-            return _pagina_entrar()
+            # `destino` volta para onde a interface mandou o dono — o /admin
+            # rebate para cá quando a sessão não existe.
+            return _pagina_entrar(
+                destino=request.query_params.get("destino", "/")
+            )
         pagina = RAIZ_WEB / "apresentacao.html"
         if not pagina.exists():
             pagina = RAIZ_WEB / "index.html"

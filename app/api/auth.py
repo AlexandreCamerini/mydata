@@ -9,6 +9,8 @@ do tempo de resposta, sem ganho de segurança.
 from __future__ import annotations
 
 import hashlib
+import hmac
+import os
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -16,6 +18,40 @@ from datetime import datetime, timezone
 from ..sinks import Sink
 
 PREFIXO_TAM = 8
+
+# --------------------------------------------------------------------------
+# Sessão do dono
+# --------------------------------------------------------------------------
+# Mora aqui, e não em `main`, porque as duas superfícies precisam dela: a
+# apresentação, que a cria, e a administração, que passou a aceitá-la. Deixar
+# a checagem em `main` obrigaria `admin` a importar `main`, que já importa
+# `admin` — e a duplicação seria a alternativa, com as duas cópias divergindo
+# na primeira mudança.
+COOKIE_SESSAO = "portal_sessao"
+
+
+def admin_ok(valor: str | None) -> bool:
+    """O valor confere com PORTAL_ADMIN_TOKEN?
+
+    Sem a variável definida não há sessão de administração — é o modo de
+    desenvolvimento local, e a ausência é escolha explícita, não descuido.
+    """
+    esperado = os.getenv("PORTAL_ADMIN_TOKEN")
+    if not esperado or not valor:
+        return False
+    return hmac.compare_digest(valor, esperado)
+
+
+def sessao_admin(request) -> bool:
+    """Sessão do dono: o cookie criado em `/entrar`, ou o cabeçalho.
+
+    O cookie é `HttpOnly` e `SameSite=Lax` — Lax não acompanha requisição
+    cruzada que não seja navegação de topo, e é o que segura CSRF nas rotas
+    de escrita da administração. O cabeçalho continua valendo para script e
+    `curl`, que não têm cookie."""
+    return admin_ok(request.cookies.get(COOKIE_SESSAO)) or admin_ok(
+        request.headers.get("X-Admin-Token")
+    )
 
 
 @dataclass
