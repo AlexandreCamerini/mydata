@@ -104,6 +104,10 @@ export const api = {
         `&atributo=${encodeURIComponent(atributo)}`,
     ),
   correlacoes: () => pedir<Resposta<Correlacao[]>>("/admin/api/correlacoes"),
+  contrato: (classe: string) =>
+    pedir<Resposta<Contrato>>(
+      `/admin/api/contrato?classe=${encodeURIComponent(classe)}`,
+    ),
 
   // Camada de acesso (ADR-19). Registrar exige sessão — é o que impede que
   // um visitante registre o próprio autenticador e vire dono.
@@ -433,6 +437,55 @@ export type Frescor = {
     erro: string | null;
     terminado_em: string | null;
   } | null;
+};
+
+/** O perfil ODCS de uma classe — o que ela promete a quem integra.
+ *
+ * A rota existia desde a etapa 7 e nenhuma tela a lia (achado 3.4 da
+ * auditoria): contrato publicado que ninguém publica não é contrato. */
+export type Contrato = {
+  apiVersion: string;
+  id: string;
+  name: string;
+  version: number;
+  status: string;
+  description: { purpose: string | null; usage: string };
+  schema: {
+    name: string;
+    physicalName: string;
+    properties: {
+      name: string;
+      logicalType: string;
+      required: boolean;
+      description: string | null;
+      unit: string | null;
+      customProperties: {
+        precedencia: string[];
+        precedenciaHerdada: boolean;
+        disputado: boolean;
+        origens: string[];
+      };
+    }[];
+  }[];
+  quality: {
+    name: string;
+    rule: string;
+    severity: string;
+    impedePublicacao: boolean;
+    tolerance: number;
+    description: string | null;
+    customProperties: { mapeamento: string };
+  }[];
+  slas: { property: string; value: number; unit: string; description: string }[];
+  customProperties: {
+    identidade: string[];
+    resolucao: string;
+    precedencia: string[];
+    fontes: string[];
+    calculados: unknown[];
+    publicacao: { versao: number; publicado_em: string } | null;
+    original: string;
+  };
 };
 
 export type Passkey = {

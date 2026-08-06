@@ -37,6 +37,35 @@ export function bytes(n: number | null | undefined): string {
   return `${valor.toFixed(valor < 10 ? 1 : 0)} ${unidades[i]}`;
 }
 
+/** A chave de identidade como lista de partes, não como corrida de texto.
+ *
+ * `cd_cvm,tipo_doc,dt_refer,grupo,consolidado,cd_conta,ordem_exerc,versao` são
+ * oito atributos que o olho tinha de separar por vírgula, numa célula que
+ * crescia e desalinhava o ritmo da tabela inteira. Identidade é o conceito
+ * central deste sistema — merece ser lida como o que é: as partes que, juntas,
+ * dizem que duas linhas são a mesma coisa.
+ *
+ * A ordem importa e por isso é `<ol>`: ela é a ordem do índice único, e trocá-la
+ * troca o plano de consulta. */
+export function Identidade({ partes }: { partes: string[] }) {
+  if (partes.length === 0) {
+    return <span className="text-tinta-suave text-xs">sem identidade</span>;
+  }
+  return (
+    <ol className="flex flex-wrap gap-1 list-none p-0 m-0">
+      {partes.map((parte, i) => (
+        <li
+          key={parte}
+          className="rounded bg-acento-suave text-acento px-1.5 py-0.5 text-xs font-mono"
+        >
+          <span className="sr-only">{i + 1}º: </span>
+          {parte}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 3.2 · SaudeClasse
 // ---------------------------------------------------------------------------

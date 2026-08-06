@@ -570,6 +570,21 @@ async def get_linhagem(request: Request, classe: str, atributo: str) -> Any:
         ) from e
 
 
+@router.get("/contrato")
+async def get_contrato(request: Request, classe: str) -> Any:
+    """O perfil ODCS da classe. Espelho de `/v1/meta/contrato`, pelo mesmo
+    motivo dos outros: a interface de configuração roda sem chave de API."""
+    from ..motor import contrato as contrato_mod
+
+    try:
+        return {"dados": contrato_mod.contrato(obter_sink(request), classe)}
+    except ErroConfiguracao as e:
+        raise HTTPException(
+            status_code=404,
+            detail={"codigo": "classe_nao_encontrada", "mensagem": str(e)},
+        ) from e
+
+
 @router.get("/correlacoes")
 async def get_correlacoes(request: Request) -> Any:
     return {"dados": [

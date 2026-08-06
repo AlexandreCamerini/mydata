@@ -239,6 +239,11 @@ navegador do dono e não tem nada a dizer sobre `curl`.
 | 10 | `/v1/meta/contrato` órfã (3.4) | baixa | médio |
 | 11 | Tempo relativo sem absoluto (2.4) | baixa | baixo |
 
+**Situação em 05/08/2026.** Fechados: 1 a 7, 9, 10 e 11. Aberto: o **8**
+(tipografia sem voz). A direção de arte da fase 2 deu a fonte de display — a
+serifada do conjunto A, aplicada em `h1`/`h2` — mas a escala tipográfica
+continua decidida no componente, com utilitário do Tailwind. É o que sobra.
+
 Os itens 2, 3 e 5 são de custo baixo e efeito imediato — cabem na primeira
 etapa da construção. O 1 e o 4 são a mesma tela vista de dois ângulos, e é
 onde está o valor.

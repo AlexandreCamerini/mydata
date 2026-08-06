@@ -14,7 +14,7 @@ import {
   type Frescor,
 } from "../api";
 import { Botao, Carregando, Erro, Selo, Tabela, Vazio, useDados } from "../ui";
-import { Linhagem, SaudeClasse } from "../objetos";
+import { Identidade, Linhagem, SaudeClasse } from "../objetos";
 import { ClasseForm } from "./ClasseForm";
 
 function idade(f: Frescor | undefined): string {
@@ -99,7 +99,9 @@ export function Classes() {
                   </span>
                 )}
               </th>
-              <td className="px-3 py-2 font-mono text-xs">{c.chave_identidade}</td>
+              <td className="px-3 py-2">
+                <Identidade partes={c.chave_identidade.split(",").filter(Boolean)} />
+              </td>
               <td className="px-3 py-2 text-xs">
                 {c.datasets.length === 0 ? (
                   <span className="text-tinta-suave">nenhuma</span>
@@ -248,6 +250,12 @@ function Detalhe({
         ))}
       </Tabela>
 
+      {/* O contrato existia desde a etapa 7 e nenhuma tela o lia — achado 3.4.
+          Contrato publicado que ninguém publica não é contrato. Fica aqui, ao
+          lado do DDL, porque os dois respondem a mesma pergunta em níveis
+          diferentes: o que esta classe promete, e o que ela vira no banco. */}
+      <ContratoDaClasse classe={classe.chave} />
+
       <details className="border border-borda rounded bg-white p-3">
         <summary className="text-sm font-medium cursor-pointer">
           DDL que esta configuração implica
@@ -270,4 +278,123 @@ function LinhagemDe({ classe, atributo }: { classe: string; atributo: string }) 
   if (l.erro) return <Erro mensagem={l.erro} />;
   if (!l.dados) return null;
   return <Linhagem l={l.dados.dados} />;
+}
+
+
+/** O perfil ODCS da classe — o que ela promete a quem integra.
+ *
+ * `<details>` e não seção aberta: é referência de integração, não coisa que se
+ * lê todo dia. E só busca quem abre. */
+function ContratoDaClasse({ classe }: { classe: string }) {
+  const [aberto, setAberto] = useState(false);
+  return (
+    <details
+      className="border border-borda rounded bg-white p-3"
+      onToggle={(e) => setAberto((e.currentTarget as HTMLDetailsElement).open)}
+    >
+      <summary className="text-sm font-medium cursor-pointer">
+        Contrato publicado desta classe
+      </summary>
+      {aberto && <CorpoDoContrato classe={classe} />}
+    </details>
+  );
+}
+
+function CorpoDoContrato({ classe }: { classe: string }) {
+  const c = useDados(() => api.contrato(classe), [classe]);
+  if (c.carregando) return <Carregando oque="o contrato" />;
+  if (c.erro) return <Erro mensagem={c.erro} />;
+  if (!c.dados) return null;
+  const d = c.dados.dados;
+  const bloqueiam = d.quality.filter((q) => q.impedePublicacao);
+
+  return (
+    <div className="mt-3 grid gap-4 text-sm">
+      <p className="text-tinta-suave">{d.description.usage}</p>
+
+      <dl className="grid sm:grid-cols-3 gap-3">
+        <div>
+          <dt className="text-xs text-tinta-suave">Identidade</dt>
+          <dd className="mt-1">
+            <Identidade partes={d.customProperties.identidade} />
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-tinta-suave">Versão do contrato</dt>
+          <dd className="numero">
+            v{d.version}
+            <span className="text-xs text-tinta-suave">
+              {" "}· publicação v{d.customProperties.publicacao?.versao ?? "—"}
+            </span>
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-tinta-suave">Frescor prometido</dt>
+          <dd>
+            {d.slas.length === 0 ? (
+              <span className="text-tinta-suave text-xs">sem SLA declarado</span>
+            ) : (
+              d.slas.map((s) => (
+                <span key={s.property} className="text-xs">
+                  {s.value} {s.unit}
+                </span>
+              ))
+            )}
+          </dd>
+        </div>
+      </dl>
+
+      <div>
+        <p className="text-xs text-tinta-suave mb-1">
+          {/* A severidade nominal não é o que o consumidor precisa saber; a
+              consequência é. Regra que bloqueia significa que todo dado
+              publicado passou por ela. */}
+          {bloqueiam.length} de {d.quality.length} regras impedem a publicação —
+          o dado que chega ao consumidor passou por todas elas.
+        </p>
+        {d.quality.length > 0 && (
+          <Tabela
+            legenda={`Regras de qualidade de ${d.name}`}
+            colunas={["Regra", "Consequência", "Tolerância", "Mapeamento"]}
+          >
+            {d.quality.map((q) => (
+              <tr key={q.name} className="border-b border-borda last:border-0">
+                <th scope="row" className="text-left px-3 py-1.5 font-mono text-xs">
+                  {q.name}
+                  {q.description && (
+                    <span className="block font-sans text-tinta-suave">
+                      {q.description}
+                    </span>
+                  )}
+                </th>
+                <td className="px-3 py-1.5">
+                  <Selo texto={q.impedePublicacao ? "bloqueia" : q.severity} />
+                </td>
+                <td className="px-3 py-1.5 numero text-xs">{q.tolerance}</td>
+                <td className="px-3 py-1.5 text-xs font-mono">
+                  {q.customProperties.mapeamento}
+                </td>
+              </tr>
+            ))}
+          </Tabela>
+        )}
+      </div>
+
+      <p className="text-xs text-tinta-suave border-l-2 border-acento pl-3">
+        {d.customProperties.original}
+      </p>
+
+      <p className="text-xs">
+        <a
+          className="text-acento underline"
+          href={`/v1/meta/contrato?classe=${encodeURIComponent(classe)}`}
+        >
+          O contrato inteiro em JSON
+        </a>
+        <span className="text-tinta-suave">
+          {" "}— é isto que o consumidor lê para integrar.
+        </span>
+      </p>
+    </div>
+  );
 }
