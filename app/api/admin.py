@@ -8,7 +8,9 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi import (
+    APIRouter, Depends, Header, HTTPException, Path, Query, Request, Response,
+)
 from pydantic import BaseModel, Field
 
 from .. import repositorio as repo
@@ -196,6 +198,13 @@ def _erro_config(e: ErroConfiguracao) -> HTTPException:
 # --------------------------------------------------------------------------
 @router.get("/classes")
 async def get_classes(request: Request) -> Any:
+    """Toda classe de informação cadastrada, com atributos e o que diverge
+    entre a tabela física e a configuração vigente.
+
+    `divergencias` é o que orienta a tela a oferecer "aplicar DDL" — uma
+    classe editada na interface e ainda não aplicada ao banco aparece aqui
+    antes de qualquer erro em produção.
+    """
     sink = obter_sink(request)
     saida = []
     for c in repo.listar_classes(sink):
@@ -279,7 +288,10 @@ async def previa_classe(entrada: ClasseEntrada, request: Request) -> Any:
 
 
 @router.get("/classes/{chave}/ddl")
-async def get_classe_ddl(chave: str, request: Request) -> Any:
+async def get_classe_ddl(
+    request: Request,
+    chave: str = Path(..., description="Chave da classe já cadastrada"),
+) -> Any:
     """O DDL que a configuração implica, e o que diverge do banco hoje."""
     sink = obter_sink(request)
     c = repo.classe_vigente(sink, chave)
@@ -300,11 +312,19 @@ async def get_classe_ddl(chave: str, request: Request) -> Any:
 # --------------------------------------------------------------------------
 @router.get("/fontes")
 async def get_fontes(request: Request) -> Any:
+    """Toda fonte de dado cadastrada: de onde vem, como baixar, que
+    credencial exige."""
     return {"dados": repo.listar_fontes(obter_sink(request))}
 
 
 @router.post("/fontes")
 async def post_fonte(entrada: FonteEntrada, request: Request) -> Any:
+    """Cadastra ou reversiona uma fonte — nunca sobrescreve.
+
+    Salvar uma fonte já existente cria uma versão nova; a anterior continua
+    no banco, vigente=false, e qualquer execução passada aponta para o
+    snapshot de configuração que usou, não para a versão atual.
+    """
     sink = obter_sink(request)
     try:
         novo = repo.salvar_fonte(sink, Fonte(**entrada.model_dump()), autor="ui")
@@ -345,6 +365,8 @@ async def get_credenciais(request: Request) -> Any:
 
 @router.get("/datasets")
 async def get_datasets(request: Request) -> Any:
+    """Todo mapeamento fonte→classe: colunas, campos calculados e regras de
+    qualidade, incluindo os inativos."""
     sink = obter_sink(request)
     saida = []
     for ds in repo.listar_datasets(sink):
@@ -373,6 +395,12 @@ def _dataset_de(entrada: DatasetEntrada) -> Dataset:
 
 @router.post("/datasets")
 async def post_dataset(entrada: DatasetEntrada, request: Request) -> Any:
+    """Cadastra ou reversiona um mapeamento — como a fonte, nunca sobrescreve.
+
+    Salvar já valida e recusa configuração inválida (422). Para o erro
+    aparecer no formulário antes do clique em salvar, chame
+    `/datasets/{chave}/validar` primeiro — mesma validação, sem gravar nada.
+    """
     sink = obter_sink(request)
     d = _dataset_de(entrada)
     try:
@@ -383,7 +411,11 @@ async def post_dataset(entrada: DatasetEntrada, request: Request) -> Any:
 
 
 @router.post("/datasets/{chave}/validar")
-async def validar_dataset(chave: str, entrada: DatasetEntrada, request: Request) -> Any:
+async def validar_dataset(
+    entrada: DatasetEntrada, request: Request,
+    chave: str = Path(..., description="Chave do mapeamento sendo editado. Não entra na "
+                                       "validação, que roda inteira sobre o corpo enviado"),
+) -> Any:
     """Valida sem gravar — é o que dá o retorno imediato no formulário."""
     d = _dataset_de(entrada)
     try:
@@ -397,8 +429,13 @@ async def validar_dataset(chave: str, entrada: DatasetEntrada, request: Request)
 # Execuções
 # --------------------------------------------------------------------------
 @router.get("/execucoes")
-async def get_execucoes(request: Request, dataset: str | None = None,
-                        limite: int = 50) -> Any:
+async def get_execucoes(
+    request: Request,
+    dataset: str | None = Query(
+        None, description="Restringe ao mapeamento com esta chave. Omitido, traz todos"),
+    limite: int = Query(50, description="Quantas execuções recentes trazer"),
+) -> Any:
+    """Histórico de carga — o que rodou, para a tela de Execuções."""
     return {"dados": repo.execucoes(obter_sink(request), limite, dataset)}
 
 
@@ -431,16 +468,25 @@ async def post_execucao(entrada: ExecucaoEntrada, request: Request) -> Any:
 
 @router.get("/frescor")
 async def get_frescor(request: Request) -> Any:
+    """Idade do dado de cada classe contra o SLA declarado — para a tela
+    saber o que mostrar como atrasado."""
     return {"dados": observabilidade.frescor(obter_sink(request))}
 
 
 @router.get("/execucoes/{execucao_id}/fases")
-async def get_fases(execucao_id: int, request: Request) -> Any:
+async def get_fases(
+    request: Request,
+    execucao_id: int = Path(..., description="Id da execução — vem em /execucoes"),
+) -> Any:
+    """Onde a execução gastou o tempo, fase a fase — não só quanto durou ao
+    todo."""
     return {"dados": observabilidade.linha_do_tempo(obter_sink(request), execucao_id)}
 
 
 @router.get("/publicacoes")
 async def get_publicacoes(request: Request) -> Any:
+    """As últimas 50 versões de gold, com qual é a vigente agora — a lista
+    que alimenta o botão de reverter."""
     sink = obter_sink(request)
     return {"dados": sink.consultar(
         "SELECT * FROM publicacao ORDER BY versao DESC LIMIT 50"
@@ -448,7 +494,13 @@ async def get_publicacoes(request: Request) -> Any:
 
 
 @router.post("/publicacoes/{versao}/reverter")
-async def post_reverter(versao: int, request: Request) -> Any:
+async def post_reverter(
+    request: Request,
+    versao: int = Path(..., description="Número da versão de publicação para onde voltar "
+                                        "— vem em /publicacoes"),
+) -> Any:
+    """Move o ponteiro de gold para uma versão anterior. Não apaga nada: as
+    versões mais novas continuam no banco, só deixam de ser a vigente."""
     sink = obter_sink(request)
     try:
         publicacao.reverter(sink, versao)
@@ -465,7 +517,10 @@ async def post_reverter(versao: int, request: Request) -> Any:
 # --------------------------------------------------------------------------
 @router.get("/carga")
 async def get_carga(
-    request: Request, dataset: str | None = None, limite: int = 50
+    request: Request,
+    dataset: str | None = Query(
+        None, description="Restringe ao mapeamento com esta chave. Omitido, traz todos"),
+    limite: int = Query(50, description="Quantas execuções recentes trazer, até 500"),
 ) -> Any:
     """Relatório de carga para a interface. Mesma resposta de `/v1/meta/carga`
     — a diferença entre as rotas é quem pode chamar, não o que respondem."""
@@ -500,6 +555,8 @@ async def get_acesso(request: Request) -> Any:
 
 @router.post("/acesso/passkeys/opcoes")
 async def post_passkey_opcoes(request: Request) -> Any:
+    """Desafio WebAuthn para registrar um novo autenticador — o primeiro
+    passo do fluxo, antes do navegador pedir a assinatura biométrica."""
     corpo = await request.json()
     return Response(
         content=acesso.opcoes_de_registro(
@@ -512,6 +569,8 @@ async def post_passkey_opcoes(request: Request) -> Any:
 
 @router.post("/acesso/passkeys")
 async def post_passkey(request: Request, entrada: PasskeyEntrada) -> Any:
+    """Registra o autenticador cuja assinatura o navegador acabou de
+    devolver — o segundo passo do fluxo, depois de /acesso/passkeys/opcoes."""
     try:
         return {"dados": acesso.registrar(
             obter_sink(request), entrada.credencial, entrada.rotulo,
@@ -525,7 +584,11 @@ async def post_passkey(request: Request, entrada: PasskeyEntrada) -> Any:
 
 
 @router.delete("/acesso/passkeys/{credential_id:path}")
-async def delete_passkey(credential_id: str, request: Request) -> Any:
+async def delete_passkey(
+    request: Request,
+    credential_id: str = Path(..., description="Id do autenticador, como listado em "
+                                                "/acesso"),
+) -> Any:
     """Revogar um autenticador sem derrubar os outros — a segunda falta que a
     auditoria registrou no §5.2."""
     sink = obter_sink(request)
@@ -539,7 +602,13 @@ async def delete_passkey(credential_id: str, request: Request) -> Any:
 
 
 @router.delete("/acesso/sessoes/{sessao_id:path}")
-async def delete_sessao(sessao_id: str, request: Request) -> Any:
+async def delete_sessao(
+    request: Request,
+    sessao_id: str = Path(..., description="Identificador opaco da sessão, como "
+                                           "listado em /acesso"),
+) -> Any:
+    """Encerra uma sessão aberta — derruba quem estiver logado com ela, sem
+    mexer nas outras."""
     acesso.fechar_sessao(obter_sink(request), sessao_id)
     return {"dados": {"encerrada": sessao_id}}
 
@@ -559,7 +628,14 @@ async def delete_sessao(sessao_id: str, request: Request) -> Any:
 # Aqui não há filtro por escopo, e é deliberado: escopo restringe consumidor,
 # e quem entra no plano de controle é o dono.
 @router.get("/linhagem")
-async def get_linhagem(request: Request, classe: str, atributo: str) -> Any:
+async def get_linhagem(
+    request: Request,
+    classe: str = Query(..., description="Chave da classe de informação"),
+    atributo: str = Query(..., description="Nome do atributo dentro da classe"),
+) -> Any:
+    """De onde veio este número: fonte, captura, regra de qualidade que
+    aprovou, versão de publicação. Espelho de /v1/meta/linhagem, sem exigir
+    chave de API — quem está no plano de controle é o dono."""
     try:
         return {"dados": observabilidade.linhagem(
             obter_sink(request), classe, atributo)}
@@ -571,7 +647,10 @@ async def get_linhagem(request: Request, classe: str, atributo: str) -> Any:
 
 
 @router.get("/contrato")
-async def get_contrato(request: Request, classe: str) -> Any:
+async def get_contrato(
+    request: Request,
+    classe: str = Query(..., description="Chave da classe de informação"),
+) -> Any:
     """O perfil ODCS da classe. Espelho de `/v1/meta/contrato`, pelo mesmo
     motivo dos outros: a interface de configuração roda sem chave de API."""
     from ..motor import contrato as contrato_mod
@@ -587,6 +666,8 @@ async def get_contrato(request: Request, classe: str) -> Any:
 
 @router.get("/correlacoes")
 async def get_correlacoes(request: Request) -> Any:
+    """Toda junção entre classes declarada em configuração — sem filtrar por
+    escopo, porque quem chama aqui é o dono, não um consumidor com chave."""
     return {"dados": [
         {"chave": c["chave"], "origem": c["classe_origem"],
          "destino": c["classe_destino"],
@@ -599,7 +680,10 @@ async def get_correlacoes(request: Request) -> Any:
 
 @router.get("/correlacoes/{chave_correlacao}")
 async def get_travessia(
-    request: Request, chave_correlacao: str, limite: int = 5
+    request: Request,
+    chave_correlacao: str = Path(
+        ..., description="Chave declarada em cfg_correlacao — ver /correlacoes"),
+    limite: int = Query(5, description="Quantas linhas trazer da travessia"),
 ) -> Any:
     """Executa a travessia declarada, para o dono conferir que ela funciona.
 
@@ -705,6 +789,8 @@ async def get_gestao(request: Request) -> Any:
 
 @router.get("/chaves")
 async def get_chaves(request: Request) -> Any:
+    """Toda chave de API emitida, ativa ou revogada — nunca o segredo, só o
+    prefixo que a identifica publicamente."""
     sink = obter_sink(request)
     return {"dados": sink.consultar(
         "SELECT id, consumidor, prefixo, quota_minuto, quota_dia, escopos, "
@@ -714,6 +800,11 @@ async def get_chaves(request: Request) -> Any:
 
 @router.post("/chaves")
 async def post_chave(entrada: ChaveEntrada, request: Request) -> Any:
+    """Emite uma chave de API nova, com o escopo de classes que ela pode ler.
+
+    A chave completa só aparece nesta resposta — o banco guarda o hash, não
+    o valor. Perdida, não tem como recuperar: revogue e emita outra.
+    """
     sink = obter_sink(request)
     conhecidas = {c["chave"] for c in repo.listar_classes(sink)}
     desconhecidas = [c for c in entrada.classes if c not in conhecidas]
@@ -739,7 +830,13 @@ async def post_chave(entrada: ChaveEntrada, request: Request) -> Any:
 
 
 @router.delete("/chaves/{prefixo}")
-async def delete_chave(prefixo: str, request: Request) -> Any:
+async def delete_chave(
+    request: Request,
+    prefixo: str = Path(..., description="Prefixo público da chave, como listado em "
+                                         "/chaves — não é a chave completa"),
+) -> Any:
+    """Revoga a chave. Imediato: a próxima chamada com ela recebe 401, e o
+    consumidor precisa de uma chave nova para voltar a ler."""
     if not auth.revogar(obter_sink(request), prefixo):
         raise HTTPException(
             status_code=404,
@@ -754,11 +851,19 @@ async def delete_chave(prefixo: str, request: Request) -> Any:
 # --------------------------------------------------------------------------
 @router.get("/metricas")
 async def get_metricas(request: Request) -> Any:
+    """Todo indicador fundamentalista cadastrado, com a fórmula sobre conta
+    contábil que o alimenta."""
     return {"dados": metricas.listar(obter_sink(request))}
 
 
 @router.post("/metricas")
 async def post_metrica(entrada: MetricaEntrada, request: Request) -> Any:
+    """Cadastra ou reversiona uma métrica.
+
+    A fórmula é validada antes de gravar — `c('1.01')` precisa referenciar
+    pelo menos uma conta e não pode chamar nenhuma função além de aritmética,
+    ou a chamada recusa com 422 antes de tocar o banco.
+    """
     sink = obter_sink(request)
     try:
         _, contas = metricas.expandir(entrada.formula)
@@ -785,6 +890,8 @@ async def post_metrica(entrada: MetricaEntrada, request: Request) -> Any:
 # --------------------------------------------------------------------------
 @router.get("/catalogo")
 async def get_catalogo(request: Request) -> Any:
+    """Nome de toda tabela do banco — bronze, silver, gold e plano de
+    controle juntos. Ponto de entrada da tela de Catálogo."""
     sink = obter_sink(request)
     tabelas = sink.consultar(
         "SELECT table_name AS nome FROM information_schema.tables "
@@ -794,7 +901,17 @@ async def get_catalogo(request: Request) -> Any:
 
 
 @router.get("/catalogo/{tabela}")
-async def get_catalogo_tabela(tabela: str, request: Request, limite: int = 10) -> Any:
+async def get_catalogo_tabela(
+    request: Request,
+    tabela: str = Path(..., description="Nome exato da tabela, como listado em "
+                                        "/catalogo"),
+    limite: int = Query(10, description="Linhas de amostra a trazer, até 100"),
+) -> Any:
+    """Schema e amostra de uma tabela — colunas, tipos e as primeiras linhas.
+
+    Contorna o escopo por classe das chaves de API de propósito: só chega
+    aqui quem já está autenticado como dono do plano de controle.
+    """
     sink = obter_sink(request)
     existe = sink.um(
         "SELECT 1 AS ok FROM information_schema.tables WHERE table_name = ?",
