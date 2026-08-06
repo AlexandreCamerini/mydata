@@ -1050,9 +1050,18 @@ diário — e essa é outra decisão, com o dado de uso na mão.
 
 ## 14. Questões em aberto
 
-1. **Origem do mapa ticker → `cd_cvm`** — a CVM não publica ticker. A B3
-   publica, mas não como dado aberto estável. Qualquer escolha aqui é a
-   primeira dependência de terceiro do sistema, e precisa ficar isolada.
+1. ~~**Origem do mapa ticker → `cd_cvm`**~~ — **fechada em 06/08/2026**, e o
+   mapa nunca precisou existir. A premissa era que ligar ticker a `cd_cvm`
+   exigiria casar por nome ou comprar de um agregador — a primeira dependência
+   de terceiro do sistema. A B3 publica os dois **no mesmo registro**:
+   `codeCVM` e `issuingCompany` são colunas vizinhas do mesmo endpoint de
+   companhias listadas, mapeadas em `COLUNAS_B3`. Não há mapa, não há
+   casamento heurístico e não há terceiro: a B3 é a origem do ticker, não uma
+   revendedora dele. `b3_listadas` entra como segunda fonte da classe
+   `empresa`, com `chave_natural=["cd_cvm"]` — a mesma identidade do dado da
+   CVM — e `listada_b3` é calculado da presença de ticker, porque estar em
+   pregão é o que o ticker significa. Ver
+   [ADR-20](#adr-20--o-cadastro-de-instrumentos-entra-como-classe-própria-e-não-substitui-o-cotahist).
 2. **Multi-tenant** — o escopo por classe (etapa 7) resolve *quais* classes um
    app lê. Não resolve isolamento de dado dentro da classe: se um dia dois
    consumidores precisarem ver linhas diferentes da mesma classe, o modelo não
