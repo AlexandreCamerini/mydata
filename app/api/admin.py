@@ -8,18 +8,18 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from .. import repositorio as repo
 from ..motor import (
-    credenciais, custo, ddl, ingestao, observabilidade, publicacao,
+    correlacao, credenciais, custo, ddl, ingestao, observabilidade, publicacao,
 )
 from ..repositorio import (
     CampoCalculado, Coluna, Dataset, ErroConfiguracao, Fonte, RegraQualidade,
 )
 from ..sinks import Sink
-from . import auth, metricas
+from . import acesso, auth, metricas, proveniencia
 
 async def exigir_admin(request: Request) -> None:
     """Sessão do dono, por cookie ou por cabeçalho.
@@ -472,6 +472,155 @@ async def get_carga(
     return custo.painel(obter_sink(request), dataset, min(max(limite, 1), 500))
 
 
+# --------------------------------------------------------------------------
+# Camada de acesso (ADR-19)
+# --------------------------------------------------------------------------
+# Registrar exige sessão. É o que impede que qualquer visitante registre o
+# próprio autenticador e passe a ser dono — o primeiro passkey entra por quem
+# já tem o token, que é exatamente o papel que o token conserva.
+class PasskeyEntrada(BaseModel):
+    rotulo: str
+    credencial: dict
+
+
+@router.get("/acesso")
+async def get_acesso(request: Request) -> Any:
+    """O estado da camada de acesso: autenticadores, sessões e qual caminho
+    está aberto."""
+    sink = obter_sink(request)
+    return {"dados": {
+        "passkeys": acesso.passkeys(sink),
+        "sessoes": acesso.sessoes(sink),
+        "token_configurado": bool(os.getenv("PORTAL_ADMIN_TOKEN")),
+        "token_no_formulario": acesso.token_no_formulario(sink),
+        "acesso_legado": os.getenv("PORTAL_ACESSO_LEGADO") == "1",
+        "identidade": acesso.identidade_do_site(request.headers.get("origin"))[0],
+    }}
+
+
+@router.post("/acesso/passkeys/opcoes")
+async def post_passkey_opcoes(request: Request) -> Any:
+    corpo = await request.json()
+    return Response(
+        content=acesso.opcoes_de_registro(
+            obter_sink(request), (corpo or {}).get("rotulo", ""),
+            request.headers.get("origin"),
+        ),
+        media_type="application/json",
+    )
+
+
+@router.post("/acesso/passkeys")
+async def post_passkey(request: Request, entrada: PasskeyEntrada) -> Any:
+    try:
+        return {"dados": acesso.registrar(
+            obter_sink(request), entrada.credencial, entrada.rotulo,
+            request.headers.get("origin"),
+        )}
+    except acesso.ErroAcesso as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"codigo": "passkey_invalida", "mensagem": str(e)},
+        ) from e
+
+
+@router.delete("/acesso/passkeys/{credential_id:path}")
+async def delete_passkey(credential_id: str, request: Request) -> Any:
+    """Revogar um autenticador sem derrubar os outros — a segunda falta que a
+    auditoria registrou no §5.2."""
+    sink = obter_sink(request)
+    if not acesso.esquecer_passkey(sink, credential_id):
+        raise HTTPException(
+            status_code=404,
+            detail={"codigo": "passkey_nao_encontrada", "mensagem": credential_id},
+        )
+    return {"dados": {"revogada": credential_id,
+                      "restantes": len(acesso.passkeys(sink))}}
+
+
+@router.delete("/acesso/sessoes/{sessao_id:path}")
+async def delete_sessao(sessao_id: str, request: Request) -> Any:
+    acesso.fechar_sessao(obter_sink(request), sessao_id)
+    return {"dados": {"encerrada": sessao_id}}
+
+
+# --------------------------------------------------------------------------
+# Linhagem e correlações no plano de controle
+# --------------------------------------------------------------------------
+# As três respondem o mesmo que suas irmãs em `/v1`. A diferença entre as
+# rotas é quem pode chamar, não o que respondem — é o arranjo que `/carga` já
+# usava, e existe por um motivo concreto: `/v1` exige chave de API ou sessão
+# do dono, enquanto `/admin/api` fica aberto localmente sem
+# `PORTAL_ADMIN_TOKEN`. A interface de configuração chamando `/v1` recebia
+# "informe uma chave válida no cabeçalho X-API-Key" em desenvolvimento — a
+# mensagem de máquina numa tela de humano que a auditoria condenou na
+# apresentação, reaparecendo aqui.
+#
+# Aqui não há filtro por escopo, e é deliberado: escopo restringe consumidor,
+# e quem entra no plano de controle é o dono.
+@router.get("/linhagem")
+async def get_linhagem(request: Request, classe: str, atributo: str) -> Any:
+    try:
+        return {"dados": observabilidade.linhagem(
+            obter_sink(request), classe, atributo)}
+    except ErroConfiguracao as e:
+        raise HTTPException(
+            status_code=404,
+            detail={"codigo": "linhagem_nao_encontrada", "mensagem": str(e)},
+        ) from e
+
+
+@router.get("/contrato")
+async def get_contrato(request: Request, classe: str) -> Any:
+    """O perfil ODCS da classe. Espelho de `/v1/meta/contrato`, pelo mesmo
+    motivo dos outros: a interface de configuração roda sem chave de API."""
+    from ..motor import contrato as contrato_mod
+
+    try:
+        return {"dados": contrato_mod.contrato(obter_sink(request), classe)}
+    except ErroConfiguracao as e:
+        raise HTTPException(
+            status_code=404,
+            detail={"codigo": "classe_nao_encontrada", "mensagem": str(e)},
+        ) from e
+
+
+@router.get("/correlacoes")
+async def get_correlacoes(request: Request) -> Any:
+    return {"dados": [
+        {"chave": c["chave"], "origem": c["classe_origem"],
+         "destino": c["classe_destino"],
+         "por": {"origem": c["atributo_origem"],
+                 "destino": c["atributo_destino"]},
+         "relacionamento": c["relacionamento"], "descricao": c["descricao"]}
+        for c in repo.listar_correlacoes(obter_sink(request))
+    ]}
+
+
+@router.get("/correlacoes/{chave_correlacao}")
+async def get_travessia(
+    request: Request, chave_correlacao: str, limite: int = 5
+) -> Any:
+    """Executa a travessia declarada, para o dono conferir que ela funciona.
+
+    Listar o nome de uma correlação não prova que ela atravessa: era o que a
+    tela de gestão fazia, e conferir exigia abrir o banco."""
+    sink = obter_sink(request)
+    try:
+        saida = correlacao.consultar(
+            sink, chave_correlacao, limite=min(max(limite, 1), 50),
+        )
+        # Mesma decoração de /v1: sem ela a tabela mostraria `captura_id` e
+        # `publicado_em_versao` como se fossem atributos da classe.
+        saida["dados"] = proveniencia.decorar(sink, saida["dados"])
+        return saida
+    except correlacao.ErroCorrelacao as e:
+        raise HTTPException(
+            status_code=404,
+            detail={"codigo": "correlacao_nao_declarada", "mensagem": str(e)},
+        ) from e
+
+
 @router.get("/gestao")
 async def get_gestao(request: Request) -> Any:
     """O hub inteiro numa resposta: o que tem, quanto tem, quem consome,
@@ -510,12 +659,22 @@ async def get_gestao(request: Request) -> Any:
             "idade_horas": f.get("idade_horas"),
             "sla_horas": c.get("sla_horas"),
             "ultima_publicacao": f.get("ultima_publicacao"),
+            # A falha vai junto da publicação, não no lugar dela: uma classe
+            # pode estar em dia e ter quebrado ontem, e quem só recebe a
+            # publicação nunca fica sabendo da segunda.
+            "ultima_falha": f.get("ultima_falha"),
         })
 
+    # Duas medidas, não uma. `tamanho_bytes` é o tamanho do arquivo que a fonte
+    # publicou — o que o consumidor baixa. `ocupado` é o que a tabela custa em
+    # disco, com índices e TOAST. Com a compressão do [ADR-21] ligada as duas
+    # deixam de coincidir, e chamar a primeira de "espaço" faria a gestão
+    # superestimar o próprio custo em uma ordem de grandeza.
     bronze = sink.um(
         "SELECT count(*) AS capturas, COALESCE(sum(tamanho_bytes), 0) AS bytes "
         "FROM bronze_captura"
     )
+    ocupado = custo.tamanho_tabela(sink, "bronze_captura")
     chaves = sink.consultar(
         "SELECT consumidor, prefixo, quota_minuto, quota_dia, escopos, "
         "criada_em, revogada_em FROM cfg_chave_api ORDER BY id DESC"
@@ -525,6 +684,9 @@ async def get_gestao(request: Request) -> Any:
         "classes": classes,
         "bronze": {
             "capturas": int(bronze["capturas"] or 0),
+            # `ocupado` é nulo no DuckDB, que não expõe a medida. Nulo é fato:
+            # a tela mostra traço em vez de fingir que mediu.
+            "ocupado_bytes": ocupado,
             "bytes": int(bronze["bytes"] or 0),
         },
         "consumidores": [

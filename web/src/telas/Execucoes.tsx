@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { LinhaDoTempo } from "../objetos";
 import { api, type Dataset, type ResultadoExecucao } from "../api";
 import {
   Aviso, Botao, Campo, Carregando, Confirmar, Erro, Selo, Tabela, Vazio, useDados,
@@ -276,26 +277,18 @@ function Frescor() {
   );
 }
 
-/** Onde a carga gastou o tempo. Sem isto sabe-se que demorou, não onde. */
+/** Onde a carga gastou o tempo. Sem isto sabe-se que demorou, não onde.
+ *
+ * A barra proporcional mora em `LinhaDoTempo`; aqui só a busca. Era esta a
+ * duplicata: a mesma lista de fases desenhada de dois jeitos diferentes no
+ * plano de controle e na apresentação. */
 function Fases({ execucao }: { execucao: number }) {
   const f = useDados(() => api.fases(execucao), [execucao]);
   const linhas = f.dados?.dados ?? [];
   if (linhas.length === 0) return null;
-  const total = linhas.reduce((s, x) => s + (x.duracao_ms ?? 0), 0) || 1;
-
   return (
-    <ul className="mt-2 font-normal">
-      {linhas.map((x) => (
-        <li key={x.fase} className="text-xs flex items-center gap-2 py-0.5">
-          <span className="w-16 shrink-0">{x.fase}</span>
-          <span
-            className="inline-block h-1.5 bg-tinta-suave rounded"
-            style={{ width: `${Math.max(2, ((x.duracao_ms ?? 0) / total) * 60)}px` }}
-            aria-hidden="true"
-          />
-          <span className="tabular-nums text-tinta-suave">{x.duracao_ms} ms</span>
-        </li>
-      ))}
-    </ul>
+    <div className="mt-2 font-normal">
+      <LinhaDoTempo fases={linhas} />
+    </div>
   );
 }

@@ -49,7 +49,8 @@ integrado está em [contrato-consumidor.md](contrato-consumidor.md).
    |---|---|
    | `PORTAL_URL_PUBLICA` | `https://mydata.acamerini.app` |
    | `PORTAL_ORIGENS` | as origens dos consumidores, separadas por vírgula |
-   | `PORTAL_ADMIN_TOKEN` | segredo gerado no painel; sem ele o `/admin/api` fica aberto |
+   | `PORTAL_ADMIN_TOKEN` | segredo do dono. Gere com `python -c "import secrets; print(secrets.token_urlsafe(32))"` — o painel do Railway não tem gerador para isto. Sem a variável, `/admin/api` fica aberto (modo de desenvolvimento local) |
+   | `PORTAL_ACESSO_LEGADO` | `1` reabilita o formulário de token depois de o passkey entrar. **É a saída de emergência** ([ADR-19](arquitetura.md#adr-19--passkey-entra-ao-lado-do-token-não-no-lugar)): se o autenticador se perder, defina esta variável no painel e entre com o token de novo |
 
    `PORTAL_URL_PUBLICA` é o que faz o OpenAPI anunciar o domínio real. Sem
    ela, o cliente gerado a partir do schema aponta para `localhost`.
@@ -67,7 +68,8 @@ integrado está em [contrato-consumidor.md](contrato-consumidor.md).
    o processo; quem decide o que roda é `cfg_agendamento`. Acordar de hora em
    hora é suficiente e barato: cada invocação que não tem nada vencido sai em
    milissegundos. O que importa é acordar pelo menos uma vez entre dois
-   disparos do agendamento mais frequente — hoje o do COTAHIST, às 23:59.
+   disparos do agendamento mais frequente — hoje o do COTAHIST, às 23:59, com
+   o cadastro de instrumentos meia hora antes.
 
    **O horário declarado vale no fuso declarado.** Até 04/08/2026 a coluna
    `cfg_agendamento.timezone` era gravada e nunca lida, e todo cron era
@@ -83,6 +85,51 @@ integrado está em [contrato-consumidor.md](contrato-consumidor.md).
    ```
 
    A chave completa aparece uma única vez. No banco fica só o hash.
+
+## Primeiro acesso, e o passkey
+
+A camada de acesso é aditiva: o token continua sendo o que abre a porta, e é
+por ele que o primeiro autenticador entra.
+
+1. Abra `https://mydata.acamerini.app/` e entre com `PORTAL_ADMIN_TOKEN`.
+2. Vá em **Acesso** no `/admin` e registre um autenticador, com rótulo.
+3. **Registre um segundo, em outro aparelho.** É a saída mais barata do risco
+   desta decisão, e a tela avisa enquanto houver só um.
+
+A partir do primeiro registro, o formulário de token some da tela de entrada —
+o campo de segredo digitado era a queixa que motivou a mudança. O que **não**
+muda:
+
+- `X-Admin-Token` continua valendo sempre, para `curl` e script. Quem opera
+  por terminal nunca fica trancado, e é por ele que se revoga um autenticador
+  que não se tem mais em mãos.
+- A chave de API por consumidor em `/v1` não é tocada. São mecanismos
+  diferentes para públicos diferentes.
+
+Perdeu todos os autenticadores e não quer usar o terminal: defina
+`PORTAL_ACESSO_LEGADO=1` no painel, entre com o token, revogue o que se
+perdeu, registre outro, e desligue a variável.
+
+**A credencial fica presa ao domínio.** O `rp_id` sai de `PORTAL_URL_PUBLICA`;
+trocar o endereço público invalida os passkeys registrados no anterior, e o
+caminho de volta é o mesmo `PORTAL_ACESSO_LEGADO=1`.
+
+## Conferir a compressão do bronze, depois da primeira captura nova
+
+O [ADR-21](arquitetura.md#adr-21--bronze-volta-a-ser-comprimido-pelo-postgres-e-não-pela-aplicação)
+religou a compressão do TOAST na coluna do payload. `STORAGE` vale para valor
+**novo**, então o efeito só aparece depois de uma captura posterior ao deploy —
+as antigas continuam como estão, byte a byte, e é assim que tem de ser.
+
+```sql
+SELECT pg_size_pretty(sum(octet_length(payload)))   AS arquivo,
+       pg_size_pretty(sum(pg_column_size(payload))) AS em_disco
+FROM bronze_captura WHERE dataset_chave = 'b3_instrumentos';
+```
+
+Medido em laboratório, um CSV como esse comprime uma ordem de grandeza. Se o
+`pglz` render menos de 4×, o ADR-21 diz o que fazer — e a alternativa do gzip na
+aplicação volta à mesa com número em vez de suposição.
 
 ## Verificação depois do DNS propagar
 
@@ -103,8 +150,17 @@ importa preservar:
 ```bash
 python -m app.cli ingerir cvm_dfp 2023
 python -m app.cli ingerir cvm_cadastro atual
+python -m app.cli ingerir b3_instrumentos 2026-08-04   # o cadastro de hoje
 python -m app.cli verificar
 ```
+
+O cadastro de instrumentos merece um parágrafo à parte, porque ele é o mais
+caro em bronze de tudo que este hub ingere: ~33 MB por pregão contra ~0,5 MB do
+COTAHIST. Carregar dias antigos **acumula**, não substitui — a identidade é o
+ticker, e cada dia antigo insere as séries que já saíram do cadastro atual sem
+sobrescrever o estado de hoje. Isso é o que dá estilo de exercício às cadeias
+retroativas, e é também o que multiplica o bronze. Decida quantos dias você
+quer antes de carregá-los.
 
 Depois disso, `python -m app.cli recomputar` reconstrói todo o derivado do
 bronze e compara a digital antes e depois. É o caminho de volta de qualquer

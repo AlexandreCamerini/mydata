@@ -178,6 +178,7 @@ def ler_csv(
     separador: str,
     contexto: dict[str, str] | None = None,
     extras: dict[str, Any] | None = None,
+    preambulo: int = 0,
 ) -> Iterator[dict[str, Any]]:
     """Lê um CSV e devolve dicts já mapeados para os nomes de destino.
 
@@ -187,9 +188,19 @@ def ler_csv(
     entram sem uma linha de código específica da CVM.
 
     `extras` são constantes do carregamento (id da captura, nome do arquivo).
+
+    `preambulo` são linhas a descartar antes do cabeçalho. Existe porque há
+    fonte que abre o arquivo com um aviso — "Status do Arquivo: Final" — e o
+    cabeçalho real vem depois. Sem declarar isso, a primeira linha vira nome
+    de coluna e o mapeamento inteiro deixa de casar, com erro que fala de
+    coluna ausente e não de linha a mais.
     """
     texto = raw.decode(encoding, errors="strict")
-    leitor = csv.DictReader(io.StringIO(texto), delimiter=separador)
+    fluxo = io.StringIO(texto)
+    for _ in range(max(0, preambulo)):
+        if not fluxo.readline():
+            break
+    leitor = csv.DictReader(fluxo, delimiter=separador)
     cabecalho = {(c or "").strip().upper() for c in (leitor.fieldnames or [])}
     return mapear(iter(leitor), colunas, cabecalho, contexto, extras)
 

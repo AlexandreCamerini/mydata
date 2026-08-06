@@ -153,6 +153,34 @@ dividendos, e `hv21`/`hv63` nulas até haver 21 e 63 pregões carregados.
 limiares de liquidez, score educacional e backtest de regras de trailing. São
 juízo de produto, não fato de mercado.
 
+### O cadastro de instrumentos da B3 — pendente do Alex
+
+**Aberto em 05/08/2026**, por mensagem da sessão do `b3-agente`. Ela propõe o
+**InstrumentsConsolidated** como fonte de opções, e a ingestão dele pertence ao
+MyData: dado que o mercado publicou é de um lugar só.
+
+**Adotado em 05/08/2026** pelo
+[ADR-20](arquitetura.md#adr-20--o-cadastro-de-instrumentos-entra-como-classe-própria-e-não-substitui-o-cotahist),
+sob o mesmo uso pessoal do COTAHIST — a restrição de redistribuição continua
+valendo, então a classe não vai para consumidor externo.
+
+**O que o b3-agente ganha, e por onde:** `estilo_exercicio` e `strike_cadastro`
+em cada linha de `/v1/opcoes/{ticker}`, e a travessia `negociacao_cadastro` em
+`/v1/correlacoes/`. Pela API deste hub — não baixando o arquivo em paralelo,
+que criaria duas capturas do mesmo dado com proveniências diferentes.
+
+O cadastro roda às 23:30, meia hora antes do COTAHIST: chegar depois deixaria
+a noite com a negociação publicada e o estilo ausente.
+
+Duas coisas da mensagem foram verificadas e não conferem com este repositório:
+a pendência "opções: Pendente" é do outro projeto — aqui a cadeia está fechada
+desde 04/08 pelo COTAHIST — e o pedido de trocar de fonte por causa de erros
+não se sustenta: o cadastro conserta 10 dos 941 prêmios impossíveis.
+
+Sobre o conteúdo do arquivo, porém, **a mensagem estava certa em tudo que
+afirmou** e as contagens bateram na medição. Vale registrar, já que a seção
+seguinte registra os dois erros anteriores do mesmo canal.
+
 ### Como estas respostas chegaram
 
 Duas por mensagem de outra sessão de trabalho — a do `b3-agente` —, afirmando

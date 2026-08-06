@@ -1,7 +1,10 @@
 // Cliente da API de administração. Sem biblioteca: fetch resolve, e cada
 // dependência a menos é imagem menor no Railway.
 
+import type { LinhagemDeAtributo } from "./objetos";
+
 export type Resposta<T> = { dados: T };
+export type { LinhagemDeAtributo } from "./objetos";
 
 export class ErroApi extends Error {
   codigo: string;
@@ -89,6 +92,50 @@ export const api = {
   gestao: () => pedir<Resposta<Gestao>>("/admin/api/gestao"),
   fases: (execucao: number) =>
     pedir<Resposta<Fase[]>>(`/admin/api/execucoes/${execucao}/fases`),
+
+  // Espelhos de /v1/meta/linhagem, /v1/meta/correlacoes e /v1/correlacoes.
+  // A resposta é a mesma; o que muda é quem pode chamar. A versão em /v1
+  // exige chave de API — e a interface de configuração, que roda sem chave
+  // nenhuma em desenvolvimento, recebia dali a mensagem sobre o cabeçalho
+  // X-API-Key.
+  linhagem: (classe: string, atributo: string) =>
+    pedir<Resposta<LinhagemDeAtributo>>(
+      `/admin/api/linhagem?classe=${encodeURIComponent(classe)}` +
+        `&atributo=${encodeURIComponent(atributo)}`,
+    ),
+  correlacoes: () => pedir<Resposta<Correlacao[]>>("/admin/api/correlacoes"),
+  contrato: (classe: string) =>
+    pedir<Resposta<Contrato>>(
+      `/admin/api/contrato?classe=${encodeURIComponent(classe)}`,
+    ),
+
+  // Camada de acesso (ADR-19). Registrar exige sessão — é o que impede que
+  // um visitante registre o próprio autenticador e vire dono.
+  acesso: () => pedir<Resposta<EstadoDeAcesso>>("/admin/api/acesso"),
+  opcoesDePasskey: (rotulo: string) =>
+    pedir<OpcoesDeRegistro>("/admin/api/acesso/passkeys/opcoes", {
+      method: "POST",
+      body: JSON.stringify({ rotulo }),
+    }),
+  registrarPasskey: (rotulo: string, credencial: unknown) =>
+    pedir<Resposta<{ credential_id: string }>>("/admin/api/acesso/passkeys", {
+      method: "POST",
+      body: JSON.stringify({ rotulo, credencial }),
+    }),
+  revogarPasskey: (credentialId: string) =>
+    pedir<Resposta<{ restantes: number }>>(
+      `/admin/api/acesso/passkeys/${encodeURIComponent(credentialId)}`,
+      { method: "DELETE" },
+    ),
+  encerrarSessao: (id: string) =>
+    pedir<Resposta<unknown>>(
+      `/admin/api/acesso/sessoes/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    ),
+  atravessar: (chave: string, limite = 5) =>
+    pedir<{ dados: Record<string, unknown>[] }>(
+      `/admin/api/correlacoes/${encodeURIComponent(chave)}?limite=${limite}`,
+    ),
 
   fontes: () => pedir<Resposta<Fonte[]>>("/admin/api/fontes"),
   salvarFonte: (f: Partial<Fonte>) =>
@@ -370,8 +417,121 @@ export type Frescor = {
   sla_horas: number | null;
   idade_horas: number | null;
   situacao: "em_dia" | "atrasada" | "sem_carga";
-  ultima_publicacao: { id: number; dataset_chave: string; janela: string } | null;
-  ultima_falha: { id: number; status: string; erro: string | null } | null;
+  // O tipo estava incompleto: a consulta em observabilidade.frescor já
+  // devolvia `terminado_em` e `linhas_silver`, e a falha já vinha com janela e
+  // dataset. Faltando aqui, a data absoluta da última publicação era
+  // inalcançável pela tela — o achado 2.4 tinha um segundo motivo além do
+  // desenho.
+  ultima_publicacao: {
+    id: number;
+    dataset_chave: string;
+    janela: string;
+    terminado_em: string | null;
+    linhas_silver: number | null;
+  } | null;
+  ultima_falha: {
+    id: number;
+    dataset_chave: string;
+    janela: string;
+    status: string;
+    erro: string | null;
+    terminado_em: string | null;
+  } | null;
+};
+
+/** O perfil ODCS de uma classe — o que ela promete a quem integra.
+ *
+ * A rota existia desde a etapa 7 e nenhuma tela a lia (achado 3.4 da
+ * auditoria): contrato publicado que ninguém publica não é contrato. */
+export type Contrato = {
+  apiVersion: string;
+  id: string;
+  name: string;
+  version: number;
+  status: string;
+  description: { purpose: string | null; usage: string };
+  schema: {
+    name: string;
+    physicalName: string;
+    properties: {
+      name: string;
+      logicalType: string;
+      required: boolean;
+      description: string | null;
+      unit: string | null;
+      customProperties: {
+        precedencia: string[];
+        precedenciaHerdada: boolean;
+        disputado: boolean;
+        origens: string[];
+      };
+    }[];
+  }[];
+  quality: {
+    name: string;
+    rule: string;
+    severity: string;
+    impedePublicacao: boolean;
+    tolerance: number;
+    description: string | null;
+    customProperties: { mapeamento: string };
+  }[];
+  slas: { property: string; value: number; unit: string; description: string }[];
+  customProperties: {
+    identidade: string[];
+    resolucao: string;
+    precedencia: string[];
+    fontes: string[];
+    calculados: unknown[];
+    publicacao: { versao: number; publicado_em: string } | null;
+    original: string;
+  };
+};
+
+export type Passkey = {
+  credential_id: string;
+  rotulo: string;
+  transportes: string | null;
+  criada_em: string | null;
+  ultimo_uso_em: string | null;
+  sign_count: number;
+};
+
+export type Sessao = {
+  id: string;
+  origem: string;
+  criada_em: string | null;
+  expira_em: string | null;
+  ultimo_uso_em: string | null;
+};
+
+export type EstadoDeAcesso = {
+  passkeys: Passkey[];
+  sessoes: Sessao[];
+  token_configurado: boolean;
+  /** O formulário de token aparece na tela de entrada? */
+  token_no_formulario: boolean;
+  acesso_legado: boolean;
+  /** O `rp_id` do WebAuthn — o domínio a que a credencial fica presa. */
+  identidade: string;
+};
+
+/** O que `py_webauthn` serializa: binário em base64url, não bytes. */
+export type OpcoesDeRegistro = {
+  challenge: string;
+  rp: { id: string; name: string };
+  user: { id: string; name: string; displayName: string };
+  excludeCredentials?: { id: string; type: string }[];
+  [k: string]: unknown;
+};
+
+export type Correlacao = {
+  chave: string;
+  origem: string;
+  destino: string;
+  por: { origem: string; destino: string };
+  relacionamento: string | null;
+  descricao: string | null;
 };
 
 export type Fase = {
@@ -572,9 +732,20 @@ export type Gestao = {
     situacao: string | null;
     idade_horas: number | null;
     sla_horas: number | null;
-    ultima_publicacao: string | null;
+    ultima_publicacao: { id: number; terminado_em: string | null } | null;
+    ultima_falha: {
+      id: number;
+      dataset_chave: string;
+      janela: string;
+      status: string;
+      erro: string | null;
+      terminado_em: string | null;
+    } | null;
   }[];
-  bronze: { capturas: number; bytes: number };
+  /** `bytes` é o tamanho dos arquivos publicados; `ocupado_bytes`, o
+   *  espaço em disco. Com o TOAST comprimindo (ADR-21) as duas divergem,
+   *  e `ocupado_bytes` é nulo fora do Postgres. */
+  bronze: { capturas: number; bytes: number; ocupado_bytes: number | null };
   consumidores: {
     consumidor: string;
     prefixo: string;

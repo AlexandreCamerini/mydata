@@ -748,6 +748,304 @@ quando o prêmio está fora do que o modelo alcança: o fechamento de contrato
 ilíquido é o último negócio, que pode ser de horas antes e ficar abaixo do
 valor intrínseco. No pregão medido isso é 10% dos contratos.
 
+### ADR-19 — passkey entra ao lado do token, não no lugar
+
+**Contexto.** `PORTAL_ADMIN_TOKEN` protege as duas superfícies humanas. Ele é
+um segredo de 43 caracteres digitado à mão, igual para a apresentação e para a
+configuração. A auditoria (§5.2 de
+[auditoria-apresentacao.md](auditoria-apresentacao.md)) registrou quatro
+faltas: não há identidade, não há revogação individual, o segredo é digitado, e
+não expira de forma útil.
+
+O que ele *tem* também precisa ficar registrado, para o redesenho não perder
+por descuido: entropia suficiente, comparação em tempo constante, cookie
+`HttpOnly` `SameSite=Lax`, CORS negado por omissão, e nada em `localStorage`.
+Para dono único, isso não era frágil — era incômodo.
+
+**Alternativas.** Filtro obrigatório: nada que cobre por uso, e nada que
+dependa de terceiro para o dono entrar no próprio sistema.
+
+| Alternativa | Por que não venceu |
+|---|---|
+| OIDC de provedor | Identidade real, mas o dono passa a depender de terceiro para entrar. Gratuito hoje não é gratuito por decisão nossa |
+| Link mágico por e-mail | Exige serviço de envio — cai na regra de custo |
+| Token melhorado (prefixo, rotação, expiração) | Endereça expiração e revogação e **não** endereça a queixa: continua sendo segredo digitado |
+| **Passkey / WebAuthn** | Elimina o segredo digitado sem terceiro. É a única que faz as duas coisas |
+
+**Decisão.** Passkey como caminho humano, **ao lado do token, nunca no lugar**.
+
+O token continua funcionando até o Alex verificar o caminho novo num navegador
+limpo e mandar remover. É isso que torna a decisão reversível — e uma decisão
+que se desfaz sozinha não precisa parar a construção para ser tomada.
+
+O que passkey resolve, item a item: **identidade** vira o rótulo do
+autenticador registrado; **revogação individual** vira apagar uma credencial
+sem derrubar as outras; **segredo digitado** desaparece — o navegador assina um
+desafio; **expiração** deixa de ser problema porque não há segredo de longa
+vida a expirar.
+
+**Consequências.**
+
+- Tabela `cfg_passkey`: `credential_id`, `public_key`, `sign_count`, rótulo,
+  `criada_em`, `ultimo_uso_em`. Revogação é apagar a linha.
+- Dependência nova: `webauthn` (py_webauthn), MIT, Python puro, sem serviço e
+  sem cobrança. Não é add-on nem tier pago; fica registrada aqui porque
+  dependência nova é decisão, mesmo quando gratuita.
+- `X-Admin-Token` **permanece** para `curl` e script, que não têm navegador e
+  portanto não têm passkey. Quem opera por terminal não perde nada.
+- Sessão, cookie e defesa de CSRF ficam **exatamente como estão**. Muda quem
+  emite a sessão, não o que ela é.
+- A chave de API por consumidor em `/v1` não é tocada. São mecanismos
+  diferentes para públicos diferentes, e confundi-los é o erro fácil aqui.
+
+**O que fica registrado como risco, e como sai dele.**
+
+O risco desta decisão é trancar o dono fora do próprio sistema — autenticador
+perdido, navegador trocado, dispositivo formatado. Três saídas, em ordem:
+
+1. **Mais de um autenticador registrado.** O caminho normal, e o que a tela de
+   registro deve encorajar explicitamente.
+2. **`PORTAL_ACESSO_LEGADO=1`** reabilita o caminho do token, documentada em
+   [deploy-railway.md](deploy-railway.md). É a diferença entre reversível no
+   papel e reversível às onze da noite pelo painel do Railway.
+3. **Nada de recuperação por e-mail.** Exigiria serviço de envio, e a saída 2
+   já cobre o caso sem custo.
+
+**O que esta decisão não resolve.** Passkey autentica o navegador do dono e
+não tem nada a dizer sobre consumo por máquina. Se um dia houver mais de uma
+pessoa operando, identidade por autenticador não é o mesmo que identidade por
+usuário, e isso vira decisão nova.
+
+
+### ADR-20 — o cadastro de instrumentos entra como classe própria, e não substitui o COTAHIST
+
+**Contexto.** Uma descoberta vinda da sessão do b3-agente apontou o
+**InstrumentsConsolidated** do portal `arquivos.b3.com.br`: cadastro completo
+dos instrumentos listados, servido diariamente sem autenticação e sem CAPTCHA.
+O pedido que veio junto era trocar a fonte de opções, porque a atual estaria
+"chegando com muitos erros".
+
+**A premissa foi medida antes de ser aceita.** Cruzando o arquivo de
+04/08/2026 com as 11.321 séries do nosso pregão de 31/07:
+
+| Campo nosso × cadastro | Divergências |
+|---|---|
+| Vencimento | 0 de 10.728 |
+| Tipo (call/put) | 0 |
+| Ativo-objeto | 0 |
+| Strike | 666 (6%) |
+
+As 593 séries que não casaram venciam em 31/07 e 03/08 — expiraram antes da
+data do cadastro. A cobertura das séries vivas é 100%, e o zero na coluna de
+ativo-objeto confirma de forma independente a resolução por `CODISI` do
+[ADR-18](#adr-18--cotahist-entra-sob-uso-pessoal-e-a-classe-é-negociação).
+
+**O cadastro não conserta os erros que motivaram o pedido.** Dos 941 prêmios
+abaixo do piso do modelo, usar o strike do cadastro resolve **10**. Os três
+defeitos reais eram outros, e foram corrigidos sem trocar de fonte: `hv21`
+nula por faltar histórico (dois pregões carregados, janela de 21), 584 séries
+vencendo no próprio pregão exibidas como nulo mudo, e o motivo do nulo não
+declarado. Um cadastro não tem preço, e o prêmio impossível é problema de
+preço — o último negócio do dia comparado com o fechamento do objeto.
+
+**O que ele acrescenta, e que o COTAHIST estruturalmente não pode dar.**
+
+- **`OptnStyle`.** O COTAHIST não diz estilo de exercício. O cadastro diz, e
+  `CFICd` confirma: **não existe put americana** — 68.068 europeias, zero
+  americanas. Só as calls se dividem (42.909 americanas contra 25.158
+  europeias). Isso reduz muito o problema: call americana sobre papel sem
+  provento vale o mesmo que a europeia, então a limitação real continua sendo
+  a ausência de dividendos que `app/motor/nucleos.py` já declara.
+- **A cadeia completa.** O COTAHIST traz só série que negociou. Série listada
+  e parada não existe no nosso dado, e nenhuma agregação sobre "quantas séries
+  existem" é respondível hoje.
+- **Conferência independente** do strike corrigido, do vencimento e do
+  ativo-objeto — as três colunas de zero divergência acima.
+
+**Alternativas.**
+
+| Alternativa | Por que não venceu |
+|---|---|
+| Substituir o COTAHIST | Não tem preço. Não é substituto, é complemento |
+| Não adotar | Deixa `estilo_exercicio` inalcançável e a cadeia incompleta, sem que nada mais preencha essas lacunas |
+| Adotar dentro de `negociacao_b3`, por precedência | Confundiria cadastro com evento de negociação. [ADR-12](#adr-12--resolução-multi-fonte-é-derivação-não-sobrescrita) resolve atributo disputado entre fontes da *mesma* classe; aqui são coisas diferentes que se juntam, não que disputam |
+| **Classe `instrumento_b3` própria, ligada por correlação** | Mantém cada coisa no que ela é, e a travessia fica declarada em `cfg_correlacao` em vez de embutida numa vista |
+
+**Decisão.** O Alex autorizou em 05/08/2026. Adotado como classe
+`instrumento_b3`, sob **o mesmo uso pessoal** do ADR-18: os Termos de Uso do
+portal são os mesmos que já barraram a redistribuição do COTAHIST. A restrição
+que continua valendo é a de *redistribuição* — a classe não vai para consumidor
+externo, e abrir a API a terceiros reabre esta decisão em vez de herdá-la.
+
+**Consequências de modelo.**
+
+- **Identidade `TckrSymb`, não `TckrSymb` + data.** O arquivo é uma fotografia
+  diária de 154.606 instrumentos; guardar uma linha por dia são ~38 milhões de
+  linhas por ano em silver, contra 2,11 GB que o banco inteiro ocupa hoje. A
+  história fica em bronze, que é imutável e reconstrói qualquer dia.
+- **Guarda de recarga fora de ordem.** Com identidade sem data, reingerir um
+  dia antigo sobrescreveria o estado atual com o velho. É o mesmo defeito que
+  o escopo da escrita já corrigiu para campo de janela, e precisa do mesmo
+  tipo de guarda: só aplica quando `RptDt` for maior ou igual ao guardado.
+- **Sem filtro na carga.** Entram os 154.606 instrumentos, não só as 138.561
+  opções. Filtrar seria o motor decidindo qual linha do arquivo oficial merece
+  existir — o mesmo argumento que fez a classe ser `negociacao_b3` e não
+  `opcao`. Opção continua sendo recorte, e recorte é vista.
+- **A ligação com a negociação é correlação declarada**, por código de
+  negociação. `gold_opcoes` ganha `estilo_exercicio` pela travessia, não por
+  uma coluna copiada.
+
+**Consequências de motor.** Construídas em 05/08/2026, e todas genéricas —
+nenhuma cita a B3 dentro de `app/`.
+
+- **Transporte em dois passos.** `GET requestname?fileName=&date=` devolve um
+  JSON com `token`; `GET download/?token=` devolve o CSV. Os transportes hoje
+  são `http_zip` e `http_json`. O novo precisa ser **genérico** — o campo do
+  token e o segundo endereço declarados em `cfg_fonte` — e não um transporte
+  chamado "b3": `app/motor/` não sabe o que é fonte específica, e um nome de
+  fonte no motor quebra a regra do engine único.
+- **Preâmbulo antes do cabeçalho.** A primeira linha é "Status do Arquivo:
+  Final"; o cabeçalho real é a segunda. `ler_csv` hoje assume cabeçalho na
+  primeira linha, e o salto precisa ser declarado, não presumido.
+- **Vírgula decimal já resolvida.** `ExrcPric` vem como `5,99`, e o formato
+  `decimal_ptbr` já existe em `app/motor/parsing.py`. Nada a fazer.
+- **Duas linhas repetidas** no arquivo de 04/08 (`GMATT599`, `ONCOB418`),
+  idênticas em todos os 52 campos. Não é conflito de identidade; é linha
+  duplicada, e o upsert por identidade a absorve.
+- **`AsstQtnQty`, `UndrlygTckrSymb1` e `CtrctMltplr` vêm 100% vazios** no
+  recorte de opções. Declará-los como colunas criaria três atributos que nunca
+  se preenchem.
+
+**O que a construção acrescentou ao que estava previsto.**
+
+- A guarda de recarga fora de ordem virou `politica_versao` no mapeamento:
+  `nao_retroceder:<coluna>` ao lado do `max_versao` que já era o padrão. O
+  campo existia em `cfg_dataset` desde a primeira migração e nunca era lido —
+  agora ele distingue fonte que publica **evento** de fonte que publica
+  **fotografia**.
+- As regras de qualidade precisam ser um `SELECT` das linhas erradas, não a
+  condição de erro. Escrevi as duas como condição, e as duas dispararam de uma
+  vez na primeira carga — o motor recusa o que não é `SELECT`, e a recusa
+  chegou como violação em vez de erro de configuração.
+- A vista `gold_opcoes` ganhou `LEFT JOIN`, não `JOIN`. Sem o cadastro
+  carregado a coluna fica nula e a cadeia continua respondendo; com `JOIN`, a
+  ausência de uma fonte auxiliar apagaria a classe principal.
+- Os 666 strikes divergentes que a avaliação mediu contra o pregão de 31/07
+  viraram **zero** quando pregão e cadastro passaram a ser do mesmo dia. Eram a
+  defasagem de quatro dias entre as duas capturas, como a avaliação suspeitava
+  e não podia provar.
+
+**O custo que a avaliação não mediu, e a carga revelou.** A conta do ADR olhou
+silver — os 38 milhões de linhas por ano que a identidade sem data evita — e
+não olhou bronze. Medido em 05/08/2026, carregando os 30 pregões de 24/06 a
+04/08:
+
+| | por pregão | 30 pregões | 252 pregões (1 ano) |
+|---|---|---|---|
+| `b3_instrumentos` | 33,6 MB | **1.009 MB** | **8,5 GB** |
+| `b3_cotahist` | 0,5 MB | 14 MB | 0,13 GB |
+
+O cadastro é **71× o COTAHIST em bronze**, e um ano dele seria quatro vezes o
+banco de produção inteiro, que hoje ocupa 2,11 GB. Isso é decisão de custo sob
+a regra do Railway, e fica registrada aqui como pendente.
+
+O que **não** resolve: carregar menos dias. Testei três dias (o mais antigo, um
+do meio e o de hoje) contra os trinta — dão 71,7% de cobertura, não os 100%.
+As séries somem do cadastro em datas espalhadas pelo mês, não de uma vez, então
+não há um punhado de fotografias que substitua a sequência.
+
+O que resolve virou o [ADR-21](#adr-21--bronze-volta-a-ser-comprimido-pelo-postgres-e-não-pela-aplicação),
+e a causa é mais específica do que "o arquivo é grande": a migração `0003_bronze`
+desliga a compressão do Postgres na coluna do payload, com o comentário *"ZIP já
+vem comprimido"*. Era verdade enquanto toda fonte entregava ZIP. Esta entrega
+CSV puro, e a premissa quebrou sem ninguém perceber.
+
+**O que esta decisão não resolve.** Preço. O mesmo portal serve
+`TradeInformationConsolidated`, que é a mesma família de market data do
+COTAHIST e presumivelmente a mesma restrição — mas isso é decisão separada, e
+herdar esta sem medir seria repetir o erro que este ADR começou corrigindo.
+
+
+### ADR-21 — bronze volta a ser comprimido pelo Postgres, e não pela aplicação
+
+**Contexto.** A migração `0003_bronze` declara
+`ALTER COLUMN payload SET STORAGE EXTERNAL`, com o comentário que explica a
+escolha: *"ZIP já vem comprimido: não vale a pena o Postgres tentar de novo"*.
+`EXTERNAL` guarda o valor fora da linha **e desliga a compressão do TOAST**.
+
+Era verdade enquanto toda fonte entregava ZIP. O
+[ADR-20](#adr-20--o-cadastro-de-instrumentos-entra-como-classe-própria-e-não-substitui-o-cotahist)
+trouxe a primeira que entrega **CSV puro**, e a premissa quebrou sem que
+ninguém percebesse: são 33,6 MB por pregão contra 0,5 MB do COTAHIST, 8,5 GB
+por ano de operação, contra os 2,11 GB que o banco inteiro ocupa hoje.
+
+**O que foi medido**, em 05/08/2026, sobre o arquivo real de 04/08:
+
+| | tamanho | ganho |
+|---|---|---|
+| Cadastro (CSV, 35,0 MB) — gzip -6 | 2,15 MB | 16,3× |
+| Cadastro (CSV, 35,0 MB) — LZ77 com janela de 4 KB | 2,05 MB | 17,1× |
+| COTAHIST (ZIP, 0,53 MB) — gzip -6 | 0,53 MB | 1,0× |
+| COTAHIST (ZIP, 0,53 MB) — LZ77 com janela de 4 KB | 0,53 MB | 1,0× |
+
+Duas leituras. A primeira: no ZIP não há nada a ganhar, e o comentário de 2026
+continua certo — **para aquela fonte**. A segunda, que é a que decide: um CSV
+tão repetitivo quanto este não precisa de janela grande. Uma janela de 4 KB
+alcança o mesmo que o gzip, e 4 KB é a ordem de grandeza do histórico do
+`pglz`, o compressor que o TOAST usa.
+
+**Alternativas.**
+
+| Alternativa | Por que não venceu |
+|---|---|
+| Deixar como está | 8,5 GB/ano em uma fonte só, sob a regra de custo do Railway |
+| Comprimir na aplicação, com gzip | Ganha o mesmo que o TOAST ganharia, e cobra por isso: coluna nova dizendo a codificação de cada linha, descompressão na leitura, e `sha256`/`tamanho_bytes` passando a significar coisas diferentes de onde são lidos |
+| Comprimir só a fonte nova | Duas regras de armazenamento para a mesma tabela, decididas por quem escreveu o dataset e não pelo que o dado é |
+| **`SET STORAGE EXTENDED` na coluna** | Uma linha. O `pglz` desiste sozinho no que já vem comprimido, então o ZIP não paga nada, e o CSV paga o que tem a pagar |
+
+**Decisão.** O Alex aprovou em 05/08/2026. `STORAGE EXTENDED` em
+`bronze_captura.payload`, na migração `0017_bronze_comprimido` — só
+`so_postgres`, porque o DuckDB não tem o conceito.
+
+**Por que isto não fere a imutabilidade.**
+
+- `STORAGE` decide como o Postgres guarda **valores novos**. As capturas já
+  gravadas ficam exatamente como estão, byte a byte. Não há reescrita, e a
+  trigger `trg_bronze_imutavel` continua recusando `UPDATE` e `DELETE`.
+- O que o consumidor recebe não muda: `payload_de` devolve os mesmos bytes, o
+  `sha256` continua sendo o do arquivo que a fonte publicou, e
+  `/v1/capturas/{id}/arquivo` continua servindo o original conferível.
+- Compressão do TOAST é transparente ao SQL. Nenhuma consulta muda.
+
+**O que fica em aberto, e é o número que confirma ou desmente.** A tabela acima
+mede LZ77 **com Huffman** — é `zlib` com a janela reduzida. O `pglz` não tem
+Huffman, então 17,1× é **teto, não estimativa**. O ganho real só se mede em
+Postgres, e não há Postgres nesta máquina para medir:
+
+```sql
+SELECT pg_size_pretty(sum(octet_length(payload)))   AS bruto,
+       pg_size_pretty(sum(pg_column_size(payload))) AS guardado
+FROM bronze_captura WHERE dataset_chave = 'b3_instrumentos';
+```
+
+Rodar isso em produção depois da primeira captura nova responde. Se o `pglz`
+decepcionar — digamos, menos de 4× — a alternativa do gzip na aplicação volta à
+mesa, agora com número em vez de suposição. Começar pela linha única é o que
+mantém a decisão barata de desfazer.
+
+**Consequência para a medição de custo, resolvida junto.** A gestão somava
+`tamanho_bytes` e chamava isso de "espaço do original". Com o TOAST
+comprimindo, esse número passa a ser o tamanho do arquivo publicado e não o
+espaço ocupado. Agora são dois cartões: **Arquivos originais**, somados como a
+fonte os publicou, e **Bronze em disco**, de `pg_total_relation_size` — nulo
+fora do Postgres, com o traço dizendo que ninguém mediu em vez de fingir zero.
+
+**O que esta decisão não resolve.** O volume. Comprimir 8,5 GB/ano para algo
+entre 0,5 e 2 GB/ano adia a pergunta; não a responde. Se o cadastro diário virar
+o maior item do banco mesmo comprimido, a pergunta seguinte é se ele precisa ser
+diário — e essa é outra decisão, com o dado de uso na mão.
+
+
 ---
 
 ## 14. Questões em aberto

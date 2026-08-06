@@ -597,3 +597,31 @@ def test_chave_sem_classes_continua_lendo_tudo(cliente, monkeypatch):
     minha = {"X-API-Key": r.json()["dados"]["chave"]}
     assert cliente.get("/v1/empresas/9512/demonstracoes",
                        headers=minha).status_code == 200
+
+
+def test_contrato_tem_espelho_no_plano_de_controle(cliente):
+    """Achado 3.4: a rota existia e nenhuma tela a lia.
+
+    O espelho em `/admin/api` existe pelo mesmo motivo dos outros — a interface
+    de configuração roda sem chave de API — e responde o mesmo."""
+    a = cliente.get("/v1/meta/contrato?classe=empresa").json()["dados"]
+    b = cliente.get("/admin/api/contrato?classe=empresa").json()["dados"]
+    assert a == b
+    assert a["customProperties"]["identidade"] == ["cd_cvm"]
+
+
+def test_contrato_de_classe_inexistente_e_404_nos_dois(cliente):
+    for rota in ("/v1/meta/contrato?classe=nao_existe",
+                 "/admin/api/contrato?classe=nao_existe"):
+        r = cliente.get(rota)
+        assert r.status_code == 404, rota
+        assert r.json()["erro"]["codigo"] == "classe_nao_encontrada"
+
+
+def test_contrato_diz_a_consequencia_e_nao_so_a_severidade(cliente):
+    """O consumidor não precisa saber que a regra é "bloqueia"; precisa saber
+    que todo dado publicado passou por ela."""
+    d = cliente.get("/admin/api/contrato?classe=demonstracao_financeira").json()["dados"]
+    assert d["quality"], "a classe tem regras declaradas"
+    for q in d["quality"]:
+        assert q["impedePublicacao"] == (q["severity"] == "bloqueia")

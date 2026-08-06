@@ -129,7 +129,7 @@ class Classe:
 class Fonte:
     chave: str
     nome: str
-    tipo_transporte: str           # http_zip | http_csv | http_json
+    tipo_transporte: str           # ver TRANSPORTES, abaixo
     url_template: str
     encoding: str = "utf-8"
     separador: str = ";"
@@ -164,9 +164,19 @@ def _aposentar(sink: Sink, tabela: str, chave: str) -> int:
 # --------------------------------------------------------------------------
 # Fonte
 # --------------------------------------------------------------------------
+# `http_token` são duas requisições para um arquivo: a primeira devolve um
+# bilhete em JSON, a segunda o troca pelos bytes. O nome do campo e o segundo
+# endereço vivem nos parâmetros do mapeamento, não aqui — um transporte que
+# soubesse o nome de uma fonte específica quebraria o engine único.
+TRANSPORTES = ("http_zip", "http_csv", "http_json", "http_token")
+
+
 def salvar_fonte(sink: Sink, f: Fonte, autor: str = "sistema") -> int:
-    if f.tipo_transporte not in ("http_zip", "http_csv", "http_json"):
-        raise ErroConfiguracao(f"tipo_transporte desconhecido: {f.tipo_transporte}")
+    if f.tipo_transporte not in TRANSPORTES:
+        raise ErroConfiguracao(
+            f"tipo_transporte desconhecido: {f.tipo_transporte}. "
+            f"Conhecidos: {', '.join(TRANSPORTES)}."
+        )
     if f.formato_registro not in ("csv", "larguras"):
         raise ErroConfiguracao(
             f"formato_registro desconhecido: {f.formato_registro}. "

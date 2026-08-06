@@ -83,8 +83,20 @@ STAGING = "_stg_carga"
 
 
 def sql_upsert_da_staging(
-    tabela: str, campos: list[str], chave_natural: list[str], stg: str = STAGING
+    tabela: str, campos: list[str], chave_natural: list[str], stg: str = STAGING,
+    nao_retroceder: str | None = None,
 ) -> str:
+    """O upsert da staging para a tabela alvo.
+
+    `nao_retroceder` nomeia a coluna que não pode andar para trás. Existe para
+    fonte que publica **fotografia**, não evento: um cadastro diário cuja
+    identidade é o instrumento, sem a data. Aí reingerir um dia antigo
+    sobrescreveria o estado atual com o velho — e em silêncio, porque o upsert
+    não tem como saber que a linha que chegou é mais antiga que a guardada.
+
+    É o mesmo defeito que o escopo da escrita já corrigiu para campo de
+    janela, e a mesma resposta: a carga declara o que ela é.
+    """
     lista = ", ".join(campos)
     atualizaveis = [c for c in campos if c not in chave_natural]
     resolucao = (
@@ -92,6 +104,13 @@ def sql_upsert_da_staging(
         if atualizaveis
         else "DO NOTHING"
     )
+    if atualizaveis and nao_retroceder:
+        if nao_retroceder not in campos:
+            raise ValueError(
+                f"nao_retroceder aponta para '{nao_retroceder}', que não está "
+                f"entre as colunas carregadas: {lista}"
+            )
+        resolucao += f" WHERE {tabela}.{nao_retroceder} <= excluded.{nao_retroceder}"
     return (
         f"INSERT INTO {tabela} ({lista}) SELECT {lista} FROM ("
         f"  SELECT {lista}, row_number() OVER ("
@@ -118,7 +137,7 @@ class Sink(Protocol):
     def executar_muitos(self, sql: str, linhas: Iterable[Iterable[Any]]) -> None: ...
     def carregar_em_lote(
         self, tabela: str, campos: list[str], chave_natural: list[str],
-        linhas: Iterable[Iterable[Any]],
+        linhas: Iterable[Iterable[Any]], nao_retroceder: str | None = None,
     ) -> int: ...
     def consultar(self, sql: str, params: Iterable[Any] = ()) -> list[dict]: ...
     def um(self, sql: str, params: Iterable[Any] = ()) -> dict | None: ...
@@ -163,7 +182,7 @@ class SinkDuckDB:
 
     def carregar_em_lote(
         self, tabela: str, campos: list[str], chave_natural: list[str],
-        linhas: Iterable[Iterable[Any]],
+        linhas: Iterable[Iterable[Any]], nao_retroceder: str | None = None,
     ) -> int:
         # `executemany` do DuckDB é uma execução preparada por linha. Blocos de
         # 200 num único VALUES foram o melhor ponto medido; blocos maiores
@@ -182,7 +201,8 @@ class SinkDuckDB:
             if bloco:
                 self._despejar(marcador, bloco)
             if total:
-                self.executar(sql_upsert_da_staging(tabela, campos, chave_natural))
+                self.executar(sql_upsert_da_staging(tabela, campos, chave_natural,
+                                          nao_retroceder=nao_retroceder))
         finally:
             self.executar(f"DROP TABLE IF EXISTS {STAGING}")
         return total
@@ -271,7 +291,7 @@ class SinkPostgres:
 
     def carregar_em_lote(
         self, tabela: str, campos: list[str], chave_natural: list[str],
-        linhas: Iterable[Iterable[Any]],
+        linhas: Iterable[Iterable[Any]], nao_retroceder: str | None = None,
     ) -> int:
         total = 0
         with self.con.cursor() as cur:
@@ -284,7 +304,8 @@ class SinkPostgres:
                         fluxo.write_row([*linha, total])
                         total += 1
                 if total:
-                    cur.execute(sql_upsert_da_staging(tabela, campos, chave_natural))
+                    cur.execute(sql_upsert_da_staging(tabela, campos, chave_natural,
+                                          nao_retroceder=nao_retroceder))
             finally:
                 cur.execute(f"DROP TABLE IF EXISTS {STAGING}")
         return total

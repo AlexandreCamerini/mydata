@@ -171,6 +171,7 @@ def carregar_arquivo(
         linhas = parsing.ler_csv(
             payload, colunas, fonte["encoding"], fonte["separador"],
             contexto=contexto, extras=extras,
+            preambulo=int(_parametros(ds).get("preambulo", 0)),
         )
 
     primeira = next(iter(linhas), None)
@@ -201,8 +202,20 @@ def carregar_arquivo(
                 )
             yield [linha.get(c) for c in campos]
 
+    # `politica_versao` declara o que a carga é. `max_versao`, o padrão, vale
+    # para fonte que publica evento: cada linha nova é um fato novo e a última
+    # carga manda. `nao_retroceder:<coluna>` vale para fonte que publica
+    # fotografia — um cadastro diário cuja identidade é a coisa cadastrada,
+    # sem a data. Sem a distinção, reingerir um dia antigo devolveria o
+    # cadastro ao estado dele, em silêncio.
+    politica = (ds.get("politica_versao") or "max_versao").strip()
+    nao_retroceder = (
+        politica.split(":", 1)[1].strip()
+        if politica.startswith("nao_retroceder:") else None
+    )
     return sink.carregar_em_lote(
-        ds["tabela_destino"], campos, chave_natural, valores()
+        ds["tabela_destino"], campos, chave_natural, valores(),
+        nao_retroceder=nao_retroceder,
     )
 
 
@@ -213,6 +226,43 @@ def _parametros(ds: dict) -> dict:
     import json as _json
 
     return _json.loads(ds.get("parametros") or "{}")
+
+
+def _trocar_bilhete(url: str, params: dict, baixar) -> tuple[str, str]:
+    """Pede o bilhete e devolve `(endereço do arquivo, nome do arquivo)`.
+
+    O mapeamento declara `campo_token` (onde o bilhete está no JSON) e
+    `url_arquivo` (o segundo endereço, com `{token}`). `nome_arquivo` nomeia a
+    captura: o segundo endereço não traz nome nenhum, e sem isto toda captura
+    se chamaria `download`.
+    """
+    import json as _json
+
+    campo = params.get("campo_token", "token")
+    modelo = params.get("url_arquivo")
+    if not modelo:
+        raise ErroIngestao(
+            "transporte 'http_token' exige o parâmetro 'url_arquivo' no "
+            "mapeamento, com o lugar do bilhete marcado como {token}."
+        )
+    bruto = baixar(url)
+    try:
+        corpo = _json.loads(bruto.decode("utf-8", errors="replace"))
+    except ValueError as e:
+        raise ErroIngestao(
+            f"o primeiro passo de '{url}' não devolveu JSON. "
+            f"Primeiros bytes: {bruto[:80]!r}"
+        ) from e
+    bilhete = corpo.get(campo) if isinstance(corpo, dict) else None
+    if not bilhete:
+        raise ErroIngestao(
+            f"o JSON do primeiro passo não traz '{campo}'. "
+            f"Campos vistos: {', '.join(sorted(corpo))}"
+            if isinstance(corpo, dict) else
+            f"o primeiro passo devolveu {type(corpo).__name__}, não um objeto."
+        )
+    nome = params.get("nome_arquivo", "arquivo.csv")
+    return modelo.format(token=bilhete), nome
 
 
 def _urls_da_janela(fonte: dict, ds: dict, janela: str) -> list[str]:
@@ -310,6 +360,29 @@ def executar(
                         f"{dataset_chave}.json", payload,
                     )
                     res.capturas_novas += int(nova)
+                elif fonte["tipo_transporte"] == "http_token":
+                    # Duas requisições para um arquivo: a primeira devolve um
+                    # JSON com um bilhete, a segunda troca o bilhete pelos
+                    # bytes. O que é da fonte — o nome do campo e o endereço do
+                    # segundo passo — está declarado no mapeamento, como já
+                    # acontece com `caminho_registros` e `paginacao` do
+                    # transporte JSON. Um transporte que soubesse o nome de uma
+                    # fonte específica quebraria o engine único.
+                    for url in _urls_da_janela(fonte, ds, janela):
+                        url_arquivo, nome = _trocar_bilhete(
+                            url, _parametros(ds), baixar
+                        )
+                        payload = baixar(url_arquivo)
+                        _, nova = gravar_bronze(
+                            sink, dataset_chave, janela,
+                            # O bronze guarda o endereço do **pedido**, não o
+                            # do bilhete: o bilhete vence e o segundo endereço
+                            # deixa de responder em minutos, o que faria a
+                            # proveniência apontar para um lugar morto.
+                            credenciais.censurar(url, fonte["credencial_ref"]),
+                            nome, payload,
+                        )
+                        res.capturas_novas += int(nova)
                 else:
                     for url in _urls_da_janela(fonte, ds, janela):
                         nome = url.rsplit("/", 1)[-1].split("?")[0]

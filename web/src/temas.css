@@ -1,0 +1,75 @@
+/* As quatro direções visuais de docs/direcao-apresentacao.md.
+ *
+ * Trocar de direção é trocar qual bloco está descomentado — oito linhas, sem
+ * tocar em componente. É o que permitiu construir sem parar para perguntar:
+ * uma escolha que se desfaz em um arquivo não precisa de portão.
+ *
+ * O nome do token é semântico, nunca cor. `--color-acento`, não
+ * `--color-indigo`: token com nome de cor trava a paleta no código e
+ * transforma a troca de direção em busca-e-substitui. */
+
+/* ---------------------------------------------------------------- A · Arquivo
+ * O registro oficial. Papel morno, tinta profunda, acento índigo.
+ * Construída: é a única das quatro que diz visualmente o que separa este
+ * produto de um agregador — o arquivo original guardado e conferível. */
+@theme {
+  --color-tinta: #14161a;
+  --color-tinta-suave: #4a515c;
+  --color-papel: #faf8f4;
+  --color-superficie: #ffffff;
+  --color-borda: #ddd6c9;
+  --color-acento: #2f3d8f;
+  --color-acento-suave: #eaecf7;
+  --color-alerta: #8a4b00;
+  --color-erro: #99131a;
+  --color-ok: #1c5c34;
+
+  --font-display: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+  --font-corpo: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-numero: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+}
+
+/* ---------------------------------------------------------------- B · Terminal
+ * Superfície escura, densidade de console. A mais bonita para o operador e a
+ * pior para a apresentação, que é leitura e não console.
+@theme {
+  --color-tinta: #e6edf3;        --color-tinta-suave: #8b98a5;
+  --color-papel: #0d1117;        --color-superficie: #161b22;
+  --color-borda: #2a323c;
+  --color-acento: #2dd4bf;       --color-acento-suave: #10312e;
+  --color-alerta: #d29922;       --color-erro: #f85149;  --color-ok: #3fb950;
+  --font-display: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-corpo: ui-sans-serif, system-ui, sans-serif;
+  --font-numero: ui-monospace, "SF Mono", Menlo, monospace;
+}
+*/
+
+/* --------------------------------------------------------------- C · Instituto
+ * Cinza-azulado frio. O acento é a cor de foco que já existia. Segura, e não
+ * diz nada.
+@theme {
+  --color-tinta: #12181f;        --color-tinta-suave: #5a6673;
+  --color-papel: #f7f9fb;        --color-superficie: #ffffff;
+  --color-borda: #d3dae2;
+  --color-acento: #1f5fb8;       --color-acento-suave: #e8f0fb;
+  --color-alerta: #8a4b00;       --color-erro: #99131a;  --color-ok: #1c5c34;
+  --font-display: ui-sans-serif, system-ui, sans-serif;
+  --font-corpo: ui-sans-serif, system-ui, sans-serif;
+  --font-numero: ui-monospace, Menlo, monospace;
+}
+*/
+
+/* ----------------------------------------------------------------- D · Pregão
+ * Neutros quentes, acento verde-azulado. Fala de mercado sem cair no
+ * vermelho-e-verde, que aqui são cores de estado e não direção de preço.
+@theme {
+  --color-tinta: #1a1714;        --color-tinta-suave: #57504a;
+  --color-papel: #fcfaf7;        --color-superficie: #ffffff;
+  --color-borda: #e0d8cd;
+  --color-acento: #0f766e;       --color-acento-suave: #e6f2f0;
+  --color-alerta: #9a5b00;       --color-erro: #a01c22;  --color-ok: #15803d;
+  --font-display: ui-sans-serif, system-ui, sans-serif;
+  --font-corpo: ui-sans-serif, system-ui, sans-serif;
+  --font-numero: ui-monospace, Menlo, monospace;
+}
+*/

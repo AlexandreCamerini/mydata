@@ -522,6 +522,69 @@ MIGRACOES: list[Migracao] = [
             "ALTER TABLE cfg_campo_calculado ADD COLUMN retroage {BOOL} DEFAULT TRUE",
         ],
     ),
+    Migracao(
+        # A camada de acesso do [ADR-19]. Três tabelas, e nenhuma delas é de
+        # domínio: a proibição de `CREATE TABLE` em migração vale para o que a
+        # classe deveria declarar, e sessão de dono não é classe de informação.
+        #
+        # `cfg_passkey` não usa o versionamento append-only das outras `cfg_`:
+        # credencial não tem versão, tem existência. Revogar é apagar a linha,
+        # e uma linha "não vigente" que ainda autentica seria pior que nenhuma.
+        nome="0016_acesso",
+        sql=[
+            """CREATE TABLE IF NOT EXISTS cfg_passkey (
+                credential_id {TEXTO} PRIMARY KEY,
+                chave_publica {BINARIO} NOT NULL,
+                sign_count    {INT}   NOT NULL DEFAULT 0,
+                rotulo        {TEXTO} NOT NULL,
+                transportes   {TEXTO},
+                criada_em     {TSTZ}  NOT NULL DEFAULT {AGORA},
+                ultimo_uso_em {TSTZ}
+            )""",
+            # A sessão passa a ser identificador opaco em vez de o próprio
+            # token. É o que dá as três coisas que faltavam à camada de acesso:
+            # identidade (a origem diz qual autenticador abriu), revogação
+            # individual (apagar uma linha não derruba as outras) e expiração
+            # de verdade (`expira_em` no servidor, não só `max-age` no cookie).
+            """CREATE TABLE IF NOT EXISTS sessao_admin (
+                id            {TEXTO} PRIMARY KEY,
+                origem        {TEXTO} NOT NULL,
+                criada_em     {TSTZ}  NOT NULL DEFAULT {AGORA},
+                expira_em     {TSTZ}  NOT NULL,
+                ultimo_uso_em {TSTZ}
+            )""",
+            # O desafio mora no servidor porque é isso que o torna desafio.
+            # Guardado em cookie, quem ataca escolheria o valor e a proteção
+            # contra repetição cairia junto — uma assertiva capturada valeria
+            # de novo. Uma linha, apagada no uso.
+            """CREATE TABLE IF NOT EXISTS desafio_webauthn (
+                desafio   {TEXTO} PRIMARY KEY,
+                proposito {TEXTO} NOT NULL,
+                criado_em {TSTZ}  NOT NULL DEFAULT {AGORA}
+            )""",
+        ],
+    ),
+    Migracao(
+        # [ADR-21]. A `0003_bronze` desliga a compressão do TOAST com
+        # `STORAGE EXTERNAL`, e o comentário de lá explica: "ZIP já vem
+        # comprimido". Era verdade enquanto toda fonte entregava ZIP. O
+        # cadastro de instrumentos entrega CSV puro — 33,6 MB por pregão, 8,5
+        # GB por ano — e a premissa quebrou sem ninguém perceber.
+        #
+        # `EXTENDED` devolve a decisão ao `pglz`, que desiste sozinho no que já
+        # vem comprimido: medido sobre os arquivos reais, o ZIP não ganha nada
+        # e o CSV ganha uma ordem de grandeza.
+        #
+        # Isto **não** reescreve captura nenhuma. `STORAGE` decide como o
+        # Postgres guarda valor **novo**; o que já está gravado fica byte a
+        # byte como está, e `trg_bronze_imutavel` continua recusando UPDATE e
+        # DELETE. Só DuckDB não tem o conceito, e por isso a migração é vazia
+        # nele em vez de ser condicional no código.
+        nome="0017_bronze_comprimido",
+        so_postgres=[
+            "ALTER TABLE bronze_captura ALTER COLUMN payload SET STORAGE EXTENDED",
+        ],
+    ),
 ]
 
 # Tabelas silver que participam do ciclo de publicação. A partir da Etapa 3

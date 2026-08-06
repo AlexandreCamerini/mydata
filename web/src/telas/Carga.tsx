@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, type RelatorioCarga } from "../api";
 import { Carregando, Erro, Selo, Tabela, Vazio, useDados } from "../ui";
+import { Serie } from "../objetos";
 
 /** Nulo não é zero.
  *
@@ -105,6 +106,47 @@ export function Carga() {
             )}
           </p>
           <p className="text-tinta-suave">{medicao.nao_coberto}</p>
+        </div>
+      </section>
+
+      <section aria-labelledby="tempo" className="grid gap-3">
+        <h2 id="tempo" className="font-medium">
+          Como isso vem andando
+        </h2>
+        {/* Da carga mais antiga para a mais recente: `dados` vem em ordem
+            decrescente, que é a certa para a tabela e a errada para o
+            gráfico. */}
+        <div className="grid gap-3 sm:grid-cols-3">
+          {(() => {
+            const cronologico = [...dados].reverse();
+            const pontos = (campo: keyof RelatorioCarga) =>
+              cronologico.map((r) => ({
+                rotulo: r.gerado_em,
+                valor: r[campo] as number | null,
+              }));
+            return (
+              <>
+                <Serie
+                  titulo="Disco ocupado"
+                  pontos={pontos("gb_armazenados")}
+                  formatar={gb}
+                  nota="banco inteiro ao fim de cada carga"
+                />
+                <Serie
+                  titulo="Custo por mês"
+                  pontos={pontos("custo_mes_usd")}
+                  formatar={usd}
+                  nota="tarifa vigente sobre o disco medido"
+                />
+                <Serie
+                  titulo="Duração da carga"
+                  pontos={pontos("duracao_ms")}
+                  formatar={seg}
+                  nota="do download à publicação"
+                />
+              </>
+            );
+          })()}
         </div>
       </section>
 

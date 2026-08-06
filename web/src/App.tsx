@@ -9,6 +9,7 @@ import { Execucoes } from "./telas/Execucoes";
 import { Carga } from "./telas/Carga";
 import { Chaves } from "./telas/Chaves";
 import { Catalogo } from "./telas/Catalogo";
+import { Acesso } from "./telas/Acesso";
 
 // Roteamento por hash: funciona servido estaticamente em /admin sem
 // configuração de servidor e sem dependência de biblioteca de rotas.
@@ -33,10 +34,23 @@ const TELAS = [
     resumo: "Consumidores e quotas" },
   { id: "catalogo", titulo: "Catálogo", componente: Catalogo,
     resumo: "Schema e amostra" },
+  { id: "acesso", titulo: "Acesso", componente: Acesso,
+    resumo: "Quem entra no portal, por onde, e como revogar" },
 ] as const;
 
+/** A tela é o que vem antes do "?". O que vem depois é argumento dela.
+ *
+ * Sem isto, "#/catalogo?tabela=fato_conta" não casa com tela nenhuma e cai no
+ * padrão — um link que parece funcionar e leva ao lugar errado é pior do que
+ * link que não existe. */
+export function argumento(nome: string): string | null {
+  const hash = window.location.hash.replace("#/", "");
+  const [, consulta = ""] = hash.split("?");
+  return new URLSearchParams(consulta).get(nome);
+}
+
 function telaAtual(): string {
-  const id = window.location.hash.replace("#/", "");
+  const id = window.location.hash.replace("#/", "").split("?")[0];
   // A entrada é a classe de informação, não o histórico de execução: quem
   // abre o portal quer saber o que existe, não o que rodou ontem.
   return TELAS.some((t) => t.id === id) ? id : "classes";
@@ -84,7 +98,7 @@ export function App() {
                     aria-current={t.id === rota ? "page" : undefined}
                     className={`inline-block px-3 py-2 text-sm border-b-2 ${
                       t.id === rota
-                        ? "border-tinta font-medium"
+                        ? "border-acento text-acento font-medium"
                         : "border-transparent text-tinta-suave hover:text-tinta"
                     }`}
                   >

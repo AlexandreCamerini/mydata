@@ -16,16 +16,58 @@ export class ErroApi extends Error {
   }
 }
 
+/** A mensagem de `chave_invalida` é escrita para quem consome a API por
+ * programa — "informe uma chave válida no cabeçalho X-API-Key". Exibida a
+ * quem abriu um site, ela instrui sobre um cabeçalho HTTP que essa pessoa não
+ * tem como definir, e não diz a única coisa que resolve: entrar.
+ *
+ * A apresentação lê `/v1` sob a sessão do dono, então 401 aqui significa
+ * sempre a mesma coisa — a sessão acabou ou nunca existiu. */
+/** Redirecionar para o login, ou já tentamos?
+ *
+ * A guarda de `destino` não é zelo: sem ela isto vira laço. A raiz serve a
+ * própria apresentação, então 401 redirecionava para `/?destino=/`, que
+ * renderiza a apresentação, que busca, que recebe 401 — medido na aba de rede
+ * antes de existir esta função. */
+export function deveRedirecionar(status: number, query: string): boolean {
+  if (status !== 401) return false;
+  return !new URLSearchParams(query).has("destino");
+}
+
+export function humanizar(mensagem: string, status: number): string {
+  if (status === 401) {
+    return "Sua sessão expirou ou ainda não foi aberta. Entre para continuar.";
+  }
+  if (status === 429) {
+    return "Muitas consultas em pouco tempo. Espere um instante e tente de novo.";
+  }
+  if (status >= 500) {
+    return "O servidor falhou ao responder. Se persistir, veja as execuções em /admin.";
+  }
+  return mensagem || `Falha ${status}`;
+}
+
 async function pedir<T>(caminho: string): Promise<T> {
   const resp = await fetch(caminho, {
     headers: { Accept: "application/json" },
+    credentials: "same-origin",
   });
   const corpo = await resp.json().catch(() => null);
   if (!resp.ok) {
     const erro = corpo?.erro ?? {};
+    const codigo = erro.codigo ?? "erro_desconhecido";
+    // Sem sessão, toda tela responderia 401 e a pessoa veria uma sucessão de
+    // erros sem saber que bastava entrar. Rebate para o login levando o
+    // caminho de volta.
+    if (deveRedirecionar(resp.status, window.location.search)) {
+      const volta = encodeURIComponent(
+        window.location.pathname + window.location.hash,
+      );
+      window.location.assign(`/?destino=${volta}`);
+    }
     throw new ErroApi(
-      erro.codigo ?? "erro_desconhecido",
-      erro.mensagem ?? `Falha ${resp.status} em ${caminho}`,
+      codigo,
+      humanizar(erro.mensagem ?? "", resp.status),
       resp.status,
     );
   }
@@ -40,10 +82,84 @@ export type Proveniencia = {
   // que a fonte publicou.
   arquivo?: string;
   sha256?: string;
+  // O caminho para baixar o arquivo original. A API sempre devolveu; este tipo
+  // nunca declarou, e é por isso que nenhuma tela o alcançava — a promessa de
+  // proveniência auditável parava um clique antes do fim.
+  captura?: number;
+  arquivo_em?: string;
   dt_captura?: string;
   versao_documento?: number | null;
   publicacao?: number | null;
   por_atributo?: Record<string, string>;
+};
+
+/** Um contrato de opção num pregão, como `gold_opcoes` publica.
+ *
+ * `volatilidade_implicita` é nula em cerca de 10% dos contratos, e isso é
+ * fato e não falha: o fechamento de contrato ilíquido é o último negócio, que
+ * pode ser de horas antes e ficar fora do que Black-Scholes alcança. A tela
+ * precisa dizer isso — um traço mudo faria parecer defeito. */
+export type Opcao = {
+  dt_pregao: string;
+  contrato: string;
+  ticker_objeto: string | null;
+  tipo: "CALL" | "PUT" | null;
+  strike: number;
+  dt_vencimento: string;
+  prazo_anos: number | null;
+  premio: number | null;
+  melhor_oferta_compra: number | null;
+  melhor_oferta_venda: number | null;
+  total_negocios: number | null;
+  volume_financeiro: number | null;
+  preco_objeto: number | null;
+  volatilidade_implicita: number | null;
+  /** Por que não há sigma, quando não há. Nulo mudo parecia defeito. */
+  situacao_sigma:
+    | "invertido"
+    | "vence_no_pregao"
+    | "sem_preco_objeto"
+    | "sem_premio"
+    | "premio_fora_do_modelo";
+  hv21_objeto: number | null;
+  /** AMER ou EURO, do cadastro da B3 (ADR-20). Nulo quando o cadastro do
+   *  pregão ainda não foi carregado — o COTAHIST não publica isto. */
+  estilo_exercicio: "AMER" | "EURO" | null;
+  /** O strike que o cadastro declara, ao lado do que veio do pregão.
+   *  Divergir é correção por provento capturada em momentos diferentes. */
+  strike_cadastro: number | null;
+  preco_teorico: number | null;
+  delta: number | null;
+  gamma: number | null;
+  vega: number | null;
+  theta: number | null;
+  rho: number | null;
+  isin: string | null;
+  proveniencia?: Proveniencia;
+};
+
+export type Vencimento = {
+  dt_vencimento: string;
+  contratos: number;
+  /** Quantos contratos deste vencimento têm volatilidade implícita. */
+  com_sigma: number;
+  /** 1 quando o vencimento é o próprio pregão — prazo zero, cadeia sem sigma. */
+  vence_no_pregao: number;
+  menor_strike: number;
+  maior_strike: number;
+};
+
+export type Cotacao = {
+  dt_pregao: string;
+  ticker: string;
+  preco_fechamento: number | null;
+  preco_maximo: number | null;
+  preco_minimo: number | null;
+  volume_financeiro: number | null;
+  log_retorno: number | null;
+  hv21: number | null;
+  hv63: number | null;
+  proveniencia?: Proveniencia;
 };
 
 export type ResumoDemonstracao = {
@@ -200,42 +316,16 @@ export type Execucao = {
   erro: string | null;
 };
 
-export type FaseExecucao = {
-  fase: string;
-  iniciado_em: string;
-  terminado_em: string | null;
-  duracao_ms: number | null;
-};
-
-export type OrigemLinhagem = {
-  dataset: string;
-  fonte: { chave: string; url_template: string | null };
-  coluna_de_origem: string | null;
-  formato: string | null;
-  expressao: string | null;
-  colunas_que_usa: string[];
-  capturas_recentes: {
-    id: number;
-    nome_arquivo: string;
-    url: string | null;
-    sha256: string;
-    capturado_em: string;
-    tamanho_bytes: number | null;
-  }[];
-  regras: { nome: string; severidade: string; descricao: string | null }[];
-};
-
-export type Linhagem = {
-  classe: string;
-  atributo: string;
-  tipo: string;
-  descricao: string | null;
-  disputado: boolean;
-  precedencia: string[];
-  origens: OrigemLinhagem[];
-  vistas: string[];
-  publicacao_atual: number | null;
-};
+// Os tipos de linhagem e de fase moram em `../objetos`, junto do objeto que os
+// desenha. Há dois módulos `api` neste front — este e o do plano de controle —
+// e um tipo duplicado nos dois divergiria no primeiro campo novo que a API
+// ganhasse. Quem declara o que consome é o objeto.
+import type { Fase as FaseExecucao, LinhagemDeAtributo } from "../objetos";
+export type {
+  LinhagemDeAtributo,
+  OrigemDeLinhagem,
+  Fase as FaseExecucao,
+} from "../objetos";
 
 export const api = {
   empresas: (f: FiltrosEmpresas) => {
@@ -301,7 +391,7 @@ export const api = {
       `/v1/meta/execucoes/${execucao_id}/fases`,
     ),
   linhagem: (classe: string, atributo: string) =>
-    pedir<{ dados: Linhagem }>(
+    pedir<{ dados: LinhagemDeAtributo }>(
       `/v1/meta/linhagem?classe=${encodeURIComponent(classe)}&atributo=${encodeURIComponent(atributo)}`,
     ),
 
@@ -315,6 +405,30 @@ export const api = {
     p.set("limite", "2000");
     return pedir<{ dados: Trimestre[] }>(
       `/v1/empresas/${cd_cvm}/trimestres?${p.toString()}`,
+    );
+  },
+
+  vencimentos: (ticker: string) =>
+    pedir<{ dados: Vencimento[] }>(
+      `/v1/opcoes/${encodeURIComponent(ticker)}/vencimentos`,
+    ),
+
+  opcoes: (ticker: string, f: { vencimento?: string; tipo?: string }) => {
+    const p = new URLSearchParams();
+    if (f.vencimento) p.set("vencimento", f.vencimento);
+    if (f.tipo) p.set("tipo", f.tipo);
+    p.set("limite", "2000");
+    return pedir<{ dados: Opcao[] }>(
+      `/v1/opcoes/${encodeURIComponent(ticker)}?${p.toString()}`,
+    );
+  },
+
+  cotacoes: (ticker: string, f: { de?: string } = {}) => {
+    const p = new URLSearchParams();
+    if (f.de) p.set("de", f.de);
+    p.set("limite", "400");
+    return pedir<{ dados: Cotacao[] }>(
+      `/v1/cotacoes/${encodeURIComponent(ticker)}?${p.toString()}`,
     );
   },
 };

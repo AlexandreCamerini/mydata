@@ -456,6 +456,137 @@ FONTE_B3_SERIE = Fonte(
     formato_registro="larguras",
 )
 
+# --------------------------------------------------------------------------
+# B3 — cadastro de instrumentos (ADR-20)
+# --------------------------------------------------------------------------
+# O COTAHIST publica o **pregão**; este arquivo publica o **cadastro**. São
+# coisas diferentes, e por isso classes diferentes que se juntam por
+# correlação em vez de disputarem atributo por precedência.
+FONTE_B3_INSTRUMENTOS = Fonte(
+    chave="b3_instrumentos",
+    nome="B3 — cadastro consolidado de instrumentos",
+    descricao="Fotografia diária de todo instrumento listado: ação, opção, "
+              "futuro, BDR e fundo. Traz o que o COTAHIST não publica — "
+              "estilo de exercício — e as séries que não negociaram.",
+    # Dois passos: o primeiro endereço devolve um bilhete em JSON, o segundo
+    # troca o bilhete pelo CSV. O nome do campo e o segundo endereço são do
+    # mapeamento, não do motor.
+    tipo_transporte="http_token",
+    url_template=(
+        "https://arquivos.b3.com.br/api/download/requestname"
+        "?fileName=InstrumentsConsolidated&date={janela}"
+    ),
+    encoding="iso-8859-1",
+    separador=";",
+)
+
+CHAVE_INSTRUMENTO = ["ticker"]
+
+CLASSE_INSTRUMENTO = Classe(
+    chave="instrumento_b3",
+    nome="Instrumento listado na B3",
+    descricao="O cadastro de um instrumento: o que ele é, sobre o que ele é, "
+              "e as condições que o definem. É estado, não evento — a linha "
+              "descreve como o instrumento está hoje.",
+    tabela="dim_instrumento",
+    # Identidade sem a data, de propósito. O arquivo é uma fotografia diária
+    # de 154 mil instrumentos; guardar uma por dia são ~38 milhões de linhas
+    # por ano em silver contra os 2,11 GB que o banco inteiro ocupa. A
+    # história fica em bronze, que é imutável e reconstrói qualquer dia.
+    chave_identidade=CHAVE_INSTRUMENTO,
+    indices=[["ativo_objeto"], ["categoria"], ["dt_vencimento"]],
+    sla_horas=24 * 4,
+    atributos=[
+        _atr("ticker", obrigatorio=True, ordem=1,
+             descricao="Código de negociação. É a identidade, e é o que liga "
+                       "ao `codneg` de `negociacao_b3`."),
+        _atr("dt_referencia", "data", obrigatorio=True, ordem=2,
+             descricao="O dia da fotografia. Não faz parte da identidade, mas "
+                       "guarda a carga de andar para trás numa recarga fora "
+                       "de ordem."),
+        _atr("ativo_objeto", ordem=3,
+             descricao="O que o instrumento referencia. Para opção, o papel; "
+                       "vazio para o que não referencia nada."),
+        _atr("ativo_objeto_descricao", ordem=4),
+        _atr("categoria", ordem=5,
+             descricao="`OPTION ON EQUITIES`, `SHARES`, `BDR`, `FUNDS`… É por "
+                       "aqui que a vista recorta opção."),
+        _atr("mercado", ordem=6),
+        _atr("segmento", ordem=7),
+        _atr("isin", ordem=8),
+        _atr("cfi", ordem=9,
+             descricao="Código CFI da ISO 10962. O terceiro caractere repete o "
+                       "estilo de exercício, e foi por ele que se confirmou "
+                       "que não existe put americana na B3."),
+        _atr("tipo_opcao", ordem=10, descricao="Call ou Put."),
+        _atr("estilo_exercicio", ordem=11,
+             descricao="AMER ou EURO. O COTAHIST não publica isto, e é a razão "
+                       "principal desta fonte existir: sem ele não há como "
+                       "saber para quais séries o Black-Scholes europeu é "
+                       "aproximação."),
+        _atr("preco_exercicio", "numero", ordem=12,
+             descricao="Strike declarado pela B3, com as correções por provento "
+                       "já aplicadas. Serve de conferência independente do "
+                       "`preco_exercicio` que vem do COTAHIST."),
+        _atr("dt_vencimento", "data", ordem=13),
+        _atr("dt_inicio_negociacao", "data", ordem=14),
+        _atr("dt_fim_negociacao", "data", ordem=15),
+        _atr("lote_padrao", "inteiro", ordem=16),
+        _atr("moeda", ordem=17),
+    ],
+)
+
+# `AsstQtnQty`, `UndrlygTckrSymb1` e `CtrctMltplr` ficam de fora: medidos no
+# arquivo de 04/08/2026, vêm 100% vazios no recorte de opções. Declará-los
+# criaria três atributos que nunca se preenchem.
+COLUNAS_INSTRUMENTOS = [
+    Coluna("TckrSymb", "ticker", "texto", obrigatoria=True, ordem=1),
+    Coluna("RptDt", "dt_referencia", "data", obrigatoria=True, ordem=2),
+    Coluna("Asst", "ativo_objeto", "texto", ordem=3),
+    Coluna("AsstDesc", "ativo_objeto_descricao", "texto", ordem=4),
+    Coluna("SctyCtgyNm", "categoria", "texto", ordem=5),
+    Coluna("MktNm", "mercado", "texto", ordem=6),
+    Coluna("SgmtNm", "segmento", "texto", ordem=7),
+    Coluna("ISIN", "isin", "texto", ordem=8),
+    Coluna("CFICd", "cfi", "texto", ordem=9),
+    Coluna("OptnTp", "tipo_opcao", "texto", ordem=10),
+    Coluna("OptnStyle", "estilo_exercicio", "texto", ordem=11),
+    # `5,99` — vírgula decimal, ao contrário do COTAHIST, que grava a escala
+    # implícita por ser posicional.
+    Coluna("ExrcPric", "preco_exercicio", "numero", "decimal_ptbr", ordem=12),
+    Coluna("XprtnDt", "dt_vencimento", "data", ordem=13),
+    Coluna("TradgStartDt", "dt_inicio_negociacao", "data", ordem=14),
+    Coluna("TradgEndDt", "dt_fim_negociacao", "data", ordem=15),
+    Coluna("AllcnRndLot", "lote_padrao", "inteiro", ordem=16),
+    Coluna("TradgCcy", "moeda", "texto", ordem=17),
+]
+
+REGRAS_INSTRUMENTO = [
+    RegraQualidade(
+        nome="instrumento_opcao_sem_estilo",
+        expressao_sql=(
+            "SELECT ticker, categoria FROM dim_instrumento "
+            "WHERE categoria LIKE 'OPTION%' "
+            "AND (estilo_exercicio IS NULL OR estilo_exercicio = '')"
+        ),
+        severidade="alerta",
+        descricao="Opção sem estilo de exercício. É o campo que motivou a "
+                  "fonte: se vier vazio, a cadeia volta a não saber para quais "
+                  "séries o modelo europeu é aproximação.",
+    ),
+    RegraQualidade(
+        nome="instrumento_sem_data_de_referencia",
+        expressao_sql=(
+            "SELECT ticker FROM dim_instrumento WHERE dt_referencia IS NULL"
+        ),
+        severidade="bloqueia",
+        descricao="Sem a data da fotografia, a guarda de recarga fora de ordem "
+                  "não tem contra o que comparar — e uma carga antiga voltaria "
+                  "a sobrescrever o cadastro atual em silêncio.",
+    ),
+]
+
+
 CHAVE_NEGOCIACAO = ["dt_pregao", "codneg", "tp_mercado", "cod_bdi", "prazo_termo"]
 
 CLASSE_NEGOCIACAO = Classe(
@@ -544,7 +675,12 @@ CLASSE_NEGOCIACAO = Classe(
         _atr("volatilidade_implicita", "numero", origem="calculado", ordem=34,
              unidade="fração ao ano",
              descricao="Sigma que faz o preço BSM igualar o prêmio negociado. "
-                       "Nula quando o prêmio está fora do que o modelo alcança."),
+                       "Nula quando o prêmio está fora do que o modelo alcança "
+                       "— `situacao_sigma` diz por quê. O modelo é europeu: na "
+                       "B3 não existe put americana, então para put isso é "
+                       "exato; a call americana só difere da europeia quando há "
+                       "provento antes do vencimento, que é a limitação já "
+                       "declarada em `app/motor/nucleos.py`."),
         _atr("preco_teorico", "numero", origem="calculado", ordem=35,
              descricao="Preço BSM com a volatilidade implícita. Reproduz o "
                        "prêmio quando a inversão convergiu — é a conferência."),
@@ -597,7 +733,7 @@ COLUNAS_COTAHIST = [
 ]
 
 CLASSES = [CLASSE_DEMONSTRACAO, CLASSE_EMPRESA, CLASSE_INDICADOR,
-           CLASSE_NEGOCIACAO]
+           CLASSE_NEGOCIACAO, CLASSE_INSTRUMENTO]
 
 # --------------------------------------------------------------------------
 # Vistas de gold — o contrato que o consumidor lê
@@ -690,19 +826,45 @@ VISTAS = [
                   "não chega aqui: opção tem vencimento de verdade.",
         ordem=5,
         corpo="""
-        SELECT dt_pregao, codneg AS contrato, ticker_objeto,
-               CASE tp_mercado WHEN '070' THEN 'CALL' WHEN '080' THEN 'PUT' END
+        SELECT n.dt_pregao, n.codneg AS contrato, n.ticker_objeto,
+               CASE n.tp_mercado WHEN '070' THEN 'CALL' WHEN '080' THEN 'PUT' END
                  AS tipo,
-               preco_exercicio AS strike, dt_vencimento, prazo_anos,
-               preco_fechamento AS premio, melhor_oferta_compra,
-               melhor_oferta_venda, total_negocios, quantidade_negociada,
-               volume_financeiro, preco_objeto, taxa_livre_risco,
-               volatilidade_implicita, hv21_objeto, preco_teorico,
-               delta, gamma, vega, theta, rho, isin,
-               captura_id, fonte_arquivo, publicado_em_versao
-        FROM fato_negociacao
-        WHERE tp_mercado IN ('070', '080')
-          AND publicado_em_versao IS NOT NULL AND publicado_em_versao <= {V}
+               n.preco_exercicio AS strike, n.dt_vencimento, n.prazo_anos,
+               n.preco_fechamento AS premio, n.melhor_oferta_compra,
+               n.melhor_oferta_venda, n.total_negocios, n.quantidade_negociada,
+               n.volume_financeiro, n.preco_objeto, n.taxa_livre_risco,
+               n.volatilidade_implicita, n.hv21_objeto, n.preco_teorico,
+               -- Por que não há sigma. Sem esta coluna, 13,6% da cadeia sai
+               -- como nulo mudo e parece defeito do portal; medido em
+               -- 31/07/2026, dos 1.542 sem IV, 584 venciam naquele mesmo
+               -- pregão e 941 tinham prêmio fora do alcance do modelo.
+               -- Nenhum dos dois é erro: um é prazo zero, o outro é o último
+               -- negócio do dia comparado com o fechamento do objeto.
+               CASE
+                 WHEN n.volatilidade_implicita IS NOT NULL THEN 'invertido'
+                 WHEN n.prazo_anos IS NULL OR n.prazo_anos <= 0
+                   THEN 'vence_no_pregao'
+                 WHEN n.preco_objeto IS NULL THEN 'sem_preco_objeto'
+                 WHEN n.preco_fechamento IS NULL OR n.preco_fechamento <= 0
+                   THEN 'sem_premio'
+                 ELSE 'premio_fora_do_modelo'
+               END AS situacao_sigma,
+               n.delta, n.gamma, n.vega, n.theta, n.rho, n.isin,
+               -- O estilo vem do cadastro, não do COTAHIST, que não o publica.
+               -- `LEFT JOIN` de propósito: sem o cadastro carregado a coluna
+               -- fica nula e a cadeia continua respondendo. Um `JOIN` faria a
+               -- ausência de uma fonte auxiliar apagar a classe principal.
+               i.estilo_exercicio,
+               -- O strike que a B3 declara no cadastro, ao lado do que veio do
+               -- pregão. Divergência entre os dois é correção por provento
+               -- capturada em momentos diferentes, e vê-la é o ponto.
+               i.preco_exercicio AS strike_cadastro,
+               n.captura_id, n.fonte_arquivo, n.publicado_em_versao
+        FROM fato_negociacao n
+        LEFT JOIN dim_instrumento i ON i.ticker = n.codneg
+        WHERE n.tp_mercado IN ('070', '080')
+          AND n.publicado_em_versao IS NOT NULL
+          AND n.publicado_em_versao <= {V}
     """,
     ),
     # `gold_empresa` não está aqui: a classe `empresa` resolve por precedência
@@ -1006,6 +1168,36 @@ def datasets() -> list[Dataset]:
             regras=REGRAS_NEGOCIACAO,
         ),
         Dataset(
+            chave="b3_instrumentos",
+            fonte_chave="b3_instrumentos",
+            nome="Cadastro consolidado de instrumentos",
+            descricao="Fotografia diária do que está listado. Entra inteira — "
+                      "154 mil instrumentos, não só as opções: filtrar na "
+                      "carga seria o motor decidindo qual linha do arquivo "
+                      "oficial merece existir. Opção é recorte, e recorte é "
+                      "vista.",
+            padrao_arquivo=r"^instrumentos\.csv$",
+            tabela_destino="dim_instrumento",
+            classe_chave="instrumento_b3",
+            chave_natural=CHAVE_INSTRUMENTO,
+            particao="dia",
+            # A identidade não tem a data, então a carga precisa dizer que é
+            # fotografia: sem isto, reingerir um dia antigo devolveria o
+            # cadastro ao estado dele, sem erro e sem sintoma.
+            politica_versao="nao_retroceder:dt_referencia",
+            parametros={
+                # Do transporte em dois passos.
+                "campo_token": "token",
+                "url_arquivo": "https://arquivos.b3.com.br/api/download/?token={token}",
+                "nome_arquivo": "instrumentos.csv",
+                # A primeira linha é "Status do Arquivo: Final"; o cabeçalho
+                # real é a segunda.
+                "preambulo": 1,
+            },
+            colunas=COLUNAS_INSTRUMENTOS,
+            regras=REGRAS_INSTRUMENTO,
+        ),
+        Dataset(
             chave="b3_listadas",
             fonte_chave="b3",
             nome="Companhias listadas na B3",
@@ -1132,6 +1324,19 @@ CORRELACOES = [
         descricao="A companhia e as contas que ela publicou. `cd_cvm` liga as "
                   "duas sem heurística de nome.",
     ),
+    Correlacao(
+        chave="negociacao_cadastro",
+        classe_origem="negociacao_b3",
+        classe_destino="instrumento_b3",
+        atributo_origem="codneg",
+        atributo_destino="ticker",
+        # Um contrato negociado tem um cadastro só. É travessia para
+        # enriquecer, não para multiplicar.
+        relacionamento="um_para_um",
+        descricao="O pregão de um instrumento e o cadastro dele. É por aqui "
+                  "que o estilo de exercício — que o COTAHIST não publica — "
+                  "chega à cadeia de opções.",
+    ),
 ]
 
 # --------------------------------------------------------------------------
@@ -1182,6 +1387,10 @@ AGENDAMENTOS = [
     # tratar 404 como «sem pregão» esconderia endereço quebrado no mesmo
     # silêncio.
     ("b3_cotahist_diario", "b3_cotahist", "59 23 * * 1-5", "hoje"),
+    # Meia hora antes do COTAHIST, e de propósito: o cadastro é o que explica
+    # a cadeia, e chegar depois dela deixaria a noite inteira com a
+    # negociação publicada e o estilo de exercício ausente.
+    ("b3_instrumentos_diario", "b3_instrumentos", "30 23 * * 1-5", "hoje"),
 ]
 
 
@@ -1213,7 +1422,7 @@ def impressao() -> str:
             "vistas": [asdict(v) for v in VISTAS],
             "fontes": [asdict(FONTE), asdict(FONTE_CADASTRO), asdict(FONTE_B3),
                        asdict(FONTE_BCB), asdict(FONTE_BRAPI),
-                       asdict(FONTE_B3_SERIE)],
+                       asdict(FONTE_B3_SERIE), asdict(FONTE_B3_INSTRUMENTOS)],
             "correlacoes": [asdict(c) for c in CORRELACOES],
             "datasets": [asdict(d) for d in datasets()],
             "metricas": METRICAS,
@@ -1247,6 +1456,7 @@ def aplicar(sink: Sink, forcar: bool = False) -> bool:
     salvar_fonte(sink, FONTE_BCB, autor="seed")
     salvar_fonte(sink, FONTE_BRAPI, autor="seed")
     salvar_fonte(sink, FONTE_B3_SERIE, autor="seed")
+    salvar_fonte(sink, FONTE_B3_INSTRUMENTOS, autor="seed")
     for corr in CORRELACOES:
         salvar_correlacao(sink, corr, autor="seed")
     for d in datasets():
