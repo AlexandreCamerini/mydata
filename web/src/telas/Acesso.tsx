@@ -122,7 +122,7 @@ export function Acesso() {
         </h2>
         <dl className="grid gap-3 sm:grid-cols-3 text-sm">
           <div className="border border-borda rounded bg-superficie p-3">
-            <dt className="text-xs text-tinta-suave">Passkey</dt>
+            <dt className="rotulo">Passkey</dt>
             <dd>
               {d.passkeys.length > 0 ? (
                 <>
@@ -139,7 +139,7 @@ export function Acesso() {
             </dd>
           </div>
           <div className="border border-borda rounded bg-superficie p-3">
-            <dt className="text-xs text-tinta-suave">Formulário de token</dt>
+            <dt className="rotulo">Formulário de token</dt>
             <dd>
               <Selo texto={d.token_no_formulario ? "visível" : "escondido"} />
               <span className="block text-xs text-tinta-suave mt-1">
@@ -152,7 +152,7 @@ export function Acesso() {
             </dd>
           </div>
           <div className="border border-borda rounded bg-superficie p-3">
-            <dt className="text-xs text-tinta-suave">Cabeçalho X-Admin-Token</dt>
+            <dt className="rotulo">Cabeçalho X-Admin-Token</dt>
             <dd>
               <Selo texto={d.token_configurado ? "sempre vale" : "sem token"} />
               <span className="block text-xs text-tinta-suave mt-1">

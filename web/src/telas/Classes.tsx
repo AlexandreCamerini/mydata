@@ -314,13 +314,13 @@ function CorpoDoContrato({ classe }: { classe: string }) {
 
       <dl className="grid sm:grid-cols-3 gap-3">
         <div>
-          <dt className="text-xs text-tinta-suave">Identidade</dt>
+          <dt className="rotulo">Identidade</dt>
           <dd className="mt-1">
             <Identidade partes={d.customProperties.identidade} />
           </dd>
         </div>
         <div>
-          <dt className="text-xs text-tinta-suave">Versão do contrato</dt>
+          <dt className="rotulo">Versão do contrato</dt>
           <dd className="numero">
             v{d.version}
             <span className="text-xs text-tinta-suave">
@@ -329,7 +329,7 @@ function CorpoDoContrato({ classe }: { classe: string }) {
           </dd>
         </div>
         <div>
-          <dt className="text-xs text-tinta-suave">Frescor prometido</dt>
+          <dt className="rotulo">Frescor prometido</dt>
           <dd>
             {d.slas.length === 0 ? (
               <span className="text-tinta-suave text-xs">sem SLA declarado</span>

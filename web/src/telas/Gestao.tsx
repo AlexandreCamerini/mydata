@@ -86,7 +86,7 @@ export function Gestao() {
               key={rotulo}
               className="border border-borda rounded bg-superficie p-3"
             >
-              <dt className="text-xs text-tinta-suave">{rotulo}</dt>
+              <dt className="rotulo">{rotulo}</dt>
               {/* A nota vai dentro do `dd`: um `div` de lista de definição só
                   aceita `dt` e `dd`, e o `p` solto aqui era violação de
                   `definition-list` — pega pelo axe, não pelo olho. */}

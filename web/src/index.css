@@ -1,6 +1,66 @@
 @import "tailwindcss";
 @import "./temas.css";
 
+/* ---------------------------------------------------------------------------
+ * A escala tipográfica — achado 1.2 da auditoria.
+ *
+ * O achado dizia que o tamanho de cada texto era decidido no componente, com
+ * utilitário do Tailwind, e que não havia escala declarada. Medido antes de
+ * mexer: 175 usos de `text-xs`, 89 de `text-sm`, 11 em tudo o mais. O produto
+ * vive em dois degraus, e a densidade é a voz certa para um hub de dado —
+ * o erro não era a densidade, era ela não ter sido escolhida.
+ *
+ * Então a escala é declarada aqui, e não aplicada tela a tela. Redefinir o que
+ * `text-xs` significa retuna as 19 telas de uma vez; reescrever 264 classes
+ * teria o mesmo efeito visual, muito mais diferença de revisão, e a próxima
+ * mudança de escala voltaria a custar 264 edições.
+ *
+ * A razão é 1,125 a partir de 14 px — pequena de propósito. Escala grande
+ * separa bem título de corpo e destrói tabela densa, que é o que este produto
+ * mais tem.
+ *
+ * A entrelinha e o `tracking` vão junto com o tamanho, porque são o mesmo
+ * ajuste: texto pequeno precisa de mais entrelinha proporcional e um pouco de
+ * espaço entre letras para não fechar; display precisa do contrário.
+ * ------------------------------------------------------------------------- */
+@theme {
+  /* Rótulo: `dt`, dica de campo, unidade ao lado do número. O degrau mais
+     usado do sistema — e o que mais ganha com o `tracking` positivo. */
+  --text-xs: 0.78125rem; /* 12,5 px */
+  --text-xs--line-height: 1.45;
+  --text-xs--letter-spacing: 0.005em;
+
+  /* Corpo: a leitura normal, e a célula de tabela. */
+  --text-sm: 0.875rem; /* 14 px */
+  --text-sm--line-height: 1.5;
+  --text-sm--letter-spacing: 0;
+
+  --text-base: 0.984375rem; /* 15,75 px */
+  --text-base--line-height: 1.55;
+
+  /* Número em destaque: o cartão de gestão, o fechamento do papel. */
+  --text-lg: 1.125rem; /* 18 px */
+  --text-lg--line-height: 1.35;
+  --text-lg--letter-spacing: -0.005em;
+
+  /* Título de tela. */
+  --text-xl: 1.375rem; /* 22 px */
+  --text-xl--line-height: 1.25;
+  --text-xl--letter-spacing: -0.01em;
+
+  --text-2xl: 1.75rem; /* 28 px */
+  --text-2xl--line-height: 1.2;
+  --text-2xl--letter-spacing: -0.015em;
+
+  /* `font-mono` aparece 62 vezes no código e apontava para a pilha padrão do
+     Tailwind, não para a escolha da direção de arte. Apontá-la para o mesmo
+     lugar de `--font-numero` faz as 62 obedecerem ao tema sem 62 edições —
+     e uma direção que troque a monoespaçada passa a trocar de verdade. */
+  --font-mono: var(--font-numero);
+  --font-sans: var(--font-corpo);
+  --font-serif: var(--font-display);
+}
+
 /* Foco visível em tudo que recebe foco — requisito de aceite, não estilo. */
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 3px solid var(--cor-foco);
@@ -22,17 +82,58 @@ body {
   font-family: var(--font-corpo);
 }
 
-/* Display serifado só em título. Serifa em grid de número atrapalha a leitura,
-   então o dado continua em grotesca e o número em monoespaçado. */
+/* Display serifado em título. Serifa em grid de número atrapalha a leitura,
+   então o dado continua em grotesca e o número em monoespaçado.
+
+   **O título tem tamanho por ser título.** Medido antes: `h2` saía a 16 px,
+   igual ao corpo, porque o `preflight` do Tailwind zera o tamanho do heading e
+   nenhum componente lhe dava um — a hierarquia de seção existia no HTML e não
+   na tela. Era o coração do achado 1.2: o tamanho vinha do componente, ou de
+   lugar nenhum.
+
+   O `letter-spacing` acompanha o degrau em vez de ser um valor só: 22 px e
+   28 px não pedem o mesmo ajuste. */
 h1,
-h2 {
+h2,
+h3 {
   font-family: var(--font-display);
-  letter-spacing: -0.01em;
+  font-weight: 600;
 }
 
-/* Número tabular: coluna de valor só alinha se o dígito tiver largura fixa. */
+h1 {
+  font-size: var(--text-xl);
+  line-height: var(--text-xl--line-height);
+  letter-spacing: var(--text-xl--letter-spacing);
+}
+
+h2 {
+  font-size: var(--text-lg);
+  line-height: var(--text-lg--line-height);
+  letter-spacing: var(--text-lg--letter-spacing);
+}
+
+h3 {
+  font-size: var(--text-base);
+  line-height: var(--text-base--line-height);
+}
+
+/* Número tabular: coluna de valor só alinha se o dígito tiver largura fixa.
+   `lining-nums` acompanha porque a serifada da direção A tem algarismo antigo
+   por padrão, e algarismo antigo numa coluna de valor sobe e desce. */
 .numero {
   font-family: var(--font-numero);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* O padrão mais repetido do sistema: o rótulo curto e apagado que nomeia um
+   número — `dt` de cartão, dica de campo, unidade. Eram 175 ocorrências de
+   `text-xs text-tinta-suave` escritas à mão, sem nome e sem intenção.
+   Nomear é o que permite mudá-lo em um lugar. */
+.rotulo {
+  font-size: var(--text-xs);
+  line-height: var(--text-xs--line-height);
+  letter-spacing: 0.02em;
+  color: var(--color-tinta-suave);
   font-variant-numeric: tabular-nums;
 }
 

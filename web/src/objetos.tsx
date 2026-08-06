@@ -151,24 +151,24 @@ export function SaudeClasse({
       <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
         {c.linhas_publicadas != null && (
           <div>
-            <dt className="text-xs text-tinta-suave">Publicadas</dt>
+            <dt className="rotulo">Publicadas</dt>
             <dd className="numero">{fmt.format(c.linhas_publicadas)}</dd>
           </div>
         )}
         {c.retidas_no_gate != null && (
           <div>
-            <dt className="text-xs text-tinta-suave">Retidas no gate</dt>
+            <dt className="rotulo">Retidas no gate</dt>
             <dd className="numero">
               {c.retidas_no_gate ? fmt.format(c.retidas_no_gate) : "—"}
             </dd>
           </div>
         )}
         <div>
-          <dt className="text-xs text-tinta-suave">Fontes</dt>
+          <dt className="rotulo">Fontes</dt>
           <dd className="text-xs">{c.fontes.join(", ") || "—"}</dd>
         </div>
         <div>
-          <dt className="text-xs text-tinta-suave">Idade</dt>
+          <dt className="rotulo">Idade</dt>
           <dd
             className="text-xs"
             title={instante(c.ultima_publicacao?.terminado_em) || undefined}

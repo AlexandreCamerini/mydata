@@ -63,6 +63,21 @@ Nada. As seis etapas da ordem em `docs/direcao-apresentacao.md` estão feitas.
   sete superfícies, incluindo os dois estados da tela de entrada.
 - O que a verificação registrou no banco de demonstração foi apagado.
 
+## O backlog da auditoria, fechado
+
+**05/08/2026 — os onze achados estão fechados.** Os três últimos:
+
+- **1.3** — a chave de identidade era uma corrida de oito atributos separados
+  por vírgula. Virou lista ordenada de partes; `<ol>` e não conjunto, porque a
+  ordem é a do índice único.
+- **3.4** — `/v1/meta/contrato` existia desde a etapa 7 e nenhuma tela o lia.
+  Ganhou leitor na tela de Classes, mostrando a regra de qualidade pela
+  **consequência** e não pela severidade nominal.
+- **1.2** — a escala tipográfica. Medido antes de mexer: 175 `text-xs`, 89
+  `text-sm`, 11 em tudo o mais, e `h2` a 16 px porque nenhum componente lhe dava
+  tamanho. Declarada em `@theme`, com entrelinha e `tracking` por degrau, em vez
+  de reescrever 264 classes.
+
 ## O que continua faltando
 
 - **Testar num aparelho de verdade.** O autenticador de software cobre o que o

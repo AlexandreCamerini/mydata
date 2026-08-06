@@ -239,10 +239,19 @@ navegador do dono e não tem nada a dizer sobre `curl`.
 | 10 | `/v1/meta/contrato` órfã (3.4) | baixa | médio |
 | 11 | Tempo relativo sem absoluto (2.4) | baixa | baixo |
 
-**Situação em 05/08/2026.** Fechados: 1 a 7, 9, 10 e 11. Aberto: o **8**
-(tipografia sem voz). A direção de arte da fase 2 deu a fonte de display — a
-serifada do conjunto A, aplicada em `h1`/`h2` — mas a escala tipográfica
-continua decidida no componente, com utilitário do Tailwind. É o que sobra.
+**Situação em 05/08/2026: os onze achados estão fechados.**
+
+O 8 foi o último, e o que ele exigiu não era o que a auditoria previa. Medido
+antes de mexer: 175 usos de `text-xs`, 89 de `text-sm`, 11 em tudo o mais. A
+densidade não era o defeito — era a voz certa para um hub de dado, só não tinha
+sido escolhida. E `h2` saía a 16 px, igual ao corpo, porque nenhum componente
+lhe dava tamanho: a hierarquia de seção existia no HTML e não na tela.
+
+A correção foi declarar a escala em `@theme` — tamanho, entrelinha e `tracking`
+por degrau — em vez de reescrever 264 classes. Redefinir o que `text-xs`
+significa retunou as 19 telas de uma vez, e a próxima mudança de escala custa
+um arquivo em vez de 264 edições. `--font-mono` passou a apontar para
+`--font-numero` pelo mesmo motivo: 62 usos obedecem ao tema sem 62 edições.
 
 Os itens 2, 3 e 5 são de custo baixo e efeito imediato — cabem na primeira
 etapa da construção. O 1 e o 4 são a mesma tela vista de dois ângulos, e é
