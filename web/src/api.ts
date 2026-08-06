@@ -689,7 +689,10 @@ export type Gestao = {
       terminado_em: string | null;
     } | null;
   }[];
-  bronze: { capturas: number; bytes: number };
+  /** `bytes` é o tamanho dos arquivos publicados; `ocupado_bytes`, o
+   *  espaço em disco. Com o TOAST comprimindo (ADR-21) as duas divergem,
+   *  e `ocupado_bytes` é nulo fora do Postgres. */
+  bronze: { capturas: number; bytes: number; ocupado_bytes: number | null };
   consumidores: {
     consumidor: string;
     prefixo: string;

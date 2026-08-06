@@ -1003,10 +1003,9 @@ alcança o mesmo que o gzip, e 4 KB é a ordem de grandeza do histórico do
 | Comprimir só a fonte nova | Duas regras de armazenamento para a mesma tabela, decididas por quem escreveu o dataset e não pelo que o dado é |
 | **`SET STORAGE EXTENDED` na coluna** | Uma linha. O `pglz` desiste sozinho no que já vem comprimido, então o ZIP não paga nada, e o CSV paga o que tem a pagar |
 
-**Decisão proposta — pende de confirmação do Alex.** Trocar
-`STORAGE EXTERNAL` por `STORAGE EXTENDED` em `bronze_captura.payload`. Bronze é
-a única coisa não reconstruível deste sistema, e mudar como ele é guardado não
-é decisão de quem está com pressa.
+**Decisão.** O Alex aprovou em 05/08/2026. `STORAGE EXTENDED` em
+`bronze_captura.payload`, na migração `0017_bronze_comprimido` — só
+`so_postgres`, porque o DuckDB não tem o conceito.
 
 **Por que isto não fere a imutabilidade.**
 
@@ -1034,11 +1033,12 @@ decepcionar — digamos, menos de 4× — a alternativa do gzip na aplicação v
 mesa, agora com número em vez de suposição. Começar pela linha única é o que
 mantém a decisão barata de desfazer.
 
-**Consequência para a medição de custo.** `custo.py` soma `tamanho_bytes` e
-chama isso de "espaço do original". Com o TOAST comprimindo, esse número passa
-a ser o tamanho do arquivo publicado e não o espaço ocupado — que é o que a
-tela de gestão quer dizer. As duas coisas precisam aparecer separadas, ou a
-gestão passa a superestimar o próprio custo.
+**Consequência para a medição de custo, resolvida junto.** A gestão somava
+`tamanho_bytes` e chamava isso de "espaço do original". Com o TOAST
+comprimindo, esse número passa a ser o tamanho do arquivo publicado e não o
+espaço ocupado. Agora são dois cartões: **Arquivos originais**, somados como a
+fonte os publicou, e **Bronze em disco**, de `pg_total_relation_size` — nulo
+fora do Postgres, com o traço dizendo que ninguém mediu em vez de fingir zero.
 
 **O que esta decisão não resolve.** O volume. Comprimir 8,5 GB/ano para algo
 entre 0,5 e 2 GB/ano adia a pergunta; não a responde. Se o cadastro diário virar

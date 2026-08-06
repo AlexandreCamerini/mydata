@@ -114,6 +114,23 @@ perdeu, registre outro, e desligue a variável.
 trocar o endereço público invalida os passkeys registrados no anterior, e o
 caminho de volta é o mesmo `PORTAL_ACESSO_LEGADO=1`.
 
+## Conferir a compressão do bronze, depois da primeira captura nova
+
+O [ADR-21](arquitetura.md#adr-21--bronze-volta-a-ser-comprimido-pelo-postgres-e-não-pela-aplicação)
+religou a compressão do TOAST na coluna do payload. `STORAGE` vale para valor
+**novo**, então o efeito só aparece depois de uma captura posterior ao deploy —
+as antigas continuam como estão, byte a byte, e é assim que tem de ser.
+
+```sql
+SELECT pg_size_pretty(sum(octet_length(payload)))   AS arquivo,
+       pg_size_pretty(sum(pg_column_size(payload))) AS em_disco
+FROM bronze_captura WHERE dataset_chave = 'b3_instrumentos';
+```
+
+Medido em laboratório, um CSV como esse comprime uma ordem de grandeza. Se o
+`pglz` render menos de 4×, o ADR-21 diz o que fazer — e a alternativa do gzip na
+aplicação volta à mesa com número em vez de suposição.
+
 ## Verificação depois do DNS propagar
 
 ```bash

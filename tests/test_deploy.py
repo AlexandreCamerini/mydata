@@ -198,3 +198,58 @@ def test_dono_da_porta_e_o_diretorio_nao_a_porta():
     assert servidor.e_nosso(1) is False
     # PID inexistente não é nosso — e não pode estourar.
     assert servidor.e_nosso(999_999) is False
+
+
+# --------------------------------------------------------------------------
+# Bronze comprimido (ADR-21)
+# --------------------------------------------------------------------------
+def test_a_compressao_do_bronze_e_so_postgres():
+    """`STORAGE` não existe no DuckDB.
+
+    A migração precisa ser vazia no dialeto de desenvolvimento em vez de
+    condicional no código — é o que `so_postgres` existe para expressar, e
+    escondê-la num `if` faria a suíte local passar por não ter rodado nada."""
+    from app.migracoes import MIGRACOES
+
+    mig = next(m for m in MIGRACOES if m.nome == "0017_bronze_comprimido")
+    assert mig.sql == []
+    assert any("SET STORAGE EXTENDED" in s for s in mig.so_postgres)
+
+
+def test_a_compressao_vem_depois_de_quem_cria_a_tabela():
+    """Ordem importa: `ALTER` antes do `CREATE` quebraria o banco novo."""
+    from app.migracoes import MIGRACOES
+
+    nomes = [m.nome for m in MIGRACOES]
+    assert nomes.index("0003_bronze") < nomes.index("0017_bronze_comprimido")
+
+
+def test_a_premissa_do_storage_external_esta_registrada():
+    """A `0003` desliga a compressão com um comentário que era verdade — "ZIP
+    já vem comprimido". O cadastro de instrumentos entrega CSV puro e quebrou a
+    premissa. Se alguém reverter para EXTERNAL sem passar pelo ADR-21, este
+    teste é o que pergunta por quê."""
+    from app.migracoes import MIGRACOES
+
+    ext = [s for m in MIGRACOES for s in m.so_postgres if "SET STORAGE" in s]
+    assert ext[-1].endswith("EXTENDED"), (
+        "a última palavra sobre STORAGE do payload é do ADR-21: EXTENDED. "
+        f"Encontrado: {ext}"
+    )
+
+
+def test_migracao_nova_roda_e_registra_no_duckdb(tmp_path):
+    """Mesmo sem SQL no dialeto local, a migração precisa entrar em
+    `schema_migracao` — senão ela é tentada de novo a cada boot."""
+    from app import migracoes
+    from app.sinks import SinkDuckDB
+
+    s = SinkDuckDB(str(tmp_path / "m.duckdb"))
+    try:
+        migracoes.aplicar(s)
+        aplicadas = {l["nome"] for l in s.consultar("SELECT nome FROM schema_migracao")}
+        assert "0017_bronze_comprimido" in aplicadas
+        # Idempotente: a segunda passada não repete nada.
+        assert migracoes.aplicar(s) == []
+    finally:
+        s.fechar()

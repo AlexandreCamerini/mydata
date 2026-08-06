@@ -650,10 +650,16 @@ async def get_gestao(request: Request) -> Any:
             "ultima_falha": f.get("ultima_falha"),
         })
 
+    # Duas medidas, não uma. `tamanho_bytes` é o tamanho do arquivo que a fonte
+    # publicou — o que o consumidor baixa. `ocupado` é o que a tabela custa em
+    # disco, com índices e TOAST. Com a compressão do [ADR-21] ligada as duas
+    # deixam de coincidir, e chamar a primeira de "espaço" faria a gestão
+    # superestimar o próprio custo em uma ordem de grandeza.
     bronze = sink.um(
         "SELECT count(*) AS capturas, COALESCE(sum(tamanho_bytes), 0) AS bytes "
         "FROM bronze_captura"
     )
+    ocupado = custo.tamanho_tabela(sink, "bronze_captura")
     chaves = sink.consultar(
         "SELECT consumidor, prefixo, quota_minuto, quota_dia, escopos, "
         "criada_em, revogada_em FROM cfg_chave_api ORDER BY id DESC"
@@ -663,6 +669,9 @@ async def get_gestao(request: Request) -> Any:
         "classes": classes,
         "bronze": {
             "capturas": int(bronze["capturas"] or 0),
+            # `ocupado` é nulo no DuckDB, que não expõe a medida. Nulo é fato:
+            # a tela mostra traço em vez de fingir que mediu.
+            "ocupado_bytes": ocupado,
             "bytes": int(bronze["bytes"] or 0),
         },
         "consumidores": [

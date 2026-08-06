@@ -564,6 +564,27 @@ MIGRACOES: list[Migracao] = [
             )""",
         ],
     ),
+    Migracao(
+        # [ADR-21]. A `0003_bronze` desliga a compressão do TOAST com
+        # `STORAGE EXTERNAL`, e o comentário de lá explica: "ZIP já vem
+        # comprimido". Era verdade enquanto toda fonte entregava ZIP. O
+        # cadastro de instrumentos entrega CSV puro — 33,6 MB por pregão, 8,5
+        # GB por ano — e a premissa quebrou sem ninguém perceber.
+        #
+        # `EXTENDED` devolve a decisão ao `pglz`, que desiste sozinho no que já
+        # vem comprimido: medido sobre os arquivos reais, o ZIP não ganha nada
+        # e o CSV ganha uma ordem de grandeza.
+        #
+        # Isto **não** reescreve captura nenhuma. `STORAGE` decide como o
+        # Postgres guarda valor **novo**; o que já está gravado fica byte a
+        # byte como está, e `trg_bronze_imutavel` continua recusando UPDATE e
+        # DELETE. Só DuckDB não tem o conceito, e por isso a migração é vazia
+        # nele em vez de ser condicional no código.
+        nome="0017_bronze_comprimido",
+        so_postgres=[
+            "ALTER TABLE bronze_captura ALTER COLUMN payload SET STORAGE EXTENDED",
+        ],
+    ),
 ]
 
 # Tabelas silver que participam do ciclo de publicação. A partir da Etapa 3

@@ -50,12 +50,21 @@ export function Gestao() {
         <h2 id="resumo" className="font-medium">
           O que o hub tem, e quanto pesa
         </h2>
-        <dl className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-sm">
+        <dl className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 text-sm">
           {[
             ["Classes", fmt.format(g.classes.length), ""],
             ["Linhas em silver", fmt.format(linhasTotais), ""],
             ["Capturas em bronze", fmt.format(g.bronze.capturas), ""],
-            ["Espaço do original", bytes(g.bronze.bytes), "só o bronze"],
+            ["Arquivos originais", bytes(g.bronze.bytes),
+             "somados como a fonte os publicou"],
+            ["Bronze em disco",
+             g.bronze.ocupado_bytes === null ? "—" : bytes(g.bronze.ocupado_bytes),
+             // Com o TOAST comprimindo (ADR-21), o arquivo publicado e o
+             // espaço ocupado deixam de coincidir. Mostrar só o primeiro fazia
+             // a gestão superestimar o próprio custo.
+             g.bronze.ocupado_bytes === null
+               ? "só o Postgres mede"
+               : "com índices, já comprimido"],
             [
               "Banco inteiro",
               resumo?.gb_armazenados != null
