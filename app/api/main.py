@@ -10,10 +10,15 @@ import base64
 import json
 import os
 from contextlib import asynccontextmanager
-from pathlib import Path
+# Renomeado para não colidir com fastapi.Path, usado abaixo para documentar
+# parâmetro de rota (cd_cvm, ticker etc.) — os dois se chamam "Path" e fazem
+# coisas completamente diferentes.
+from pathlib import Path as CaminhoDoArquivo
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi import (
+    Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response,
+)
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -25,7 +30,7 @@ from ..sinks import Sink, criar_sink
 from . import acesso, admin, auth, proveniencia
 from . import metricas as metricas_cat
 
-RAIZ_WEB = Path(__file__).resolve().parents[2] / "web" / "dist"
+RAIZ_WEB = CaminhoDoArquivo(__file__).resolve().parents[2] / "web" / "dist"
 
 
 # --------------------------------------------------------------------------
@@ -220,17 +225,30 @@ async def listar_empresas(
     request: Request,
     response: Response,
     q: str | None = Query(None, description="Busca por denominação, CNPJ ou ticker"),
-    setor: str | None = None,
+    setor: str | None = Query(
+        None, description="Filtra pelo setor de atividade declarado no cadastro da CVM"),
     segmento: str | None = Query(
         None, description="Segmento de listagem na B3 (NM, N1, N2, MB...)"),
     listada_b3: bool | None = Query(
         None, description="Só companhias com registro de negociação na B3"),
     com_balanco: bool | None = Query(
         None, description="Só companhias que publicaram DFP ou ITR"),
-    limite: int = Query(50, ge=1, le=500),
-    cursor: str | None = None,
+    limite: int = Query(
+        50, ge=1, le=500, description="Tamanho da página, até 500 linhas por chamada"),
+    cursor: str | None = Query(
+        None, description="Cursor opaco de 'proximo_cursor' da chamada anterior — "
+                          "leva à página seguinte. Omitido, começa do início"),
     _chave: dict = Depends(exigir_chave),
 ) -> Any:
+    """Busca companhias no universo unificado CVM + B3.
+
+    A CVM sozinha inclui companhia aberta que nunca teve ação negociada; os
+    filtros `listada_b3` e `com_balanco`, combinados, recortam o universo que
+    interessa a quem faz análise fundamentalista — quem de fato negocia e já
+    publicou pelo menos uma demonstração. O `total` no topo da resposta é
+    sobre esse universo filtrado inteiro, antes do corte da página; a lista
+    de baixo é só a página pedida, paginada por cursor.
+    """
     sink = obter_sink(request)
     exigir_vista(sink, "gold_empresa", _chave)
     etag = _etag(
@@ -297,9 +315,16 @@ async def listar_empresas(
 
 @app.get("/v1/empresas/{cd_cvm}", tags=["empresas"])
 async def obter_empresa(
-    cd_cvm: int, request: Request, response: Response,
+    request: Request, response: Response,
+    cd_cvm: int = Path(..., description="Código CVM que identifica a companhia — a "
+                                        "mesma chave usada em todas as outras rotas de empresa"),
     _chave: dict = Depends(exigir_chave),
 ) -> Any:
+    """Ficha de uma companhia no universo unificado CVM + B3.
+
+    A mesma linha que aparece em `/v1/empresas`, isolada por `cd_cvm` — para
+    quem já sabe qual empresa quer, sem paginar a lista inteira.
+    """
     sink = obter_sink(request)
     exigir_vista(sink, "gold_empresa", _chave)
     linha = sink.um("SELECT * FROM gold_empresa WHERE cd_cvm = ?", (cd_cvm,))
@@ -319,17 +344,37 @@ async def obter_empresa(
 
 @app.get("/v1/empresas/{cd_cvm}/demonstracoes", tags=["demonstrações"])
 async def demonstracoes(
-    cd_cvm: int, request: Request, response: Response,
-    tipo: str | None = Query(None, pattern="^(DFP|ITR|dfp|itr)$"),
-    grupo: str | None = None,
+    request: Request, response: Response,
+    cd_cvm: int = Path(..., description="Código CVM da companhia"),
+    tipo: str | None = Query(
+        None, pattern="^(DFP|ITR|dfp|itr)$",
+        description="DFP (anual) ou ITR (trimestral). Omitido, traz os dois"),
+    grupo: str | None = Query(
+        None, description="Grupo contábil da CVM: BPA, BPP, DRE, DFC_MI, DFC_MD, "
+                          "DVA, DRA ou DMPL"),
     de: str | None = Query(None, description="dt_refer mínima (AAAA-MM-DD)"),
-    ate: str | None = None,
-    consolidado: bool = True,
+    ate: str | None = Query(None, description="dt_refer máxima (AAAA-MM-DD)"),
+    consolidado: bool = Query(
+        True, description="TRUE para consolidado, FALSE para individual. Os dois "
+                          "escopos nunca devem ser somados na mesma conta"),
     conta: str | None = Query(None, description="Prefixo do código da conta"),
-    limite: int = Query(200, ge=1, le=2000),
-    cursor: str | None = None,
+    limite: int = Query(200, ge=1, le=2000, description="Tamanho da página, até 2000 linhas"),
+    cursor: str | None = Query(
+        None, description="Cursor de 'proximo_cursor' da chamada anterior"),
     _chave: dict = Depends(exigir_chave),
 ) -> Any:
+    """Contas contábeis publicadas por uma companhia, já filtradas e prontas
+    para somar.
+
+    Cada linha já passou pelas armadilhas do dado padronizado da CVM: só a
+    versão mais recente de cada reapresentação, só `ORDEM_EXERC = 'ÚLTIMO'`,
+    valor normalizado pela escala declarada (`vl_conta_norm`). O que a rota
+    não decide por conta própria é o que teria de ser decisão explícita de
+    quem consulta — individual vs. consolidado (`consolidado`) e, no ITR,
+    acumulado no ano vs. trimestre isolado: aqui a linha vem como a CVM
+    publicou, **acumulada**; para o trimestre já isolado, use
+    `/v1/empresas/{cd_cvm}/trimestres`.
+    """
     sink = obter_sink(request)
     etag = _etag(sink, f"dem:{cd_cvm}:{tipo}:{grupo}:{de}:{ate}:{consolidado}:{conta}:{limite}:{cursor}")
     if (r := _talvez_304(request, etag)):
@@ -377,14 +422,26 @@ async def demonstracoes(
 
 @app.get("/v1/empresas/{cd_cvm}/trimestres", tags=["demonstrações"])
 async def trimestres(
-    cd_cvm: int, request: Request, response: Response,
-    conta: str | None = None,
-    exercicio: str | None = None,
-    consolidado: bool = True,
-    limite: int = Query(200, ge=1, le=2000),
+    request: Request, response: Response,
+    cd_cvm: int = Path(..., description="Código CVM da companhia"),
+    conta: str | None = Query(None, description="Prefixo do código da conta"),
+    exercicio: str | None = Query(
+        None, description="Ano do exercício (ex.: '2024'). Omitido, traz todos"),
+    consolidado: bool = Query(
+        True, description="TRUE para consolidado, FALSE para individual"),
+    limite: int = Query(200, ge=1, le=2000, description="Tamanho da página, até 2000 linhas"),
     _chave: dict = Depends(exigir_chave),
 ) -> Any:
-    """ITR com o trimestre isolado já calculado (o acumulado YTD desfeito)."""
+    """ITR com o trimestre isolado já calculado (o acumulado YTD desfeito).
+
+    O ITR trimestral que a CVM publica traz contas de fluxo (DRE, DFC, DVA,
+    DRA) acumuladas desde o início do ano, não o trimestre isolado — somar Q1
+    e Q2 acumulados não dá "primeiro semestre", dá quase o dobro dele. Esta
+    rota já faz a subtração (Q2 isolado = Q2 acumulado − Q1 acumulado) e
+    devolve o trimestre de verdade. Contas de posição (BPA, BPP, DMPL) não
+    têm essa armadilha — elas não acumulam, e aqui saem como no arquivo
+    original.
+    """
     sink = obter_sink(request)
     onde = ["cd_cvm = ?", "consolidado = ?"]
     params: list[Any] = [cd_cvm, consolidado]
@@ -407,12 +464,24 @@ async def trimestres(
 
 @app.get("/v1/empresas/{cd_cvm}/metricas", tags=["demonstrações"])
 async def metricas(
-    cd_cvm: int, request: Request, response: Response,
-    nomes: str | None = Query(None, description="Lista separada por vírgula"),
-    consolidado: bool = True,
+    request: Request, response: Response,
+    cd_cvm: int = Path(..., description="Código CVM da companhia"),
+    nomes: str | None = Query(
+        None, description="Lista de chaves de métrica separadas por vírgula "
+                          "(ver /v1/meta/campos-calculados ou /admin/api/metricas "
+                          "para os nomes disponíveis). Omitida, calcula todas"),
+    consolidado: bool = Query(
+        True, description="TRUE para consolidado, FALSE para individual"),
     _chave: dict = Depends(exigir_chave),
 ) -> Any:
-    """Campos calculados de nível empresa, a partir do catálogo declarativo."""
+    """Indicadores fundamentalistas calculados a partir das demonstrações.
+
+    Cada métrica é uma fórmula sobre conta contábil (ex.: liquidez corrente
+    = ativo circulante / passivo circulante), editável em `/admin/api/metricas`
+    sem deploy. A resposta carrega a proveniência da demonstração de onde
+    cada indicador saiu — um número sem rastro até o arquivo oficial não
+    serve para decisão.
+    """
     from .metricas import calcular
 
     sink = obter_sink(request)
@@ -423,8 +492,11 @@ async def metricas(
 @app.get("/v1/meta/carga", tags=["catálogo"])
 async def meta_carga(
     request: Request,
-    dataset: str | None = None,
-    limite: int = Query(50, ge=1, le=500),
+    dataset: str | None = Query(
+        None, description="Restringe ao mapeamento com esta chave (ex.: 'cvm_dfp'). "
+                          "Omitido, traz todos"),
+    limite: int = Query(
+        50, ge=1, le=500, description="Quantas execuções recentes trazer, no máximo 500"),
     _chave: dict = Depends(exigir_chave),
 ) -> Any:
     """Relatório por execução: o que a carga trouxe e o que ela pesa.
@@ -439,14 +511,23 @@ async def meta_carga(
 
 @app.get("/v1/cotacoes/{ticker}", tags=["negociação"])
 async def cotacoes(
-    ticker: str, request: Request, response: Response,
+    request: Request, response: Response,
+    ticker: str = Path(..., description="Código de negociação na B3 (ex.: PETR4)"),
     de: str | None = Query(None, description="Data inicial, AAAA-MM-DD"),
     ate: str | None = Query(None, description="Data final, AAAA-MM-DD"),
-    limite: int = Query(200, ge=1, le=2000),
-    cursor: str | None = None,
+    limite: int = Query(200, ge=1, le=2000, description="Tamanho da página, até 2000 pregões"),
+    cursor: str | None = Query(
+        None, description="Cursor de 'proximo_cursor' da chamada anterior"),
     _chave: dict = Depends(exigir_chave),
 ) -> Any:
-    """Pregão do lote padrão de um papel, com volatilidade histórica."""
+    """Série histórica de pregão do lote padrão de um papel, com volatilidade.
+
+    Vem do COTAHIST da B3 — o mesmo arquivo que qualquer corretora usa para
+    reconstruir preço histórico. `hv21`/`hv63` (volatilidade histórica de 21
+    e 63 pregões) são calculadas sobre a própria série, não vêm da fonte, e
+    só ficam completas a partir do vigésimo primeiro/sexagésimo terceiro
+    pregão carregado.
+    """
     sink = obter_sink(request)
     etag = _etag(sink, f"cot:{ticker}:{de}:{ate}:{limite}:{cursor}")
     if (r := _talvez_304(request, etag)):
@@ -482,22 +563,28 @@ async def cotacoes(
 
 @app.get("/v1/opcoes/{ticker}", tags=["negociação"])
 async def opcoes(
-    ticker: str, request: Request, response: Response,
+    request: Request, response: Response,
+    ticker: str = Path(..., description="Código do ativo-objeto na B3 (ex.: PETR4, não o "
+                                        "código da série de opção)"),
     vencimento: str | None = Query(None, description="Vencimento, AAAA-MM-DD"),
     pregao: str | None = Query(
         None, description="Data do pregão. Omitida, vale o último publicado."
     ),
     tipo: str | None = Query(None, description="CALL ou PUT"),
-    limite: int = Query(500, ge=1, le=2000),
-    cursor: str | None = None,
+    limite: int = Query(
+        500, ge=1, le=2000, description="Tamanho da página, até 2000 séries"),
+    cursor: str | None = Query(
+        None, description="Cursor de 'proximo_cursor' da chamada anterior"),
     _chave: dict = Depends(exigir_chave),
 ) -> Any:
-    """Cadeia de opções de um ativo-objeto, com implícita e gregas.
+    """Cadeia de opções de um ativo-objeto num pregão, com implícita e gregas.
 
-    Sem `pregao`, responde o último pregão publicado *daquele papel* — e não
-    o último da base. Um papel que parou de negociar devolveria vazio se o
-    corte fosse global, o que pareceria ausência de dado em vez de ausência
-    de negócio.
+    Vem do COTAHIST da B3, sob uso pessoal (ver ADR-18) — não é redistribuído
+    a terceiros. Sem `pregao`, responde o último pregão publicado *daquele
+    papel*, não o último da base: um papel que parou de negociar devolveria
+    vazio se o corte fosse global, o que pareceria ausência de dado em vez de
+    ausência de negócio. Volatilidade implícita e gregas são calculadas por
+    Black-Scholes a partir do preço do ativo-objeto no mesmo pregão.
     """
     sink = obter_sink(request)
     etag = _etag(sink, f"opc:{ticker}:{vencimento}:{pregao}:{tipo}:{limite}:{cursor}")
@@ -547,8 +634,11 @@ async def opcoes(
 
 @app.get("/v1/opcoes/{ticker}/vencimentos", tags=["negociação"])
 async def vencimentos(
-    ticker: str, request: Request,
-    pregao: str | None = None,
+    request: Request,
+    ticker: str = Path(..., description="Código do ativo-objeto na B3 (ex.: PETR4)"),
+    pregao: str | None = Query(
+        None, description="Data do pregão, AAAA-MM-DD. Omitida, vale o último "
+                          "pregão publicado daquele papel"),
     _chave: dict = Depends(exigir_chave),
 ) -> Any:
     """Vencimentos disponíveis, para o consumidor não varrer a cadeia inteira
@@ -592,6 +682,13 @@ async def vencimentos(
 
 @app.get("/v1/meta/datasets", tags=["catálogo"])
 async def meta_datasets(request: Request, _chave: dict = Depends(exigir_chave)) -> Any:
+    """Cada mapeamento fonte→classe: o que ele extrai e como tipa cada coluna.
+
+    É o catálogo técnico por trás de `/v1/meta/classes` — enquanto aquela
+    rota descreve a classe de informação, esta descreve os mapeamentos que a
+    alimentam: qual fonte, qual coluna de origem virou qual coluna destino,
+    e se é obrigatória.
+    """
     sink = obter_sink(request)
     saida = []
     for ds in repo.listar_datasets(sink):
@@ -613,6 +710,14 @@ async def meta_datasets(request: Request, _chave: dict = Depends(exigir_chave)) 
 
 @app.get("/v1/meta/campos-calculados", tags=["catálogo"])
 async def meta_calculados(request: Request, _chave: dict = Depends(exigir_chave)) -> Any:
+    """Todo campo derivado declarado em cada mapeamento, com a expressão e as
+    colunas de origem que ele usa.
+
+    Um campo calculado que não conseguisse declarar as colunas de origem que
+    lê falharia na validação, não na carga — esta rota é onde essa
+    declaração fica visível, para auditar de onde cada derivada vem sem ler
+    código.
+    """
     sink = obter_sink(request)
     saida = []
     for ds in repo.listar_datasets(sink):
@@ -630,6 +735,13 @@ async def meta_calculados(request: Request, _chave: dict = Depends(exigir_chave)
 
 @app.get("/v1/meta/publicacoes", tags=["catálogo"])
 async def meta_publicacoes(request: Request, _chave: dict = Depends(exigir_chave)) -> Any:
+    """As últimas 50 versões de gold publicadas, mais recente primeiro.
+
+    Gold só muda quando há publicação — a versão listada aqui é a mesma que
+    o ETag de cada resposta usa como identidade de cache. Reverter uma
+    publicação move o ponteiro para uma versão anterior sem apagar dado
+    nenhum.
+    """
     sink = obter_sink(request)
     return {"dados": sink.consultar(
         "SELECT versao, publicado_em, execucao_id, observacao FROM publicacao "
@@ -663,7 +775,9 @@ async def meta_classes(request: Request, _chave: dict = Depends(exigir_chave)) -
 
 @app.get("/v1/empresas/{cd_cvm}/resumo", tags=["empresas"])
 async def resumo_da_empresa(
-    cd_cvm: int, request: Request, _chave: dict = Depends(exigir_chave)
+    request: Request,
+    cd_cvm: int = Path(..., description="Código CVM da companhia"),
+    _chave: dict = Depends(exigir_chave),
 ) -> Any:
     """O que existe para esta companhia, e quanto — sem trazer nenhum número.
 
@@ -811,7 +925,10 @@ def _sobre_captura(linha: dict) -> dict:
 
 @app.get("/v1/capturas/{captura_id}", tags=["proveniência"])
 async def sobre_captura(
-    request: Request, captura_id: int, chave: dict = Depends(exigir_chave)
+    request: Request,
+    captura_id: int = Path(..., description="Id de bronze_captura — vem em "
+                                            "proveniencia.captura de qualquer resposta de dado"),
+    chave: dict = Depends(exigir_chave),
 ) -> Any:
     """O que se sabe sobre um arquivo capturado, sem baixá-lo."""
     sink = obter_sink(request)
@@ -821,8 +938,9 @@ async def sobre_captura(
 @app.get("/v1/capturas/{captura_id}/arquivo", tags=["proveniência"])
 async def arquivo_da_captura(
     request: Request,
-    captura_id: int,
     response: Response,
+    captura_id: int = Path(..., description="Id de bronze_captura — vem em "
+                                            "proveniencia.captura de qualquer resposta de dado"),
     chave: dict = Depends(exigir_chave),
 ) -> Any:
     """O arquivo oficial, byte a byte como a fonte o publicou.
@@ -889,14 +1007,18 @@ async def meta_correlacoes(
 @app.get("/v1/correlacoes/{chave_correlacao}", tags=["dados"])
 async def executar_correlacao(
     request: Request,
-    chave_correlacao: str,
+    chave_correlacao: str = Path(
+        ..., description="Chave declarada em cfg_correlacao — ver /v1/meta/correlacoes "
+                         "para as travessias disponíveis"),
     campos: str | None = Query(
         None, description="colunas da classe de destino, separadas por vírgula"
     ),
     onde: str | None = Query(
         None, description="filtros sobre o destino: campo:valor,campo:valor"
     ),
-    limite: int = Query(correlacao.LIMITE_PADRAO, ge=1, le=correlacao.LIMITE_MAXIMO),
+    limite: int = Query(
+        correlacao.LIMITE_PADRAO, ge=1, le=correlacao.LIMITE_MAXIMO,
+        description="Tamanho da página de resultado da travessia"),
     chave: dict = Depends(exigir_chave),
 ) -> Any:
     """Atravessa uma correlação declarada.
@@ -1008,11 +1130,13 @@ async def meta_linhagem(
 @app.get("/v1/meta/execucoes", tags=["catálogo"])
 async def meta_execucoes(
     request: Request,
-    dataset: str | None = None,
+    dataset: str | None = Query(
+        None, description="Restringe ao mapeamento com esta chave. Omitido, traz todos"),
     status: str | None = Query(
         None, description="Filtra por status, separados por vírgula "
                           "(ex.: falha,bloqueada)"),
-    limite: int = Query(50, ge=1, le=200),
+    limite: int = Query(
+        50, ge=1, le=200, description="Quantas execuções recentes trazer, no máximo 200"),
     _chave: dict = Depends(exigir_chave),
 ) -> Any:
     """O que rodou e o que quebrou. É o que o painel do operador lê para
@@ -1024,7 +1148,10 @@ async def meta_execucoes(
 
 @app.get("/v1/meta/execucoes/{execucao_id}/fases", tags=["catálogo"])
 async def meta_fases(
-    execucao_id: int, request: Request, _chave: dict = Depends(exigir_chave)
+    request: Request,
+    execucao_id: int = Path(..., description="Id de log_execucao — vem em "
+                                             "/v1/meta/execucoes"),
+    _chave: dict = Depends(exigir_chave),
 ) -> Any:
     """Onde a carga gastou o tempo — não só que ela demorou."""
     return {"dados": observabilidade.linha_do_tempo(obter_sink(request), execucao_id)}
