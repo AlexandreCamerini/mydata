@@ -24,6 +24,9 @@ export default defineConfig({
     proxy: {
       "/admin/api": "http://127.0.0.1:8000",
       "/v1": "http://127.0.0.1:8000",
+      // A tela "API" lê o OpenAPI ao vivo do backend — sem isto, ela funciona
+      // no build servido pelo FastAPI e fica muda no `vite dev`.
+      "/openapi.json": "http://127.0.0.1:8000",
     },
   },
 });
