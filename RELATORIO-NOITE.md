@@ -41,7 +41,7 @@ Nada abaixo é suposição — cada linha foi checada nesta sessão.
 **Achados novos**, do mapeamento de base (`.planning/codebase/CONCERNS.md`,
 commit `225d834`), fora do escopo de 02-03/08:
 
-- Dois pipelines CVM coexistem (`src/cvm_financas/` legado com pandas, `app/motor` declarativo) — decisão sua sobre qual é o caminho público antes de tocar em semântica de parsing.
+- O pipeline CVM legado foi removido nesta limpeza; `app/motor` declarativo é o único caminho de ingestão.
 - Sem estratégia de retenção/backup para o bronze, que cresce sem parar — decisão operacional antes de aumentar frequência de carga.
 - Sem CI no repositório — meu review levantou isso como "candidato óbvio", mas o próprio `CONCERNS.md` e a regra de custo de infraestrutura pedem para pausar até você alinhar custo/ambiente. Não implementado, de propósito.
 
@@ -80,7 +80,7 @@ condicionados à ausência do build do front, não bug.
 |---|---|
 | `BRAPI_TOKEN`, se o mapa ticker→empresa avançar | item 9 |
 | CI (pausado por regra de custo/ambiente) | `.planning/codebase/CONCERNS.md` |
-| Consolidar os dois pipelines CVM (`src/cvm_financas/` vs `app/motor`) | `.planning/codebase/CONCERNS.md` |
+| Remover o pipeline CVM legado e manter `app/motor` como caminho único | limpeza de código morto |
 | Retenção/backup do bronze, que cresce sem parar | `.planning/codebase/CONCERNS.md` |
 
 ODbL, teto de gasto Railway e etapa 8a saíram desta lista — fechados no
