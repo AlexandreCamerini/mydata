@@ -63,12 +63,21 @@ Duas consequências que já decidem coisas:
   MyData republicar um republicador.
 - **Fundamentos, menos ainda.** Vêm da CVM, que o MyData já ingere na origem.
 
-O que sobra como uso legítimo hoje: o mapa **ticker → empresa**, que a CVM não
-publica, e macro (SELIC, IPCA) enquanto o BCB não entrar como fonte direta.
+O mapa **ticker → empresa** não é mais uso legítimo do brapi: a B3 publica
+`codeCVM` e `issuingCompany` no mesmo registro de `b3_listadas`, então o
+mapa nunca precisou de um agregador — fechado em 06/08/2026, [questão 1 do
+§14](arquitetura.md#14-questões-em-aberto). E macro (SELIC, IPCA) já entrou
+como fonte direta pelo BCB desde a etapa 5. **O que sobra como uso legítimo
+hoje é só dividendos** — ver "As cargas possíveis do brapi", abaixo.
 
 **Autenticação:** `BRAPI_TOKEN` no ambiente, ou `token=` no construtor. Quatro
 tickers (PETR4, MGLU3, VALE3, ITUB4) respondem sem token; o resto exige, mesmo
 no plano gratuito.
+
+**Não é preciso definir `BRAPI_TOKEN` hoje.** Não há carga ativa do brapi em
+`cfg_dataset` — o cliente serve só exploração pontual, com testes mockados
+que não tocam a rede. Só entra na hora de ativar dividendos (ver "O custo,
+que também decide", abaixo, sobre cadência e escopo).
 
 **Testes não tocam a rede** — `requests.Session.get` é mockado. Rodar a suíte
 não pode queimar cota de plano gratuito.
@@ -89,7 +98,7 @@ bom: o que o brapi agrega, este hub já ingere na origem.
 | Câmbio | `v2/currency` | awesomeapi + BCB | **Não**, idem — série 1 |
 | Criptomoedas | `v2/crypto` | não confirmada | **Não.** Fora do escopo de um hub de companhias abertas |
 | Dividendos | `quote/{t}?dividends=true` | não confirmada | **Talvez.** É a única lacuna real — "Proventos" aparece como ausente na tela da companhia |
-| Lista de tickers | `quote/list`, `available` | B3 | **Talvez.** Segunda fonte para o mapa ticker↔empresa da [questão 1 do §14](arquitetura.md#14-questões-em-aberto), abaixo da B3 na precedência |
+| Lista de tickers | `quote/list`, `available` | B3 | **Não.** A questão 1 do §14 fechou em 06/08/2026 — `b3_listadas` já traz `codeCVM`/`issuingCompany` no mesmo registro, sem agregador |
 | Opções | `v2/options/*` | **não confirmada** | **Não.** Resolvido na origem — ver abaixo |
 
 ### Opções: resolvido pela origem, não pelo agregador

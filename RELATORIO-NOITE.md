@@ -35,7 +35,7 @@ Nada abaixo é suposição — cada linha foi checada nesta sessão.
 | 6 | Suíte no dialeto Postgres nunca rodou | **Rodada hoje**: 481 passed / 2 skipped / 3 failed nos dois dialetos (DuckDB e Postgres, resultado idêntico). As 3 falhas são só `web/dist` ausente neste checkout, não bug. Achado: faltava `pytz` (dependência transitiva do DuckDB) declarada — sem ela a suíte inteira falhava com `_duckdb.InvalidInputException` |
 | 7 | Nada foi para o GitHub | **Resolvido** — a branch de handoff já está mergeada (diff zero contra `main`), e o deploy ativo em produção roda no commit mais recente da `main` |
 | 8 | Teto de gasto no Railway | **Resolvido**, mais tarde no mesmo dia — ver "Etapa 8a" abaixo |
-| 9 | `BRAPI_TOKEN` | **Sem mudança** — pendente, se o mapa ticker→empresa for adiante |
+| 9 | `BRAPI_TOKEN` | **Resolvido, não se aplica** — ver seção dedicada abaixo |
 | 10 | Renomear `seed_cvm.py` | **Resolvido** — `app/seed_fontes.py`, rename 100% + 28 referências ajustadas, sem mudança de comportamento (commit `452085b`) |
 
 **Achados novos**, do mapeamento de base (`.planning/codebase/CONCERNS.md`,
@@ -78,11 +78,11 @@ condicionados à ausência do build do front, não bug.
 
 | Decisão | Onde está documentada |
 |---|---|
-| `BRAPI_TOKEN`, se o mapa ticker→empresa avançar | item 9 |
 | CI (pausado por regra de custo/ambiente) | `.planning/codebase/CONCERNS.md` |
 
-ODbL, teto de gasto Railway, etapa 8a, o pipeline CVM legado e a retenção
-do bronze saíram desta lista — fechados no mesmo dia, ver abaixo.
+ODbL, teto de gasto Railway, etapa 8a, o pipeline CVM legado, a retenção
+do bronze e o `BRAPI_TOKEN` saíram desta lista — fechados no mesmo dia, ver
+abaixo.
 
 ## Etapa 8a — acesso público gratuito (CVM + BCB), fechada em 2026-08-16
 
@@ -192,6 +192,27 @@ bronze em caso de falha do volume aceito consciente, não por omissão — a
 pergunta foi feita com os números na mesa. Reabrir quando a taxa de escrita
 mudar de ordem de grandeza (nova fonte de alto volume, aumento de
 frequência) ou se o apetite a risco mudar.
+
+## BRAPI_TOKEN, resolvido sem precisar de token
+
+A razão original do item 9 não existe mais: o mapa ticker→empresa, que
+supostamente exigiria o brapi, já tinha sido fechado em 06/08/2026 (commit
+`7687417`) — a B3 publica `codeCVM` e `issuingCompany` no mesmo registro de
+`b3_listadas`, sem agregador nenhum. `docs/fontes-terceiros.md` não tinha
+sido atualizado com esse fechamento e ainda listava o mapa como "o que
+sobra como uso legítimo do brapi" — corrigido nesta sessão.
+
+Passando o resto do documento: preço, fundamentos, inflação, juros, câmbio,
+cripto e opções já estavam todos resolvidos na origem (B3/CVM/BCB direto,
+decisões de agosto). A única lacuna real que sobra é **dividendos**, feature
+não implementada, com decisão de cadência/escopo ainda pendente — o plano
+gratuito do brapi (15.000 req/mês) estoura com 564 tickers em cadência
+diária.
+
+**Não há carga ativa do brapi em `cfg_dataset` hoje** — o cliente serve só
+exploração pontual, testes mockados, sem tocar rede. `BRAPI_TOKEN` não
+precisa ser definido; só entra se e quando dividendos for decidido e
+implementado.
 
 ## O achado da noite
 
