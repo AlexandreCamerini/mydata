@@ -80,11 +80,9 @@ condicionados à ausência do build do front, não bug.
 |---|---|
 | `BRAPI_TOKEN`, se o mapa ticker→empresa avançar | item 9 |
 | CI (pausado por regra de custo/ambiente) | `.planning/codebase/CONCERNS.md` |
-| Remover o pipeline CVM legado e manter `app/motor` como caminho único | limpeza de código morto |
-| Retenção/backup do bronze, que cresce sem parar | `.planning/codebase/CONCERNS.md` |
 
-ODbL, teto de gasto Railway e etapa 8a saíram desta lista — fechados no
-mesmo dia, ver abaixo.
+ODbL, teto de gasto Railway, etapa 8a, o pipeline CVM legado e a retenção
+do bronze saíram desta lista — fechados no mesmo dia, ver abaixo.
 
 ## Etapa 8a — acesso público gratuito (CVM + BCB), fechada em 2026-08-16
 
@@ -165,6 +163,35 @@ entre sistemas do Alex, sem redistribuição. Nada muda no código: 8b
 continua fora do público (a 8a já cobre CVM/BCB), e permanece assim
 enquanto o uso for pessoal — não é uma decisão pendente aguardando resposta
 da B3, é a decisão já tomada e válida.
+
+## Pipeline CVM legado e retenção/backup do bronze, fechados em 2026-08-16
+
+**Pipeline legado:** não havia dois caminhos coexistindo para consolidar —
+`src/cvm_financas/` era código morto (não copiado no Dockerfile, não
+instalado em produção, não importado por `app/`). Removido, não migrado.
+Commit `edbe034`.
+
+**Retenção do bronze:** medido em produção, não estimado. `bronze_captura`
+tem **78 MB, 73 linhas**, capturando desde 2026-07-31 (16 dias) — banco
+inteiro em **2.377 MB**, contra 50 GB provisionados no volume. Taxa real:
+**~4,9 MB/dia**. Nesse ritmo, mesmo triplicando a ingestão, o volume
+provisionado dura décadas. A preocupação do `CONCERNS.md` era especulativa
+("cresce sem parar"), sem número por trás; com número, não há ação a tomar.
+ADR-21 (compressão TOAST, aplicada antes desta sessão) já faz o trabalho.
+
+**Backup — o achado real:** `railway postgres pitr status` mostrou
+`enabled: false`. Hoje não existe backup contínuo do Postgres de produção,
+e o bronze é "a única cópia que não dá para reconstruir" segundo o próprio
+`CLAUDE.md`. Railway não cobra taxa fixa de PITR — cobra storage do bucket
+de WAL comprimido (zstd) + egress do upload, proporcional ao volume de
+escrita, não ao tamanho total. Dado ~4,9 MB/dia, custo estimado é baixo
+(centenas de KB comprimidos/dia).
+
+**Decisão do Alex:** não habilitar PITR agora. Risco de perda total do
+bronze em caso de falha do volume aceito consciente, não por omissão — a
+pergunta foi feita com os números na mesa. Reabrir quando a taxa de escrita
+mudar de ordem de grandeza (nova fonte de alto volume, aumento de
+frequência) ou se o apetite a risco mudar.
 
 ## O achado da noite
 
