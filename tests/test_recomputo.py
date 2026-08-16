@@ -138,11 +138,14 @@ def test_carga_em_bloco_nao_deixa_staging_para_tras(sink_cvm):
 
 
 def test_carga_em_bloco_e_ordens_de_grandeza_mais_rapida(sink_cvm):
-    """Guarda-corpo de regressão: 20 mil linhas em menos de 15 segundos.
+    """Guarda-corpo de regressão: 20 mil linhas em menos de 40 segundos.
 
     O limite é folgado de propósito — a medição foi ~7.000 linhas/s numa
     máquina de desenvolvimento, e o teste existe para pegar volta ao upsert
-    linha a linha (300 linhas/s), não para cravar desempenho.
+    linha a linha (300 linhas/s = 67s para 20 mil), não para cravar
+    desempenho. 40s ainda deixa ~500 linhas/s de margem sobre esse piso,
+    tolerando CPU compartilhada (máquina de dev com outros serviços no ar,
+    runner de CI) sem deixar de pegar a regressão real.
     """
     campos = ["captura_id", "fonte_arquivo", "origem_dataset", "cd_cvm",
               "tipo_doc", "dt_refer", "grupo", "consolidado", "cd_conta",
@@ -156,4 +159,4 @@ def test_carga_em_bloco_e_ordens_de_grandeza_mais_rapida(sink_cvm):
     inicio = time.monotonic()
     sink_cvm.carregar_em_lote("fato_conta", campos, chave, linhas)
     decorrido = time.monotonic() - inicio
-    assert decorrido < 15, f"carga de 20 mil linhas levou {decorrido:.1f}s"
+    assert decorrido < 40, f"carga de 20 mil linhas levou {decorrido:.1f}s"

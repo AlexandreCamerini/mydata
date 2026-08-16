@@ -18,7 +18,13 @@ dependencies = [
 [project.optional-dependencies]
 duckdb = ["duckdb>=0.9"]
 postgres = ["sqlalchemy>=2.0", "psycopg[binary]>=3.1"]
-dev = ["pytest>=7.0", "duckdb>=0.9", "webauthn>=2.0"]
+dev = [
+    "pytest>=7.0",
+    "duckdb>=0.9",
+    "webauthn>=2.0",
+    "pytz",
+    "httpx",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
