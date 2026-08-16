@@ -31,10 +31,10 @@ Nada abaixo é suposição — cada linha foi checada nesta sessão.
 | 2 | Processo órfão na porta 8420 (PID 19468) | **Obsoleto** — porta livre, nada a derrubar. O processo não existe mais nesta máquina |
 | 3 | Preço: falar com a B3, ou desistir | **Sem mudança** — decisão sua, ainda aberta |
 | 4 | `ticker`/`segmento_listagem` na API pública | **Verificado, já protegido**: o escopo por classe (`empresa`/`negociacao_b3`) já bloqueava essas rotas; faltava só o teste de regressão, adicionado em `tests/test_api_opcoes.py` (commit `aca7b89`). A decisão de negócio sobre publicar isso na etapa 8 continua aberta |
-| 5 | Ler a ODbL na íntegra | **Sem mudança** — pendente |
+| 5 | Ler a ODbL na íntegra | **Resolvido**, mais tarde no mesmo dia — ver "Etapa 8a" abaixo |
 | 6 | Suíte no dialeto Postgres nunca rodou | **Rodada hoje**: 481 passed / 2 skipped / 3 failed nos dois dialetos (DuckDB e Postgres, resultado idêntico). As 3 falhas são só `web/dist` ausente neste checkout, não bug. Achado: faltava `pytz` (dependência transitiva do DuckDB) declarada — sem ela a suíte inteira falhava com `_duckdb.InvalidInputException` |
 | 7 | Nada foi para o GitHub | **Resolvido** — a branch de handoff já está mergeada (diff zero contra `main`), e o deploy ativo em produção roda no commit mais recente da `main` |
-| 8 | Teto de gasto no Railway | **Sem mudança** — decisão sua |
+| 8 | Teto de gasto no Railway | **Resolvido**, mais tarde no mesmo dia — ver "Etapa 8a" abaixo |
 | 9 | `BRAPI_TOKEN` | **Sem mudança** — pendente, se o mapa ticker→empresa for adiante |
 | 10 | Renomear `seed_cvm.py` | **Resolvido** — `app/seed_fontes.py`, rename 100% + 28 referências ajustadas, sem mudança de comportamento (commit `452085b`) |
 
@@ -78,14 +78,72 @@ condicionados à ausência do build do front, não bug.
 
 | Decisão | Onde está documentada |
 |---|---|
-| Preço B3: falar com a B3 ou manter uso interno | item 3 da tabela acima |
-| Ler a ODbL e declarar a licença da API derivada | item 5 |
-| Teto de gasto (*Usage Limits*) no Railway | item 8 |
+| Preço B3: falar com a B3 ou manter uso interno (etapa 8b) | item 3 da tabela acima |
 | `BRAPI_TOKEN`, se o mapa ticker→empresa avançar | item 9 |
 | CI (pausado por regra de custo/ambiente) | `.planning/codebase/CONCERNS.md` |
 | Consolidar os dois pipelines CVM (`src/cvm_financas/` vs `app/motor`) | `.planning/codebase/CONCERNS.md` |
 | Retenção/backup do bronze, que cresce sem parar | `.planning/codebase/CONCERNS.md` |
-| Etapa 8 (acesso público gratuito) | depende das duas primeiras desta lista |
+
+ODbL, teto de gasto Railway e etapa 8a saíram desta lista — fechados no
+mesmo dia, ver abaixo.
+
+## Etapa 8a — acesso público gratuito (CVM + BCB), fechada em 2026-08-16
+
+A etapa 8 original tratava "acesso público" como uma peça só, bloqueada por
+duas decisões de negócio (preço B3, teto de custo). Ela foi dividida:
+
+- **8a — CVM + BCB**, republicáveis (Decreto 8.777/2016; BCB é dado aberto): sem bloqueio legal. Implementada e no ar.
+- **8b — B3** (`negociacao_b3`, `instrumento_b3`): continua fora do público. ADR-18/ADR-20 são explícitos — abrir isso a terceiros reabre a decisão, não herda o uso pessoal já aprovado. Sem mudança.
+
+**ODbL, lida na íntegra (opendatacommons.org/licenses/odbl/1-0/):** o
+share-alike (seção 4.4) só se aplica a *Derivative Database*. Seção 4.5.b,
+texto literal: *"Using this Database... to create a Produced Work does not
+create a Derivative Database for purposes of Section 4.4."* Uma resposta de
+API sobre uma consulta pontual é *Produced Work*, que só exige atribuição
+(seção 4.3.a) — e o MyData já atribui em toda resposta (`proveniencia.fonte`,
+`sha256`, `versao_documento`). Não bloqueava a 8a; não precisava de nenhuma
+licença share-alike declarada.
+
+**Teto de gasto Railway:** `hardLimit: $20`, `softLimit: $15` (alerta em
+75%), definido no workspace inteiro. Uso do período (14/08–14/09) na hora do
+ajuste: $2,76 realizado, ~$14,99 projetado.
+
+**O achado que quase passou:** a classe `empresa` mistura CVM e B3 no nível
+de *atributo*, não de classe — `ticker`, `nome_pregao`, `setor_b3`,
+`segmento_listagem`, `dt_listagem` são exclusivos da B3, e pior, `cnpj` **não
+tem precedência própria**: usa a precedência default da classe
+(`["cvm_cadastro", "b3_listadas", "cvm_dfp_empresa"]"`), então pode vir da B3
+silenciosamente sempre que o cadastro CVM não tiver o valor. Uma lista fixa
+de "campos B3" filtraria os 5 óbvios e deixaria o `cnpj` passar em algumas
+linhas e não em outras. O codex parou a primeira tentativa de implementação
+exatamente por isso, em vez de inventar uma correção incompleta.
+
+**A correção**: filtro por proveniência real, não lista fixa.
+`app/api/proveniencia.py::decorar()` usa `datasets_por_atributo` (o mapa
+declarativo de `cfg_atributo.precedencia`) para classificar cada atributo —
+só-B3 é removido sempre; disputado é removido linha a linha pelo vencedor
+real (`por_atributo`, a mesma proveniência que já aparece em toda resposta).
+Cobre qualquer atributo cuja precedência inclua B3, presente ou futuro, não
+só os 5 nomes óbvios. Escopo novo `fonte:b3`, opt-in explícito; `leitura`
+(chave antiga) continua vendo tudo. O download do arquivo bronze bruto de
+captura B3 também passou a exigir `fonte:b3` — sem isso o filtro de campo
+seria inútil.
+
+`POST /v1/chaves`: emissão pública sem sessão, escopo travado no servidor
+(`classe:empresa,demonstracao_financeira,indicador_macro`, nunca aceita
+`classes`/`escopos` do cliente), quota fixa 30/min e 2000/dia, 5 emissões
+por IP por dia (migração `0018`, tabela `uso_ip_emissao_chave`).
+
+Commit `693512e`, com push. Deploy `4e1ecd2c`, `SUCCESS`, migração aplicada
+no boot. Testado em produção de ponta a ponta (`POST /v1/chaves` real,
+depois revogada — nenhuma chave de teste ficou no banco). Suíte: 490
+passed, 0 failed.
+
+**Nota operacional, não bloqueio:** se uma chave for emitida manualmente
+pelo admin com `classe:negociacao_b3`/`classe:instrumento_b3` sem também
+somar `fonte:b3`, o resultado não é 403 — é a classe respondendo com os
+campos B3 vazios. Não vaza nada, só confunde. Lembre de somar os dois ao
+emitir chave B3 pelo admin.
 
 ## O achado da noite
 
