@@ -29,7 +29,7 @@ Nada abaixo é suposição — cada linha foi checada nesta sessão.
 |---|---|---|
 | 1 | Cron do `mydata-cron` nunca agendado | **Resolvido** — `cronSchedule: "0 6 * * *"` no painel, próxima execução 2026-08-17T06:00:00Z. Banco de produção **não está vazio**: volume Postgres com 4.69GB usados |
 | 2 | Processo órfão na porta 8420 (PID 19468) | **Obsoleto** — porta livre, nada a derrubar. O processo não existe mais nesta máquina |
-| 3 | Preço: falar com a B3, ou desistir | **Sem mudança** — decisão sua, ainda aberta |
+| 3 | Preço: falar com a B3, ou desistir | **Resolvido, e a pergunta era a errada** — ver "Etapa 8b" abaixo |
 | 4 | `ticker`/`segmento_listagem` na API pública | **Verificado, já protegido**: o escopo por classe (`empresa`/`negociacao_b3`) já bloqueava essas rotas; faltava só o teste de regressão, adicionado em `tests/test_api_opcoes.py` (commit `aca7b89`). A decisão de negócio sobre publicar isso na etapa 8 continua aberta |
 | 5 | Ler a ODbL na íntegra | **Resolvido**, mais tarde no mesmo dia — ver "Etapa 8a" abaixo |
 | 6 | Suíte no dialeto Postgres nunca rodou | **Rodada hoje**: 481 passed / 2 skipped / 3 failed nos dois dialetos (DuckDB e Postgres, resultado idêntico). As 3 falhas são só `web/dist` ausente neste checkout, não bug. Achado: faltava `pytz` (dependência transitiva do DuckDB) declarada — sem ela a suíte inteira falhava com `_duckdb.InvalidInputException` |
@@ -78,7 +78,6 @@ condicionados à ausência do build do front, não bug.
 
 | Decisão | Onde está documentada |
 |---|---|
-| Preço B3: falar com a B3 ou manter uso interno (etapa 8b) | item 3 da tabela acima |
 | `BRAPI_TOKEN`, se o mapa ticker→empresa avançar | item 9 |
 | CI (pausado por regra de custo/ambiente) | `.planning/codebase/CONCERNS.md` |
 | Consolidar os dois pipelines CVM (`src/cvm_financas/` vs `app/motor`) | `.planning/codebase/CONCERNS.md` |
@@ -144,6 +143,28 @@ pelo admin com `classe:negociacao_b3`/`classe:instrumento_b3` sem também
 somar `fonte:b3`, o resultado não é 403 — é a classe respondendo com os
 campos B3 vazios. Não vaza nada, só confunde. Lembre de somar os dois ao
 emitir chave B3 pelo admin.
+
+## Etapa 8b — B3, resolvida sem contato com a B3
+
+A pergunta "falar com a B3, ou desistir" partia de uma premissa que não é
+mais a do projeto: redistribuição *comercial* ou pública a terceiros
+externos. Antes de escrever qualquer contato, li a Política Comercial de
+Market Data da B3 na íntegra (v3.0.4, 15/10/2024) para checar se dado de
+fim de dia/D-1 teria isenção de autorização — tem (seção 7.9/7.10), mas só
+para quem já assinou o Contrato de Distribuição como `DISTRIBUIDOR` ou
+`REDISTRIBUIDOR`, e a definição desses termos (seção 3) é sobre captura via
+acesso direto/indireto à infraestrutura de negociação — feed contratado, não
+o arquivo público que o MyData baixa do site. Uma minuta de e-mail para
+`produtos-marketdata@b3.com.br` (o canal que a própria política indica para
+caso não coberto) ficou pronta, mas não foi enviada.
+
+**Não precisou.** O uso é pessoal — um datalake para consumo próprio, não
+uma API pública para terceiros externos. É exatamente o cenário que o
+ADR-18 e o ADR-20 já autorizam hoje: uso pessoal, consumo servidor-a-servidor
+entre sistemas do Alex, sem redistribuição. Nada muda no código: 8b
+continua fora do público (a 8a já cobre CVM/BCB), e permanece assim
+enquanto o uso for pessoal — não é uma decisão pendente aguardando resposta
+da B3, é a decisão já tomada e válida.
 
 ## O achado da noite
 
