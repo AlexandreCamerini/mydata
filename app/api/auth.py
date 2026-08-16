@@ -150,6 +150,30 @@ def classes_permitidas(chave: dict) -> set[str] | None:
     return classes or None
 
 
+def fontes_permitidas(chave: dict) -> set[str]:
+    """Quais fontes esta chave pode ler explicitamente.
+
+    A sintaxe é paralela à de `classes_permitidas`: `fonte:b3` é um
+    consentimento explícito para os atributos cuja origem vencedora é B3.
+    `leitura` continua sendo tratado como acesso amplo por
+    `pode_ver_fonte`, para não alterar chaves antigas.
+    """
+    escopos = [e.strip() for e in (chave.get("escopos") or "").split(",") if e.strip()]
+    return {e.split(":", 1)[1] for e in escopos if e.startswith("fonte:")}
+
+
+def pode_ver_fonte(chave: dict, fonte: str) -> bool:
+    """Se a chave pode receber atributos cuja origem é `fonte`.
+
+    Só B3 exige opt-in: fontes republicáveis continuam disponíveis para uma
+    chave restrita por classe. Chaves antigas com `escopos == "leitura"`
+    permanecem amplas.
+    """
+    if (chave.get("escopos") or "").strip() == "leitura":
+        return True
+    return fonte in fontes_permitidas(chave)
+
+
 def pode_ler(chave: dict, classe: str | None) -> bool:
     permitidas = classes_permitidas(chave)
     if permitidas is None or classe is None:
@@ -185,3 +209,31 @@ def consumir_quota(sink: Sink, chave: dict, agora: datetime | None = None) -> di
         if pior["ok"] and (restante < pior["restante"] or pior["limite"] == 0):
             pior = {"ok": True, "limite": limite, "restante": restante, "janela": janela}
     return pior
+
+
+def consumir_quota_ip_emissao(
+    sink: Sink, ip: str, agora: datetime | None = None, limite: int = 5,
+) -> dict:
+    """Conta emissões por IP no balde diário da rota pública de chaves."""
+    agora = agora or datetime.now(timezone.utc)
+    janela = "dia"
+    balde = agora.strftime("%Y%m%d")
+    sink.executar(
+        """INSERT INTO uso_ip_emissao_chave (ip, janela, balde, chamadas)
+           VALUES (?,?,?,1)
+           ON CONFLICT (ip, janela, balde)
+           DO UPDATE SET chamadas = uso_ip_emissao_chave.chamadas + 1""",
+        (ip, janela, balde),
+    )
+    linha = sink.um(
+        "SELECT chamadas FROM uso_ip_emissao_chave "
+        "WHERE ip = ? AND janela = ? AND balde = ?",
+        (ip, janela, balde),
+    )
+    usadas = int(linha["chamadas"])
+    return {
+        "ok": usadas <= limite,
+        "limite": limite,
+        "restante": max(0, limite - usadas),
+        "janela": janela,
+    }

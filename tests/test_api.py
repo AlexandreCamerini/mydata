@@ -304,6 +304,65 @@ def test_lista_traz_o_total_do_universo_filtrado(cliente_b3):
     assert r2.json()["total"] == 1
 
 
+def test_chave_sem_fonte_b3_remove_origens_mistas_e_exclusivas(cliente_b3):
+    """A proteção usa o dataset vencedor, não uma lista fixa de colunas."""
+    from app.api.main import app
+
+    sink = app.state.sink
+    # A CVM deixa de preencher CNPJ para esta empresa; a precedência então
+    # escolhe b3_listadas, enquanto os campos B3-only continuam sempre B3.
+    sink.executar(
+        "UPDATE dim_empresa SET cnpj = NULL "
+        "WHERE cd_cvm = 9512 AND origem_dataset <> 'b3_listadas'"
+    )
+    vencida = sink.um(
+        "SELECT cnpj, cnpj_origem, ticker, segmento_listagem "
+        "FROM gold_empresa WHERE cd_cvm = 9512"
+    )
+    assert vencida["cnpj_origem"] == "b3_listadas"
+    assert vencida["ticker"] and vencida["segmento_listagem"]
+
+    sem_b3 = auth.emitir(sink, "sem-b3", escopos="classe:empresa")
+    ampla = auth.emitir(sink, "leitura", escopos="leitura")
+    explicita = auth.emitir(
+        sink, "com-b3", escopos="classe:empresa,fonte:b3"
+    )
+
+    def consultar(chave):
+        return cliente_b3.get(
+            "/v1/empresas/9512",
+            headers={"X-API-Key": chave.chave_completa},
+        )
+
+    bloqueada = consultar(sem_b3)
+    assert bloqueada.status_code == 200, bloqueada.text
+    dado = bloqueada.json()["dados"]
+    assert "cnpj" not in dado
+    assert all(
+        campo not in dado
+        for campo in (
+            "ticker", "nome_pregao", "setor_b3", "segmento_listagem",
+            "dt_listagem", "listada_b3",
+        )
+    )
+    assert "cnpj" not in dado["proveniencia"].get("por_atributo", {})
+    captura_b3 = sink.um(
+        "SELECT id FROM bronze_captura WHERE dataset_chave = 'b3_listadas'"
+    )
+    assert cliente_b3.get(
+        f"/v1/capturas/{captura_b3['id']}",
+        headers={"X-API-Key": sem_b3.chave_completa},
+    ).status_code == 403
+
+    for chave in (ampla, explicita):
+        resposta = consultar(chave)
+        assert resposta.status_code == 200, resposta.text
+        dado = resposta.json()["dados"]
+        assert dado["cnpj"]
+        assert dado["ticker"] and dado["segmento_listagem"]
+        assert dado["proveniencia"]["por_atributo"]["cnpj"] == "b3_listadas"
+
+
 def test_meta_classes_declara_a_precedencia(cliente):
     """O contrato diz por que uma fonte vence, não só qual venceu: a
     precedência da classe e a do atributo que a sobrepõe saem no catálogo."""

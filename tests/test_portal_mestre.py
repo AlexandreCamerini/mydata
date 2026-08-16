@@ -149,6 +149,46 @@ def test_app_novo_e_chave_nova_nao_codigo_novo(base):
                      headers=cab).status_code == 403
 
 
+def test_emissao_publica_tem_escopo_e_quota_travados(base):
+    from app.api.main import ESCOPOS_PUBLICOS, app
+
+    with TestClient(app) as c:
+        vazio = c.post("/v1/chaves", json={"consumidor": "   "})
+        assert vazio.status_code == 422
+        assert vazio.json()["erro"]["codigo"] == "entrada_invalida"
+
+        primeira = c.post(
+            "/v1/chaves",
+            json={
+                "consumidor": "app-publico",
+                "classes": ["negociacao_b3"],
+                "escopos": "leitura,fonte:b3",
+            },
+        )
+        assert primeira.status_code == 200, primeira.text
+        dados = primeira.json()["dados"]
+        assert dados["escopos"] == ESCOPOS_PUBLICOS
+
+        linha = app.state.sink.um(
+            "SELECT quota_minuto, quota_dia, escopos FROM cfg_chave_api "
+            "WHERE prefixo = ?",
+            (dados["prefixo"],),
+        )
+        assert (linha["quota_minuto"], linha["quota_dia"], linha["escopos"]) == (
+            30, 2000, ESCOPOS_PUBLICOS,
+        )
+
+        for numero in range(2, 6):
+            resposta = c.post(
+                "/v1/chaves", json={"consumidor": f"app-publico-{numero}"}
+            )
+            assert resposta.status_code == 200, resposta.text
+
+        sexta = c.post("/v1/chaves", json={"consumidor": "app-publico-6"})
+        assert sexta.status_code == 429
+        assert sexta.json()["erro"]["codigo"] == "quota_excedida"
+
+
 # --------------------------------------------------------------------------
 # Domínio público
 # --------------------------------------------------------------------------

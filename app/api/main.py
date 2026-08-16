@@ -19,8 +19,11 @@ from typing import Any
 from fastapi import (
     Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response,
 )
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, field_validator
 
 from .. import bootstrap, repositorio as repo
 from ..motor import (
@@ -89,6 +92,35 @@ def erro(codigo: str, mensagem: str, status: int, detalhe: Any = None) -> JSONRe
         status_code=status,
         content={"erro": {"codigo": codigo, "mensagem": mensagem, "detalhe": detalhe}},
     )
+
+
+class ChavePublicaEntrada(BaseModel):
+    """Entrada mínima da emissão pública.
+
+    `classes` e `escopos` não fazem parte do modelo: o servidor nunca aceita
+    configuração de acesso vinda do consumidor.
+    """
+
+    consumidor: str
+
+    @field_validator("consumidor")
+    @classmethod
+    def consumidor_nao_pode_ser_vazio(cls, valor: str) -> str:
+        valor = valor.strip()
+        if not valor:
+            raise ValueError("consumidor não pode ser vazio")
+        return valor
+
+
+@app.exception_handler(RequestValidationError)
+async def tratar_validacao(request: Request, exc: RequestValidationError):
+    if request.url.path == "/v1/chaves":
+        return erro(
+            "entrada_invalida",
+            "Informe um consumidor não vazio em JSON.",
+            422,
+        )
+    return await request_validation_exception_handler(request, exc)
 
 
 # A checagem de sessão mora em `auth`: as duas superfícies precisam dela, e
@@ -220,6 +252,50 @@ async def health() -> dict:
     return {"status": "ok", "versao": "0.1.0"}
 
 
+ESCOPOS_PUBLICOS = (
+    "classe:empresa,classe:demonstracao_financeira,"
+    "classe:indicador_macro"
+)
+
+
+@app.post("/v1/chaves", tags=["acesso"])
+async def post_chave_publica(entrada: ChavePublicaEntrada, request: Request) -> Any:
+    """Emite uma chave inicial para leitura pública das classes republicáveis."""
+    ip = request.client.host if request.client is not None else None
+    if ip is None:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "codigo": "ip_indisponivel",
+                "mensagem": "Não foi possível identificar o IP para limitar emissões.",
+            },
+        )
+
+    quota = auth.consumir_quota_ip_emissao(obter_sink(request), ip)
+    if not quota["ok"]:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "codigo": "quota_excedida",
+                "mensagem": "Quota diária de emissão de chaves esgotada.",
+            },
+            headers={"Retry-After": "86400"},
+        )
+
+    # Ponto de partida conservador; ajustável depois via revogar + emitir pelo
+    # admin. O consumidor nunca escolhe quota nem escopo nesta superfície.
+    emitida = auth.emitir(
+        obter_sink(request), entrada.consumidor,
+        quota_minuto=30, quota_dia=2000, escopos=ESCOPOS_PUBLICOS,
+    )
+    return {"dados": {
+        "prefixo": emitida.prefixo,
+        "chave": emitida.chave_completa,
+        "escopos": ESCOPOS_PUBLICOS,
+        "aviso": "Guarde agora: a chave completa não é exibida de novo.",
+    }}
+
+
 @app.get("/v1/empresas", tags=["empresas"])
 async def listar_empresas(
     request: Request,
@@ -309,7 +385,9 @@ async def listar_empresas(
 
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "public, max-age=300"
-    return {"dados": proveniencia.decorar(sink, linhas), "total": total,
+    return {"dados": proveniencia.decorar(
+        sink, linhas, classe="empresa", chave=_chave,
+    ), "total": total,
             "proximo_cursor": proximo}
 
 
@@ -339,7 +417,9 @@ async def obter_empresa(
         return r
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "public, max-age=300"
-    return {"dados": proveniencia.decorar(sink, [linha])[0]}
+    return {"dados": proveniencia.decorar(
+        sink, [linha], classe="empresa", chave=_chave,
+    )[0]}
 
 
 @app.get("/v1/empresas/{cd_cvm}/demonstracoes", tags=["demonstrações"])
@@ -417,7 +497,9 @@ async def demonstracoes(
 
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "public, max-age=300"
-    return {"dados": proveniencia.decorar(sink, linhas), "proximo_cursor": proximo}
+    return {"dados": proveniencia.decorar(
+        sink, linhas, classe="demonstracao_financeira", chave=_chave,
+    ), "proximo_cursor": proximo}
 
 
 @app.get("/v1/empresas/{cd_cvm}/trimestres", tags=["demonstrações"])
@@ -459,7 +541,9 @@ async def trimestres(
     )
     etag = _etag(sink, f"tri:{cd_cvm}:{conta}:{exercicio}:{consolidado}")
     response.headers["ETag"] = etag
-    return {"dados": proveniencia.decorar(sink, linhas)}
+    return {"dados": proveniencia.decorar(
+        sink, linhas, classe="demonstracao_financeira", chave=_chave,
+    )}
 
 
 @app.get("/v1/empresas/{cd_cvm}/metricas", tags=["demonstrações"])
@@ -558,7 +642,9 @@ async def cotacoes(
 
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "public, max-age=300"
-    return {"dados": proveniencia.decorar(sink, linhas), "proximo_cursor": proximo}
+    return {"dados": proveniencia.decorar(
+        sink, linhas, classe="negociacao_b3", chave=_chave,
+    ), "proximo_cursor": proximo}
 
 
 @app.get("/v1/opcoes/{ticker}", tags=["negociação"])
@@ -629,7 +715,9 @@ async def opcoes(
 
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "public, max-age=300"
-    return {"dados": proveniencia.decorar(sink, linhas), "proximo_cursor": proximo}
+    return {"dados": proveniencia.decorar(
+        sink, linhas, classe="negociacao_b3", chave=_chave,
+    ), "proximo_cursor": proximo}
 
 
 @app.get("/v1/opcoes/{ticker}/vencimentos", tags=["negociação"])
@@ -895,6 +983,18 @@ def _captura_ou_404(sink: Sink, captura_id: int, chave: dict) -> dict:
                 "codigo": "escopo_insuficiente",
                 "mensagem": f"A chave de '{chave.get('consumidor')}' não tem "
                             f"escopo para a classe '{classe}'.",
+                },
+            )
+    if (
+        linha["dataset_chave"] in proveniencia.DATASETS_B3
+        and not auth.pode_ver_fonte(chave, "b3")
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "codigo": "escopo_insuficiente",
+                "mensagem": f"A chave de '{chave.get('consumidor')}' não tem "
+                            "escopo para a fonte B3.",
             },
         )
     return {**dict(linha), "classe": classe}
@@ -1073,7 +1173,9 @@ async def executar_correlacao(
         # proveniência, não com as colunas internas da vista. Sem isto o
         # consumidor receberia `captura_id` e `publicado_em_versao` crus por
         # esta rota e proveniência decorada por todas as outras.
-        saida["dados"] = proveniencia.decorar(sink, saida["dados"])
+        saida["dados"] = proveniencia.decorar(
+            sink, saida["dados"], classe=destino, chave=chave,
+        )
         return saida
     except correlacao.ErroCorrelacao as e:
         raise HTTPException(

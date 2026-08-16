@@ -7,8 +7,14 @@ a alternativa seria uma segunda cópia, divergindo na primeira mudança.
 """
 from __future__ import annotations
 
+from .. import repositorio as repo
+from ..motor import ddl
 from ..motor.ddl import SUFIXO_ORIGEM
 from ..sinks import Sink
+from . import auth
+
+
+DATASETS_B3 = frozenset({"b3_cotahist", "b3_instrumentos", "b3_listadas"})
 
 
 def de_capturas(sink: Sink, capturas: set[int]) -> dict:
@@ -40,7 +46,34 @@ def de_capturas(sink: Sink, capturas: set[int]) -> dict:
     }
 
 
-def decorar(sink: Sink, linhas: list[dict]) -> list[dict]:
+def _atributos_b3(sink: Sink, classe: str) -> tuple[set[str], set[str]]:
+    """Classifica atributos B3-only e atributos disputados com B3.
+
+    A classificação vem dos datasets realmente cadastrados para a classe; não
+    é uma lista de campos de domínio. Ela é calculada uma vez por resposta,
+    antes de percorrer as linhas.
+    """
+    configuracao = repo.classe_vigente(sink, classe)
+    if configuracao is None:
+        raise ValueError(f"classe inexistente para proveniência: {classe}")
+    mapa = ddl.datasets_por_atributo(sink, configuracao)
+    somente_b3 = set()
+    disputados = set()
+    for atributo, candidatos in mapa.items():
+        candidatos_set = set(candidatos)
+        if candidatos_set and candidatos_set <= DATASETS_B3:
+            somente_b3.add(atributo)
+        elif candidatos_set & DATASETS_B3:
+            disputados.add(atributo)
+    return somente_b3, disputados
+
+
+def decorar(
+    sink: Sink,
+    linhas: list[dict],
+    classe: str | None = None,
+    chave: dict | None = None,
+) -> list[dict]:
     """Anexa proveniência a cada linha e remove colunas internas.
 
     Numa classe alimentada por mais de uma fonte, dizer "veio da captura X"
@@ -49,6 +82,13 @@ def decorar(sink: Sink, linhas: list[dict]) -> list[dict]:
     viram `proveniencia.por_atributo`, em vez de campos soltos no dado.
     """
     prov = de_capturas(sink, {r["captura_id"] for r in linhas if r.get("captura_id")})
+    somente_b3: set[str] = set()
+    disputados_b3: set[str] = set()
+    if chave is not None and not auth.pode_ver_fonte(chave, "b3"):
+        if classe is None:
+            raise ValueError("classe é obrigatória para filtrar proveniência B3")
+        somente_b3, disputados_b3 = _atributos_b3(sink, classe)
+
     saida = []
     for linha in linhas:
         captura = linha.pop("captura_id", None)
@@ -59,6 +99,14 @@ def decorar(sink: Sink, linhas: list[dict]) -> list[dict]:
             for chave in [c for c in linha if c.endswith(SUFIXO_ORIGEM)]
         }
         item = dict(linha)
+        if somente_b3 or disputados_b3:
+            remover = somente_b3 | {
+                atributo for atributo in disputados_b3
+                if por_atributo.get(atributo) in DATASETS_B3
+            }
+            for atributo in remover:
+                item.pop(atributo, None)
+                por_atributo.pop(atributo, None)
         item["proveniencia"] = {
             **prov.get(captura, {}),
             "versao_documento": linha.get("versao"),

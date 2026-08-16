@@ -585,6 +585,22 @@ MIGRACOES: list[Migracao] = [
             "ALTER TABLE bronze_captura ALTER COLUMN payload SET STORAGE EXTENDED",
         ],
     ),
+    Migracao(
+        # Limite da emissão pública: a chave é um recurso do portal, então a
+        # própria rota precisa de um balde independente da quota da chave que
+        # ainda nem existe. Cinco emissões por IP/dia é um ponto de partida;
+        # pode ser ajustado depois via revogar + emitir pelo admin.
+        nome="0018_emissao_publica",
+        sql=[
+            """CREATE TABLE IF NOT EXISTS uso_ip_emissao_chave (
+                 ip        {TEXTO} NOT NULL,
+                 janela    {TEXTO} NOT NULL,
+                 balde     {TEXTO} NOT NULL,
+                 chamadas  {INT} NOT NULL DEFAULT 0,
+                 PRIMARY KEY (ip, janela, balde)
+               )""",
+        ],
+    ),
 ]
 
 # Tabelas silver que participam do ciclo de publicação. A partir da Etapa 3
