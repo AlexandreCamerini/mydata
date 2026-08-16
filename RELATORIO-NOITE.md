@@ -19,6 +19,39 @@ Dez commits. Nada foi para o GitHub.
 | 7 — Gestão consolidada | **pronta** — verificação de tela pendente |
 | 8 — Acesso público gratuito | **não iniciada, de propósito** — você a adiou para decidir custo primeiro |
 
+## Atualização — 2026-08-16
+
+Verificação de todo o "Precisa de você" contra o estado real (painel Railway,
+suíte local nos dois dialetos, mapeamento de base via agentes GSD/codex).
+Nada abaixo é suposição — cada linha foi checada nesta sessão.
+
+| # | Item de 02-03/08 | Estado agora |
+|---|---|---|
+| 1 | Cron do `mydata-cron` nunca agendado | **Resolvido** — `cronSchedule: "0 6 * * *"` no painel, próxima execução 2026-08-17T06:00:00Z. Banco de produção **não está vazio**: volume Postgres com 4.69GB usados |
+| 2 | Processo órfão na porta 8420 (PID 19468) | **Obsoleto** — porta livre, nada a derrubar. O processo não existe mais nesta máquina |
+| 3 | Preço: falar com a B3, ou desistir | **Sem mudança** — decisão sua, ainda aberta |
+| 4 | `ticker`/`segmento_listagem` na API pública | **Verificado, já protegido**: o escopo por classe (`empresa`/`negociacao_b3`) já bloqueava essas rotas; faltava só o teste de regressão, adicionado em `tests/test_api_opcoes.py` (commit `aca7b89`). A decisão de negócio sobre publicar isso na etapa 8 continua aberta |
+| 5 | Ler a ODbL na íntegra | **Sem mudança** — pendente |
+| 6 | Suíte no dialeto Postgres nunca rodou | **Rodada hoje**: 481 passed / 2 skipped / 3 failed nos dois dialetos (DuckDB e Postgres, resultado idêntico). As 3 falhas são só `web/dist` ausente neste checkout, não bug. Achado: faltava `pytz` (dependência transitiva do DuckDB) declarada — sem ela a suíte inteira falhava com `_duckdb.InvalidInputException` |
+| 7 | Nada foi para o GitHub | **Resolvido** — a branch de handoff já está mergeada (diff zero contra `main`), e o deploy ativo em produção roda no commit mais recente da `main` |
+| 8 | Teto de gasto no Railway | **Sem mudança** — decisão sua |
+| 9 | `BRAPI_TOKEN` | **Sem mudança** — pendente, se o mapa ticker→empresa for adiante |
+| 10 | Renomear `seed_cvm.py` | **Sem mudança** — ainda mecânico, ainda não feito |
+
+**Achados novos**, do mapeamento de base (`.planning/codebase/CONCERNS.md`,
+commit `225d834`), fora do escopo de 02-03/08:
+
+- Dois pipelines CVM coexistem (`src/cvm_financas/` legado com pandas, `app/motor` declarativo) — decisão sua sobre qual é o caminho público antes de tocar em semântica de parsing.
+- Sem estratégia de retenção/backup para o bronze, que cresce sem parar — decisão operacional antes de aumentar frequência de carga.
+- Sem CI no repositório — meu review levantou isso como "candidato óbvio", mas o próprio `CONCERNS.md` e a regra de custo de infraestrutura pedem para pausar até você alinhar custo/ambiente. Não implementado, de propósito.
+
+**Ações executadas nesta sessão** (orquestração Claude + codex, GSD via
+`~/.codex`):
+
+- Guarda de produção contra `PORTAL_API_ABERTA` ativa ou `PORTAL_ADMIN_TOKEN` ausente, em `tests/test_deploy.py` — commit `aca7b89`, com push.
+- `PORTAL_ADMIN_TOKEN` **rotacionado em produção**: o valor antigo apareceu na tela desta sessão durante um diagnóstico (`railway variables --kv`); o valor novo foi setado via stdin, sem exposição, e o serviço `mydata` já redeployou com ele (`8b4c79b7`, `SUCCESS`).
+- Mapeamento completo da base via 4 agentes GSD (rodando dentro do codex) em `.planning/codebase/` — commit `225d834`, com push.
+
 ## O achado da noite
 
 **A B3 veda redistribuição.** Os Termos de Uso proíbem "distribuição,
