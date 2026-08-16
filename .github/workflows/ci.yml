@@ -33,12 +33,12 @@ jobs:
         run: pip install -e ".[dev]" -r requisitos.txt
 
       - name: Test with DuckDB
-        run: pytest -q
+        run: python -m pytest -q
 
       - name: Test with PostgreSQL
         env:
           PORTAL_TESTE_POSTGRES: postgresql://postgres:ci-password@localhost:5432/mydata_test
-        run: pytest -q
+        run: python -m pytest -q
 
   front:
     runs-on: ubuntu-latest

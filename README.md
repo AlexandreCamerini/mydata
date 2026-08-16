@@ -50,5 +50,5 @@ Nenhuma agregação deve ocorrer sem filtrar `is_latest`,
 ## Testes
 
 ```bash
-pytest -q
+python -m pytest -q
 ```

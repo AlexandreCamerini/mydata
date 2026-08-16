@@ -100,7 +100,9 @@ era dado oficial.
 
 ```bash
 pip install -e ".[dev]"                 # ambiente
-pytest -q                               # testes
+python -m pytest -q                     # testes — `-m` importa; `app/` não
+                                         # está em `src/`, e só o `-m` insere
+                                         # a raiz do projeto no sys.path
 python scripts/demo.py                  # base local com dado de exemplo
 python -m app.cli migrar --seed         # migrações + configuração (idempotente)
 python -m app.cli ingerir cvm_dfp 2023  # uma janela, com rede
