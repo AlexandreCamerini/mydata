@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import migracoes, seed_cvm
+from app import migracoes, seed_fontes
 from app.sinks import SinkDuckDB
 
 # Os três campos calculados que resolvem armadilhas da CVM. Se a recriação da
@@ -117,7 +117,7 @@ def test_a_classe_nova_passa_a_ser_aceita(ate_0011):
 def test_migrar_e_semear_na_ordem_do_deploy(ate_0011):
     """`entrada.sh` roda `migrar --seed`: migra e semeia no mesmo comando."""
     migracoes.aplicar(ate_0011)
-    seed_cvm.aplicar(ate_0011)
+    seed_fontes.aplicar(ate_0011)
 
     classes = {
         r["chave"] for r in ate_0011.consultar(

@@ -48,7 +48,7 @@ def itr_zip(tmp_path):
 # ==========================================================================
 # Portal (app) — sink em memória e ZIPs no layout da CVM
 # ==========================================================================
-from app import bootstrap, seed_cvm  # noqa: E402
+from app import bootstrap, seed_fontes  # noqa: E402
 from app.api import auth  # noqa: E402
 from app.motor import ingestao  # noqa: E402
 from app.sinks import SinkDuckDB  # noqa: E402
@@ -112,7 +112,7 @@ def sink():
 @pytest.fixture()
 def sink_cvm(sink):
     """Sink com a configuração da CVM já cadastrada."""
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     return sink
 
 
@@ -234,7 +234,7 @@ def cliente(tmp_path, zip_dfp_2023, csv_cadastro, monkeypatch):
         monkeypatch.delenv("DATABASE_URL", raising=False)
         s = SinkDuckDB(banco)
     bootstrap.preparar(s)
-    seed_cvm.aplicar(s)
+    seed_fontes.aplicar(s)
     ingestao.executar(s, "cvm_dfp", "2023",
                       baixar=baixador({"dfp_cia_aberta_2023.zip": zip_dfp_2023}))
     ingestao.executar(s, "cvm_cadastro", "atual",

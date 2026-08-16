@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from app import repositorio as repo
-from app import seed_cvm
+from app import seed_fontes
 from app.motor import ddl
 
 
@@ -155,7 +155,7 @@ def test_atributos_seguem_a_versao_do_pai(sink_cvm):
     ))
     nova = repo.classe_vigente(sink_cvm, "empresa")
     assert len(repo.atributos_de(sink_cvm, antiga["id"])) == len(
-        seed_cvm.CLASSE_EMPRESA.atributos)
+        seed_fontes.CLASSE_EMPRESA.atributos)
     assert len(repo.atributos_de(sink_cvm, nova["id"])) == 1
 
 

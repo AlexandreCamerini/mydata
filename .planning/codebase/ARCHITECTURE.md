@@ -22,7 +22,7 @@
 
 **Control plane/catalog:**
 - Purpose: armazenar fontes, datasets, classes, atributos, calculados, regras, agendamentos, chaves e publicações.
-- Contains: `app/repositorio.py`, `app/migracoes.py`, `app/seed_cvm.py`.
+- Contains: `app/repositorio.py`, `app/migracoes.py`, `app/seed_fontes.py`.
 - Used by: API, ingestão, DDL, publicação e CLI.
 
 **Data engine:**

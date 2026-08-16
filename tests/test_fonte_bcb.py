@@ -137,7 +137,7 @@ def test_nada_em_app_sabe_o_que_e_o_bcb():
     raiz = Path(__file__).resolve().parents[1] / "app"
     ofensores = []
     for arq in raiz.rglob("*.py"):
-        if arq.name == "seed_cvm.py":
+        if arq.name == "seed_fontes.py":
             continue      # o seed é dado, e é a exceção declarada no CLAUDE.md
         corpo = arq.read_text(encoding="utf-8").lower()
         for termo in ("bcb", "sgs", "selic", "ipca"):

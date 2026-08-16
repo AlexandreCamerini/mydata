@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app import bootstrap, repositorio as repo, seed_cvm
+from app import bootstrap, repositorio as repo, seed_fontes
 from app.motor import ddl, ingestao
 from app.sinks import SinkDuckDB
 
@@ -54,7 +54,7 @@ def admin(tmp_path, monkeypatch):
 
     s = SinkDuckDB(banco)
     bootstrap.preparar(s)
-    seed_cvm.aplicar(s)
+    seed_fontes.aplicar(s)
     s.fechar()
 
     from app.api.main import app
@@ -191,7 +191,7 @@ def test_gerador_reproduz_o_schema_de_producao(tmp_path, chave, tabela):
     # Banco B: só o gerador, a partir da configuração.
     gerado = SinkDuckDB(str(tmp_path / "gerado.duckdb"))
     bootstrap.preparar(gerado)
-    seed_cvm.aplicar(gerado)
+    seed_fontes.aplicar(gerado)
     obtido = ddl.colunas_fisicas(gerado, tabela)
     gerado.fechar()
 
@@ -214,7 +214,7 @@ def test_gerador_cria_o_indice_de_identidade(tmp_path):
     """Sem o índice único, o upsert da carga não tem em que se apoiar."""
     sink = SinkDuckDB(str(tmp_path / "ix.duckdb"))
     bootstrap.preparar(sink)
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     classe = repo.classe_vigente(sink, "empresa")
     ddl.garantir_tabela(sink, classe, repo.atributos_de(sink, classe["id"]))
     sink.executar(

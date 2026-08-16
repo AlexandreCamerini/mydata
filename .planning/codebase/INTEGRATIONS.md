@@ -7,15 +7,15 @@
 
 **CVM Dados Abertos:**
 - Fonte canônica de DFP/ITR e cadastro de companhias.
-- URLs, encoding `latin-1`, separador `;`, regex de arquivos e mapeamentos vivem como configuração em `app/seed_cvm.py`.
+- URLs, encoding `latin-1`, separador `;`, regex de arquivos e mapeamentos vivem como configuração em `app/seed_fontes.py`.
 - Downloads HTTP são executados por `app/motor/download.py`; o ZIP/CSV capturado é guardado em bronze com hash e URL por `app/motor/ingestao.py`.
 
 **B3:**
-- Endpoint JSON de companhias listadas em `app/seed_cvm.py`, paginado por `app/motor/paginacao.py`; `codeCVM` liga a companhia B3 à CVM.
+- Endpoint JSON de companhias listadas em `app/seed_fontes.py`, paginado por `app/motor/paginacao.py`; `codeCVM` liga a companhia B3 à CVM.
 - COTAHIST diário e cadastro consolidado de instrumentos entram como fontes configuradas para `fato_negociacao`/`dim_instrumento`; o contrato documentado os trata como uso pessoal em `docs/fontes-terceiros.md` e `docs/arquitetura.md`.
 
 **Banco Central (SGS):**
-- Séries públicas CDI, Selic, IPCA e câmbio são declaradas no seed em `app/seed_cvm.py` e carregadas pelo transporte HTTP JSON.
+- Séries públicas CDI, Selic, IPCA e câmbio são declaradas no seed em `app/seed_fontes.py` e carregadas pelo transporte HTTP JSON.
 
 **brapi.dev:**
 - Cliente REST isolado em `src/brapi_client/client.py`, com exceções específicas em `src/brapi_client/exceptions.py`.

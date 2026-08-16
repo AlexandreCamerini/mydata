@@ -19,7 +19,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app import bootstrap, repositorio as repo, seed_cvm
+from app import bootstrap, repositorio as repo, seed_fontes
 from app.api import auth
 from app.motor import ddl, ingestao, publicacao
 from app.sinks import SinkDuckDB
@@ -126,7 +126,7 @@ def test_inverter_a_precedencia_muda_o_publicado_sem_tocar_no_dado(carregado):
     """A propriedade que justifica a escolha de derivar em vez de sobrescrever."""
     antes = carregado.um("SELECT count(*) AS n FROM dim_empresa")["n"]
 
-    invertida = seed_cvm.CLASSE_EMPRESA
+    invertida = seed_fontes.CLASSE_EMPRESA
     atributos = [
         repo.Atributo(**{**vars(a), "precedencia": ["cvm_dfp_empresa", "cvm_cadastro"]})
         if a.nome == "denom_social" else a
@@ -205,7 +205,7 @@ def test_api_informa_a_origem_por_atributo(tmp_path, monkeypatch, zip_dfp, csv_c
 
     s = SinkDuckDB(banco)
     bootstrap.preparar(s)
-    seed_cvm.aplicar(s)
+    seed_fontes.aplicar(s)
     ingestao.executar(s, "cvm_cadastro", "atual",
                       baixar=baixador({"cad_cia_aberta.csv": csv_cad}))
     ingestao.executar(s, "cvm_dfp_empresa", "2023",

@@ -16,7 +16,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 sys.path.insert(0, str(RAIZ / "tests"))
 
-from app import bootstrap, seed_cvm                      # noqa: E402
+from app import bootstrap, seed_fontes                    # noqa: E402
 from app.api import auth                                 # noqa: E402
 from app.motor import ingestao                           # noqa: E402
 from app.sinks import SinkDuckDB                         # noqa: E402
@@ -32,7 +32,7 @@ def main() -> int:
 
     sink = SinkDuckDB(BANCO)
     bootstrap.preparar(sink)
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
 
     dfp = zip_cvm({
         "dfp_cia_aberta_BPA_con_2023.csv": csv_conta([

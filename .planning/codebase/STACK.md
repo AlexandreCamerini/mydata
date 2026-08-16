@@ -10,7 +10,7 @@
 - TypeScript/TSX - frontend React em `web/src/`.
 
 **Secondary:**
-- SQL - migrações renderizadas para Postgres/DuckDB, DDL metadata-driven e vistas em `app/migracoes.py`, `app/motor/ddl.py` e `app/seed_cvm.py`.
+- SQL - migrações renderizadas para Postgres/DuckDB, DDL metadata-driven e vistas em `app/migracoes.py`, `app/motor/ddl.py` e `app/seed_fontes.py`.
 - Shell - entrada Docker/Railway em `scripts/entrada.sh`.
 - HTML/CSS - páginas estáticas e estilos do frontend em `web/`.
 

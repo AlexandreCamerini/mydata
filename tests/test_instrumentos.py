@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import bootstrap, seed_cvm
+from app import bootstrap, seed_fontes
 from app.motor import ingestao
 from app.sinks import SinkDuckDB, sql_upsert_da_staging
 
@@ -69,7 +69,7 @@ def baixador(payload: bytes, bilhete: str = "abc123"):
 def sink_inst(tmp_path):
     s = SinkDuckDB(str(tmp_path / "inst.duckdb"))
     bootstrap.preparar(s)
-    seed_cvm.aplicar(s)
+    seed_fontes.aplicar(s)
     yield s
     s.fechar()
 

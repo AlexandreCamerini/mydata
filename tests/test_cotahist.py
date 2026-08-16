@@ -21,7 +21,7 @@ import zipfile
 
 import pytest
 
-from app import seed_cvm
+from app import seed_fontes
 from app.motor import ingestao
 from tests.test_largura_fixa import CABECALHO, CALL_ABCB, PETR4, PUT_AAPL, TRAILER
 
@@ -71,7 +71,7 @@ def test_as_linhas_do_fixture_tem_245_bytes():
 
 @pytest.fixture()
 def carregado(sink):
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     resultado = ingestao.executar(
         sink, "b3_cotahist", "2026-07-31",
         baixar=lambda url, cabecalhos=None: ARQUIVO,
@@ -86,7 +86,7 @@ def test_a_janela_iso_vira_o_nome_do_arquivo_diario(sink):
     """A janela fica em ISO — ordenável e igual à do resto do sistema — e o
     template da fonte a decompõe em dia/mês/ano. Guardá-la como `31072026` só
     para montar a URL deixaria a partição impossível de comparar."""
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     urls = []
 
     def baixar(url, cabecalhos=None):
@@ -111,7 +111,7 @@ def test_a_tabela_nasce_da_classe_e_nao_de_migracao(sink):
     """ADR-11: não existe CREATE TABLE de domínio. Se a classe não gerasse a
     tabela, a carga acima falharia por tabela inexistente — este teste só
     torna o motivo explícito."""
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     colunas = {
         linha["column_name"]
         for linha in sink.consultar(
@@ -192,7 +192,7 @@ def test_prazo_do_termo_faz_parte_da_identidade(sink):
     `prazo_termo` na chave, o segundo sobrescreve o primeiro e a perda é
     silenciosa — nenhuma contagem denuncia, porque a carga «funcionou».
     """
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     ingestao.executar(
         sink, "b3_cotahist", "2026-07-31",
         baixar=lambda url, cabecalhos=None: zip_cotahist([TERMO_060, TERMO_090]),
@@ -236,7 +236,7 @@ def test_chave_natural_nula_falha_alto_em_vez_de_duplicar(sink):
     from app import repositorio as repo
     from app.motor.ingestao import ErroIngestao
 
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     ds = repo.dataset_vigente(sink, "b3_cotahist")
     sink.executar(
         "UPDATE cfg_coluna SET formato = NULL "

@@ -61,7 +61,7 @@ está prestes a escrever um, a classe é que devia declarar aquilo
 
 **Engine único:** `app/motor/`, `app/api/` e `app/migracoes.py` não sabem o
 que é CVM. Fonte nova é linha em `cfg_*`, nunca linha em `app/`.
-`app/seed_cvm.py` é a única exceção, porque ele é dado.
+`app/seed_fontes.py` é a única exceção, porque ele é dado.
 
 Duas fontes na mesma classe **coexistem**: `origem_dataset` faz parte da
 identidade física, e a linha publicada sai de uma vista que escolhe por

@@ -14,14 +14,14 @@ from __future__ import annotations
 
 import pytest
 
-from app import seed_cvm
+from app import seed_fontes
 from app.motor import custo, ingestao
 from tests.test_cotahist import ARQUIVO
 
 
 @pytest.fixture()
 def carregado(sink):
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     ingestao.executar(
         sink, "b3_cotahist", "2026-07-31",
         baixar=lambda url, cabecalhos=None: ARQUIVO,
@@ -70,7 +70,7 @@ def test_carga_bloqueada_tambem_e_relatada(sink):
     reprovando. Relatar só o sucesso esconderia o custo que não virou dado."""
     from app import repositorio as repo
 
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     ds = repo.dataset_vigente(sink, "b3_cotahist")
     sink.executar(
         """INSERT INTO cfg_regra_qualidade
@@ -182,7 +182,7 @@ def test_resumo_nao_inventa_numero_que_nao_tem():
 def test_relatorio_quebrado_nao_derruba_a_carga(sink, monkeypatch):
     """Medir não pode custar o dado. Se a medição falha, a carga publica
     mesmo assim e o problema vira aviso no log."""
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
 
     def explode(*a, **kw):
         raise RuntimeError("catálogo do banco indisponível")

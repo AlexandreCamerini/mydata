@@ -50,7 +50,7 @@
 
 ## Function and Module Design
 
-- Código genérico pertence a `app/motor/`; conhecimento de fonte deve ser configuração em `app/seed_cvm.py`.
+- Código genérico pertence a `app/motor/`; conhecimento de fonte deve ser configuração em `app/seed_fontes.py`.
 - Funções têm guard clauses para validação e retorno explícito; operações de banco recebem `Sink` por parâmetro para manter os dois dialetos testáveis.
 - Frontend separa regras puras de apresentação para testá-las sem montar toda a árvore React.
 

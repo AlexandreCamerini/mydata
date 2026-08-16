@@ -17,7 +17,7 @@ import importlib
 import pytest
 from fastapi.testclient import TestClient
 
-from app import bootstrap, seed_cvm
+from app import bootstrap, seed_fontes
 from app.api import auth
 from app.motor import ingestao, publicacao
 from app.sinks import SinkDuckDB
@@ -42,7 +42,7 @@ def base(tmp_path, monkeypatch, zip_dfp_2023, csv_cadastro):
 
     s = SinkDuckDB(banco)
     bootstrap.preparar(s)
-    seed_cvm.aplicar(s)
+    seed_fontes.aplicar(s)
     ingestao.executar(s, "cvm_dfp", "2023",
                       baixar=baixador({"dfp_cia_aberta_2023.zip": zip_dfp_2023}))
     ingestao.executar(s, "cvm_cadastro", "atual",

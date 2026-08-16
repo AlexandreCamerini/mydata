@@ -18,7 +18,7 @@ import zipfile
 
 import pytest
 
-from app import seed_cvm
+from app import seed_fontes
 from app.motor import ingestao
 from tests.conftest import csv_conta, linha, zip_cvm
 from tests.test_cotahist import (
@@ -37,7 +37,7 @@ def test_reapresentacao_continua_rebaixando_a_versao_anterior(sink):
     `is_latest` verdadeiro — duas versões marcadas como última, e a soma em
     gold contando a conta duas vezes. Sem erro, sem alerta, sem sintoma.
     """
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
 
     def carga(versao, valor):
         arquivo = csv_conta([
@@ -57,7 +57,7 @@ def test_reapresentacao_continua_rebaixando_a_versao_anterior(sink):
 
 
 def test_is_latest_declara_que_retroage(sink):
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     campo = sink.um(
         "SELECT retroage FROM cfg_campo_calculado WHERE nome = 'is_latest' "
         "ORDER BY id DESC LIMIT 1"
@@ -93,7 +93,7 @@ ARQ_D2 = zip_cotahist([
 
 @pytest.fixture()
 def dois_pregoes(sink):
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     ingestao.executar(sink, "b3_cotahist", "2026-07-31",
                       baixar=lambda url, cabecalhos=None: ARQ_D1)
     ingestao.executar(sink, "b3_cotahist", "2026-08-03",
@@ -198,7 +198,7 @@ def test_carregar_um_pregao_anterior_reescreve_o_posterior(sink):
     """
     import math
 
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     ingestao.executar(sink, "b3_cotahist", "2026-08-03",
                       baixar=lambda url, cabecalhos=None: ARQ_D2)
     posterior = sink.um(
@@ -257,7 +257,7 @@ def test_hv_e_nula_enquanto_a_janela_nao_enche(dois_pregoes):
 def test_a_moldura_e_o_count_usam_a_mesma_janela(sink):
     """`{OVER}` é substituído em todas as ocorrências: se o `count` recebesse
     moldura diferente da do `stddev`, a guarda contaria outra coisa."""
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     campo = sink.um(
         "SELECT expressao, moldura FROM cfg_campo_calculado WHERE nome = 'hv21' "
         "ORDER BY id DESC LIMIT 1"

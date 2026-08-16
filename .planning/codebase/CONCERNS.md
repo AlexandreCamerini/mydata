@@ -11,7 +11,7 @@
 - Safe approach: decidir e documentar qual caminho é público para cada consumidor antes de alterar semântica; manter testes de compatibilidade até retirar o legado.
 
 **Seed extenso como fonte de configuração:**
-- Issue: `app/seed_cvm.py` concentra muitas definições de fontes, classes, views, calculados e agendamentos.
+- Issue: `app/seed_fontes.py` concentra muitas definições de fontes, classes, views, calculados e agendamentos.
 - Impact: revisão e evolução são difíceis; um erro no seed pode mudar versões/DDL/gold no boot.
 - Safe approach: mudanças devem ser idempotentes, cobertas por testes de seed/DDL e verificadas com `migrar --seed` antes do deploy.
 
@@ -29,7 +29,7 @@
 
 **CVM não é fonte estável de layout:**
 - Risk: mudança de encoding, colunas, nomes de arquivo, escala ou valores de `ORDEM_EXERC` pode produzir carga incompleta/errada.
-- Current mitigation: colunas obrigatórias, regex, regras declarativas em `app/seed_cvm.py` e fixtures sintéticas.
+- Current mitigation: colunas obrigatórias, regex, regras declarativas em `app/seed_fontes.py` e fixtures sintéticas.
 - Safe change: adicionar fixture do novo layout e regra bloqueadora antes de liberar ingestão.
 
 ## Security Considerations
@@ -56,7 +56,7 @@
 - O staging temporário é ponto crítico: manter a chave natural, `_ord` e descarte da tabela ao alterar carga em lote.
 
 **Cálculos de negociação:**
-- `app/motor/nucleos.py` inclui Black-Scholes/solução iterativa; `app/seed_cvm.py` usa calculados e joins contra histórico.
+- `app/motor/nucleos.py` inclui Black-Scholes/solução iterativa; `app/seed_fontes.py` usa calculados e joins contra histórico.
 - `web/src/apresentacao/Negociacao.tsx` usa janela virtualizada para cadeias grandes; mudanças devem preservar a regra de não renderizar todos os contratos no DOM.
 
 ## Fragile Areas

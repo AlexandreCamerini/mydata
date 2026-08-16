@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app import bootstrap, seed_cvm
+from app import bootstrap, seed_fontes
 from app.api import auth
 from app.motor import ingestao
 from app.sinks import SinkDuckDB
@@ -25,7 +25,7 @@ def cliente_b3(tmp_path, monkeypatch):
 
     s = SinkDuckDB(banco)
     bootstrap.preparar(s)
-    seed_cvm.aplicar(s)
+    seed_fontes.aplicar(s)
     s.executar(
         "INSERT INTO fato_indicador (captura_id, fonte_arquivo, origem_dataset,"
         " indicador, dt_referencia, valor, unidade) VALUES (0,'manual','bcb_cdi',"

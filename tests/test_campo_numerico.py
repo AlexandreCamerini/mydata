@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from app import repositorio as repo
-from app import seed_cvm
+from app import seed_fontes
 from app.motor import calculados as calc
 from app.motor import ingestao
 from app.repositorio import ErroConfiguracao
@@ -52,7 +52,7 @@ def test_expressao_que_nao_e_chamada_simples_e_recusada(expressao):
 # --------------------------------------------------------------------------
 @pytest.fixture()
 def carregado(sink):
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     sink.executar(
         "INSERT INTO fato_indicador (captura_id, fonte_arquivo, origem_dataset,"
         " indicador, dt_referencia, valor, unidade) VALUES (0,'manual','bcb_cdi',"
@@ -111,7 +111,7 @@ def test_papel_a_vista_nao_ganha_grega(carregado):
 def test_sem_carga_de_cdi_a_taxa_fica_nula_e_o_calculo_segue(sink):
     """A classe de indicador pode não ter carga. Isso não pode derrubar a
     ingestão do pregão — o modelo roda com r=0, enviesado e explicável."""
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     ingestao.executar(
         sink, "b3_cotahist", "2026-07-31",
         baixar=lambda url, cabecalhos=None: ARQUIVO,

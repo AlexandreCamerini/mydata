@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app import bootstrap, seed_cvm
+from app import bootstrap, seed_fontes
 from app.api import auth
 from app.sinks import SinkDuckDB
 
@@ -29,7 +29,7 @@ def cliente_com_token(tmp_path, monkeypatch):
 
     s = SinkDuckDB(str(tmp_path / "sessao.duckdb"))
     bootstrap.preparar(s)
-    seed_cvm.aplicar(s)
+    seed_fontes.aplicar(s)
     s.fechar()
 
     from app.api.main import app
@@ -142,7 +142,7 @@ def test_sem_token_configurado_a_administracao_fica_aberta(tmp_path, monkeypatch
 
     s = SinkDuckDB(str(tmp_path / "aberta.duckdb"))
     bootstrap.preparar(s)
-    seed_cvm.aplicar(s)
+    seed_fontes.aplicar(s)
     s.fechar()
 
     from app.api.main import app

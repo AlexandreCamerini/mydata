@@ -6,7 +6,7 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-from app import bootstrap, seed_cvm
+from app import bootstrap, seed_fontes
 from app.api import auth
 from app.motor import ingestao
 from app.sinks import SinkDuckDB

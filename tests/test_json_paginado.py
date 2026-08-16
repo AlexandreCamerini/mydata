@@ -182,7 +182,7 @@ def test_api_filtra_o_universo_da_b3(sink_cvm, tmp_path, monkeypatch):
     ingestão. O bronze de cada fonte continua inteiro.
     """
     from fastapi.testclient import TestClient
-    from app import bootstrap, seed_cvm
+    from app import bootstrap, seed_fontes
     from app.api import auth
     from app.sinks import SinkDuckDB
 
@@ -192,7 +192,7 @@ def test_api_filtra_o_universo_da_b3(sink_cvm, tmp_path, monkeypatch):
     monkeypatch.delenv("PORTAL_ADMIN_TOKEN", raising=False)
     s = SinkDuckDB(banco)
     bootstrap.preparar(s)
-    seed_cvm.aplicar(s)
+    seed_fontes.aplicar(s)
     ingestao.executar(s, "b3_listadas", "atual", baixar=falso_baixar([]))
     # Uma companhia no cadastro da CVM que não negocia em bolsa.
     s.executar(

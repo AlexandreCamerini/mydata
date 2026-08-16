@@ -27,7 +27,7 @@ Datamart/
 **`app/`:**
 - Código ativo do portal. `app/api/main.py` concentra lifecycle, rotas `/v1`, static serving e autenticação de leitura.
 - `app/api/admin.py` concentra o router `/admin/api`; `app/api/acesso.py` implementa passkeys/sessões.
-- `app/motor/` é o núcleo genérico; `app/seed_cvm.py` é a exceção deliberada de configuração da CVM como dados.
+- `app/motor/` é o núcleo genérico; `app/seed_fontes.py` é a exceção deliberada de configuração da CVM como dados.
 
 **`src/`:**
 - `src/cvm_financas/` é o pacote original de ingestão pandas, CLI `cvm-ingest` e `sql/schema_postgres.sql`.
@@ -65,7 +65,7 @@ Datamart/
 - `app/motor/ddl.py` - gera/verifica tabelas a partir de classes.
 - `app/motor/publicacao.py` - ponteiros e versões gold.
 - `app/repositorio.py`, `app/migracoes.py`, `app/sinks.py` - catálogo, schema e banco.
-- `app/seed_cvm.py` - fontes/datasets/classes/views de CVM, B3 e BCB.
+- `app/seed_fontes.py` - fontes/datasets/classes/views de CVM, B3 e BCB.
 
 **Testing:**
 - `tests/test_api.py`, `tests/test_api_opcoes.py`, `tests/test_acesso.py` - superfícies HTTP e acesso.
@@ -85,7 +85,7 @@ Datamart/
 
 ## Where to Add New Code
 
-- Nova fonte/dataset/classe: configuração/seed em `app/seed_cvm.py` ou via rotas admin; não adicionar ramo específico no motor sem necessidade.
+- Nova fonte/dataset/classe: configuração/seed em `app/seed_fontes.py` ou via rotas admin; não adicionar ramo específico no motor sem necessidade.
 - Nova etapa genérica de dados: `app/motor/`, com teste em `tests/` e regra/observabilidade quando mudar publicação.
 - Nova rota pública: `app/api/main.py`; rota administrativa: `app/api/admin.py`; atualizar tipos/cliente em `web/src/api.ts` quando aplicável.
 - Nova tela admin: `web/src/telas/`; nova tela de apresentação: `web/src/apresentacao/`; regras puras devem ser extraídas para `objetos.tsx`/módulo testável.

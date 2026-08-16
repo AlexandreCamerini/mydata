@@ -104,9 +104,9 @@ def test_migracao_nao_cria_tabela_de_classe(sink):
 
 
 def test_tabela_de_classe_aparece_com_a_configuracao(sink):
-    from app import seed_cvm
+    from app import seed_fontes
 
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     assert {"fato_conta", "dim_empresa"} <= _tabelas(sink)
 
 

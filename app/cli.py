@@ -12,7 +12,7 @@ import logging
 import sys
 from datetime import datetime, timedelta, timezone
 
-from . import agenda, bootstrap, repositorio as repo, seed_cvm
+from . import agenda, bootstrap, repositorio as repo, seed_fontes
 from .motor import download, ingestao, publicacao, verificacao
 from .sinks import criar_sink
 
@@ -55,7 +55,7 @@ def cmd_migrar(args) -> int:
     if args.seed:
         # Idempotente: configuração idêntica à vigente não cria versão nova.
         # É isto que torna seguro semear a cada boot do serviço.
-        if seed_cvm.aplicar(sink, forcar=args.forcar_seed):
+        if seed_fontes.aplicar(sink, forcar=args.forcar_seed):
             print("configuração da CVM cadastrada")
         else:
             print("configuração da CVM já estava em dia")

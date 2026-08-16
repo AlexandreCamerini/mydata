@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import bootstrap, migracoes, repositorio as repo, seed_cvm
+from app import bootstrap, migracoes, repositorio as repo, seed_fontes
 from app.motor import ingestao, publicacao, verificacao
 from app.sinks import SinkDuckDB, render
 
@@ -69,7 +69,7 @@ def test_vista_sem_marcador_de_publicacao_e_recusada(sink_cvm):
 def test_classe_nova_publica_em_gold_sem_editar_codigo(sink):
     """O que a Etapa 2 ainda não fazia: a classe nova era ingerível, mas o
     rótulo de publicação e a vista de gold ainda eram privilégio da CVM."""
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     repo.salvar_classe(sink, repo.Classe(
         chave="indicador_macro", nome="Indicador macroeconômico",
         tabela="fato_indicador_macro", chave_identidade=["serie", "competencia"],
@@ -125,7 +125,7 @@ def test_base_anterior_a_etapa_1_migra_sem_perder_dado(
     # 2. Sobe a versão nova e carrega dado, como o serviço faria.
     atual = SinkDuckDB(banco)
     bootstrap.preparar(atual)
-    seed_cvm.aplicar(atual)
+    seed_fontes.aplicar(atual)
     ingestao.executar(atual, "cvm_dfp", "2023",
                       baixar=baixador({"dfp_cia_aberta_2023.zip": zip_dfp_2023}))
     ingestao.executar(atual, "cvm_cadastro", "atual",
@@ -148,13 +148,13 @@ def test_migrar_duas_vezes_nao_duplica_tabela_de_classe(tmp_path):
     banco = str(tmp_path / "duas.duckdb")
     s = SinkDuckDB(banco)
     bootstrap.preparar(s)
-    seed_cvm.aplicar(s)
+    seed_fontes.aplicar(s)
     colunas = sink_colunas = s.consultar(
         "SELECT column_name FROM information_schema.columns "
         "WHERE table_name = 'fato_conta'"
     )
     bootstrap.preparar(s)
-    seed_cvm.aplicar(s)
+    seed_fontes.aplicar(s)
     assert s.consultar(
         "SELECT column_name FROM information_schema.columns "
         "WHERE table_name = 'fato_conta'"
@@ -168,35 +168,35 @@ def test_migrar_duas_vezes_nao_duplica_tabela_de_classe(tmp_path):
 def test_seed_repetido_nao_versiona_de_novo(sink):
     """O boot do Railway roda `migrar --seed`. Sem idempotência, cada deploy
     criaria uma versão nova de cada objeto de configuração."""
-    assert seed_cvm.aplicar(sink) is True
+    assert seed_fontes.aplicar(sink) is True
     versoes = lambda: {                                            # noqa: E731
         c["chave"]: c["versao"] for c in repo.listar_classes(sink)
     }
     antes = versoes()
-    assert seed_cvm.aplicar(sink) is False
-    assert seed_cvm.aplicar(sink) is False
+    assert seed_fontes.aplicar(sink) is False
+    assert seed_fontes.aplicar(sink) is False
     assert versoes() == antes
 
 
 def test_seed_forcado_versiona(sink):
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     antes = repo.classe_vigente(sink, "empresa")["versao"]
-    assert seed_cvm.aplicar(sink, forcar=True) is True
+    assert seed_fontes.aplicar(sink, forcar=True) is True
     assert repo.classe_vigente(sink, "empresa")["versao"] == antes + 1
 
 
 def test_seed_reaplica_quando_a_configuracao_muda(sink, monkeypatch):
-    seed_cvm.aplicar(sink)
-    monkeypatch.setattr(seed_cvm.CLASSE_EMPRESA, "descricao", "outra coisa")
-    assert seed_cvm.aplicar(sink) is True
+    seed_fontes.aplicar(sink)
+    monkeypatch.setattr(seed_fontes.CLASSE_EMPRESA, "descricao", "outra coisa")
+    assert seed_fontes.aplicar(sink) is True
 
 
 def test_seed_repara_tabela_ausente_mesmo_sem_mudanca(sink):
     """Configuração igual e tabela sumida: o deploy tem de recriar a tabela,
     não pular por o digest bater."""
-    seed_cvm.aplicar(sink)
+    seed_fontes.aplicar(sink)
     sink.executar("DROP TABLE dim_empresa")
-    assert seed_cvm.aplicar(sink) is False
+    assert seed_fontes.aplicar(sink) is False
     assert sink.consultar(
         "SELECT 1 AS ok FROM information_schema.tables "
         "WHERE table_name = 'dim_empresa'"
