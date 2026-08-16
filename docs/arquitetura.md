@@ -82,7 +82,7 @@ flowchart TB
             ADMIN[UI /admin<br/>build estático]
             META[API de configuração /admin/api]
         end
-        CRON[Cron job<br/>cvm-ingest]
+        CRON[Cron job<br/>app.cli agendados]
         subgraph db[(Postgres — plano incluído)]
             CFG[Plano de controle<br/>cfg_*, log_execucao]
             BRONZE[bronze_captura<br/>imutável]
@@ -312,7 +312,7 @@ erDiagram
 | Tabela | Grão | Origem |
 |---|---|---|
 | `bronze_captura` | 1 arquivo baixado | download — [ADR-10](#adr-10--bronze-em-tabela-não-em-volume) |
-| `fato_conta` | 1 conta contábil, por grupo, empresa, período e versão de documento | já existe em [schema_postgres.sql](../src/cvm_financas/sql/schema_postgres.sql) |
+| `fato_conta` | 1 conta contábil, por grupo, empresa, período e versão de documento | gerada por `app/motor/ddl.py` a partir de `cfg_classe`/`cfg_atributo`; a tabela é consequência da classe (ADR-11) |
 | `dim_empresa` | 1 companhia aberta | `cad_cia_aberta.csv` — **hoje fora do loop** |
 | `gold.demonstracoes` | view: `is_latest` ∧ `ordem_exerc = 'ÚLTIMO'` ∧ `consolidado` fixo | derivada |
 | `gold.itr_trimestre_isolado` | view: acumulado − acumulado anterior do mesmo exercício | derivada |

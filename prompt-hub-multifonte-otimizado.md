@@ -161,4 +161,5 @@ ficou. Cole a saída real dos comandos de aceite.
 
 Cotação intradiária e dados de pregão como fonte nova nesta rodada — a
 arquitetura tem de suportá-los, mas o cadastro fica para depois. Faturamento.
-Autenticação de usuário final nos apps. Reescrita do pacote `cvm_financas`.
+Autenticação de usuário final nos apps. Remoção do pipeline CVM legado já
+substituído pelo motor declarativo.

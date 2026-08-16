@@ -5,10 +5,9 @@ plano de controle próprio: toda a recepção, o tratamento e a carga dos dados 
 configurados por interface, não por código. O consumidor inicial é o BOLSIA, que
 faz análise fundamentalista.
 
-O ingestor da CVM já existe neste repositório (`src/cvm_financas/`, pacote
-`cvm-financas` 0.1.0) e é a primeira fonte do portal. Reaproveite-o como
-biblioteca: `pipeline.executar()` para ingerir, `load.schema_sql()` para o DDL.
-Não reescreva o parsing da CVM.
+A CVM é a primeira fonte do portal e entra como configuração declarativa em
+`app/seed_fontes.py`. O ciclo de ingestão é executado pelo motor em
+`app/motor/`; não reescreva o parsing da CVM em um pipeline específico.
 
 Stack, hospedagem, regra de custo, camadas do dado e convenções estão em
 [CLAUDE.md](CLAUDE.md) — já carregado nesta sessão. Este documento é só o que
@@ -53,8 +52,8 @@ mesma janela não duplica linhas.
 
 Regras de qualidade são um gate: severidade `bloqueia` impede a publicação em
 gold e deixa a versão anterior no ar. Implemente a reconciliação
-Ativo = Passivo + PL (o esqueleto está comentado no fim de
-`src/cvm_financas/sql/schema_postgres.sql`) como primeira regra cadastrada.
+Ativo = Passivo + PL (a regra está declarada em `app/seed_fontes.py`) como
+primeira regra cadastrada.
 
 Exponha `recomputar(janela)`: dropa silver, calculados e gold e reconstrói tudo
 a partir do bronze já capturado, sem rede. É a rotina de correção padrão e

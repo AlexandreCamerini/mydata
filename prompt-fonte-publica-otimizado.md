@@ -258,4 +258,4 @@ Autenticação de usuário final e multi-tenant — a
 o documento da Fase 2 deve dizer que está. Edição de dado: o portal publica o
 que a fonte disse, e corrigir número é assunto da origem. Cobrança, plano pago,
 qualquer forma de monetização. Push, merge e deploy. Aplicativo móvel.
-Reescrita do pacote `cvm_financas`.
+Remoção do pipeline CVM legado já substituído pelo motor declarativo.

@@ -32,9 +32,9 @@ repositório `scrap`. Cobre as famílias que a API expõe: ações
 (`quote`, `quote/list`, `available`), opções, criptomoedas, moedas, inflação e
 taxa básica de juros.
 
-O cliente é biblioteca de acesso, como `src/cvm_financas/`. Ele não é o caminho
-de ingestão: quem ingere é o motor, por `cfg_fonte` + `cfg_dataset`, com bronze
-imutável e gate de qualidade — nada disso o cliente tem. Ele serve para
+O cliente é uma biblioteca de acesso pontual. Ele não é o caminho de ingestão:
+quem ingere é o motor, por `cfg_fonte` + `cfg_dataset`, com bronze imutável e
+gate de qualidade — nada disso o cliente tem. Ele serve para
 exploração, para conferência pontual, e como catálogo verificado de quais
 endpoints existem e com que parâmetros.
 

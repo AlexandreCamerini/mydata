@@ -51,17 +51,19 @@ trimestre isolado antes de somar.
 
 ## Neste repositório
 
-`src/cvm_financas/` já implementa tudo acima:
+O caminho real é declarativo:
 
-- `config.py` — URLs, `GRUPOS` (com a marca `eh_fluxo`), colunas esperadas, `ESCALA_FATOR`
-- `download.py` — busca dos ZIPs
-- `parse.py` — parse, normalização e `marcar_versao_latest`
-- `load.py` — `load_duckdb` / `load_postgres` / `schema_sql`
-- `pipeline.py` — `executar()` → `ResultadoIngestao`
-- `cli.py` — entry point `cvm-ingest`
-- `sql/schema_postgres.sql` — `fato_conta`, view de consumo já filtrada, view de trimestre isolado
+- `app/seed_fontes.py` — configuração da fonte CVM e dos campos calculados;
+  os comentários `# Armadilha N` apontam onde cada uma das sete armadilhas é
+  resolvida, incluindo as regras de qualidade `escala_desconhecida` e
+  `ordem_exerc_inesperada`.
+- `app/motor/parsing.py` — leitura CSV e posicional, encoding declarado,
+  layout e conversões de representação.
+- `app/motor/qualidade.py` — execução das regras de qualidade, que produzem
+  alertas ou bloqueiam a publicação.
 
-`tipo_doc` é derivado do nome do arquivo, não do argumento da CLI. A carga é
-idempotente por `(cd_cvm, tipo_doc, dt_refer)`.
+`tipo_doc`, `grupo` e `consolidado` são derivados da configuração do nome do
+arquivo. A carga é idempotente pela identidade declarada em `cfg_dataset`.
 
-Reutilize essas funções em vez de reescrever o parsing.
+Consulte e altere a configuração declarativa em `app/seed_fontes.py` em vez de
+duplicar o parsing em funções Python.

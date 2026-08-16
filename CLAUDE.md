@@ -141,8 +141,9 @@ sobrevive à sessão.
 
 A skill `dados-cvm` carrega as sete armadilhas do dado (reapresentação,
 `ORDEM_EXERC`, escala, con/ind, ITR acumulado, contas custom, encoding) e a
-regra de consulta. Ela dispara sozinha ao mexer em demonstrações financeiras —
-não reescreva o parsing do pacote, reutilize `cvm_financas`.
+regra de consulta. Elas já estão declaradas em `app/seed_fontes.py` — procure
+os comentários `# Armadilha N`. Não reescreva a lógica em Python: a
+configuração declarativa é a fonte de verdade.
 
 Resumo operacional: nenhuma agregação sem filtrar `is_latest`,
 `ordem_exerc = 'ÚLTIMO'` e um único valor de `consolidado`.

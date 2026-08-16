@@ -1,91 +1,54 @@
-# cvm-financas
+# mydata
 
-Ingestor das demonstrações financeiras da CVM (Dados Abertos — DFP anual e ITR
-trimestral) para uma base própria (DuckDB ou Postgres), com **normalização**
-explícita dos furos que quebram análise fundamentalista.
+Hub de dados com ingestão declarativa das fontes oficiais, incluindo as
+demonstrações financeiras DFP/ITR da CVM, para DuckDB local ou Postgres.
 
 ## Instalação
 
 ```bash
-pip install .                      # núcleo (requests + pandas)
-pip install ".[duckdb]"            # + sink DuckDB (default)
-pip install ".[postgres]"          # + SQLAlchemy/psycopg
-pip install ".[dev]"               # + pytest e duckdb (para rodar os testes)
+pip install -e ".[dev]"
 ```
 
-## Uso — CLI
+## Uso
 
 ```bash
-# DuckDB (zero-setup)
-cvm-ingest --tipos DFP ITR --anos 2020-2024 --db cvm.duckdb -v
-
-# Postgres (rode o schema antes)
-cvm-ingest --print-schema | psql "$DSN"
-cvm-ingest --anos 2023 --pg "postgresql+psycopg://user:pass@host:5432/cvm"
-
-# subset de grupos / transformação sem carga / teste offline com zip local
-cvm-ingest --anos 2023 --grupos BPA BPP DRE
-cvm-ingest --anos 2023 --dry-run -v
-cvm-ingest --arquivo-local ./dfp_cia_aberta_2023.zip --tipos DFP --anos 2023 --dry-run -v
+python -m app.cli migrar --seed
+python -m app.cli ingerir cvm_dfp 2023
+python -m app.cli recomputar
+python -m app.cli verificar
+python scripts/servidor.py subir
 ```
 
-## Uso — como biblioteca
-
-```python
-from cvm_financas import executar
-
-res = executar(tipos=["DFP", "ITR"], anos="2023", db="cvm.duckdb")
-print(res.linhas, res.linhas_latest, res.total_no_banco)
-
-# só o DataFrame normalizado, sem tocar em banco:
-df = executar(anos="2023", dry_run=True).df
-```
+O motor executa o ciclo baixar → bronze → parsear → silver → campos
+calculados → qualidade → gold. A CVM é uma configuração em
+`app/seed_fontes.py`, não um pipeline Python separado.
 
 ## Estrutura
 
 ```
-cvm-financas/
-├── pyproject.toml                 # metadata, deps, entry-point cvm-ingest
-├── src/cvm_financas/
-│   ├── config.py                  # URLs, grupos, colunas, escalas
-│   ├── download.py                # baixar_zip (requests)
-│   ├── parse.py                   # parse + normalização + dedup de versão
-│   ├── load.py                    # sinks DuckDB/Postgres + schema_sql()
-│   ├── pipeline.py                # executar() -> ResultadoIngestao
-│   ├── cli.py                     # cvm-ingest
-│   └── sql/schema_postgres.sql    # DDL + views (empacotado)
-└── tests/                         # pytest + fixtures no layout CVM
+mydata/
+├── app/
+│   ├── motor/          # ingestão, parsing, DDL, qualidade e publicação
+│   ├── api/            # API FastAPI
+│   └── seed_fontes.py  # configuração declarativa das fontes
+├── scripts/            # entrada do serviço e utilitários locais
+├── tests/              # suíte do motor, API e fontes
+└── web/                # front-end estático
 ```
 
-Camadas medallion: zips da CVM = **bronze**; `fato_conta` = **silver** (tipado,
-deduplicado, escala normalizada); views (`vw_conta_atual`,
-`vw_itr_trimestre_isolado`) = início da **gold**.
+## As armadilhas da CVM
 
-## Os dados vêm normalizados? Não — vêm *padronizados*.
+As sete armadilhas — reapresentação, `ORDEM_EXERC`, escala, con/ind, ITR
+acumulado, contas custom e encoding — estão declaradas em
+`app/seed_fontes.py`, nos comentários `# Armadilha N`. O parsing comum fica em
+`app/motor/parsing.py`; as regras de qualidade ficam em
+`app/motor/qualidade.py`.
 
-Schema fixo e plano de contas de nível superior padronizado
-(`ST_CONTA_FIXA='S'`), mas **não pronto para análise**. O que o pacote resolve:
-
-| # | Furo na origem | Tratamento |
-|---|----------------|-----------|
-| 1 | **Reapresentação (`VERSAO`)** — várias versões do mesmo período | flag `is_latest` (maior versão por empresa/período/grupo/con-ind) |
-| 2 | **`ORDEM_EXERC`** — período atual + comparativo no mesmo doc | view filtra `ÚLTIMO` |
-| 3 | **`ESCALA_MOEDA`** (UNIDADE/MIL) — erro de 1000x | `vl_conta_norm` = `vl_conta × escala` |
-| 4 | **Individual vs Consolidado** coexistem | flag `consolidado`; view usa `TRUE` |
-| 5 | **ITR é acumulado no ano (YTD)** — Q2 = 6 meses | flag `itr_acumulado` + `vw_itr_trimestre_isolado` |
-| 6 | **Contas custom (`'N'`)** — não comparáveis entre empresas | flag preservada; use `='S'` p/ cross-company |
-| 7 | **Encoding `latin-1` + `;`** | parse fixo, coerção numérica robusta |
-
-## Riscos / dívida em aberto
-
-- **Reconciliação Ativo = Passivo+PL não é automática** — check pós-load recomendado
-  (esqueleto no fim de `schema_postgres.sql`). Divergência = reapresentação não capturada.
-- `dim_empresa` (cadastro `cad_cia_aberta.csv`, dataset separado) não é carregado no loop.
-- Full-file por ano (sem CDC) — adequado ao volume da CVM (poucos MB/ano).
-- `is_latest` é recalculado por execução; reingerir anos antigos exige reprocessar o conjunto.
+Nenhuma agregação deve ocorrer sem filtrar `is_latest`,
+`ordem_exerc = 'ÚLTIMO'` e um único valor de `consolidado`.
 
 ## Testes
 
 ```bash
-pytest -q      # valida dedup, escala, con/ind, itr_acumulado e trimestre isolado
+pytest -q
 ```
