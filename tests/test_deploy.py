@@ -60,6 +60,20 @@ def test_dockerfile_nao_fixa_porta_e_nao_roda_como_root():
     assert "--from=front /web/dist" in texto, "o front sai na mesma imagem"
 
 
+def test_producao_nao_deixa_superficies_abertas():
+    """Flags permissivas são contrato de desenvolvimento, não de produção."""
+    if os.getenv("RAILWAY_ENVIRONMENT", "").strip().lower() != "production":
+        return
+
+    api_aberta = os.getenv("PORTAL_API_ABERTA", "").strip().lower()
+    assert api_aberta not in {"1", "true", "yes", "on"}, (
+        "PORTAL_API_ABERTA não pode estar ativa em produção"
+    )
+    assert os.getenv("PORTAL_ADMIN_TOKEN", "").strip(), (
+        "PORTAL_ADMIN_TOKEN está vazio ou ausente em produção"
+    )
+
+
 def test_env_example_documenta_toda_variavel_lida_pelo_codigo():
     """Variável nova sem documentação vira surpresa no deploy."""
     exemplo = (RAIZ / ".env.example").read_text()

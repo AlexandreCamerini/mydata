@@ -177,6 +177,35 @@ def test_chave_sem_a_classe_no_escopo_nao_le_a_cadeia(cliente_b3, tmp_path):
     assert r.status_code == 403
 
 
+def test_escopo_b3_bloqueia_rotas_e_campos_de_origem_b3(cliente_b3):
+    """Ticker e segmento não atravessam uma vista sem a classe autorizada."""
+    from app.api.main import app
+
+    sem_empresa = auth.emitir(
+        app.state.sink, "sem_empresa", escopos="classe:negociacao_b3"
+    )
+    sem_negociacao = auth.emitir(
+        app.state.sink, "sem_negociacao", escopos="classe:empresa"
+    )
+    casos = [
+        (sem_empresa, "/v1/empresas?q=PETR4", "empresa"),
+        (sem_empresa, "/v1/empresas?segmento=NM", "empresa"),
+        (sem_empresa, "/v1/empresas/9512", "empresa"),
+        (sem_negociacao, "/v1/cotacoes/PETR4", "negociacao_b3"),
+        (sem_negociacao, "/v1/opcoes/ABCB4", "negociacao_b3"),
+        (sem_negociacao, "/v1/opcoes/ABCB4/vencimentos", "negociacao_b3"),
+    ]
+
+    for chave, rota, classe in casos:
+        resposta = cliente_b3.get(rota, headers={"X-API-Key": chave.chave_completa})
+        assert resposta.status_code == 403, (rota, resposta.text)
+        corpo = resposta.json()["erro"]
+        assert corpo["codigo"] == "escopo_insuficiente"
+        assert classe in corpo["mensagem"]
+        assert "ticker" not in resposta.text
+        assert "segmento_listagem" not in resposta.text
+
+
 def test_vencimentos_seguem_o_mesmo_pregao_da_cadeia(cliente_b3):
     """Sem isto a lista agrega o histórico inteiro e oferece vencimento já
     liquidado. Com trinta pregões carregados, PETR4 listava seis vencimentos
