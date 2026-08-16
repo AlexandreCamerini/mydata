@@ -36,7 +36,7 @@ Nada abaixo é suposição — cada linha foi checada nesta sessão.
 | 7 | Nada foi para o GitHub | **Resolvido** — a branch de handoff já está mergeada (diff zero contra `main`), e o deploy ativo em produção roda no commit mais recente da `main` |
 | 8 | Teto de gasto no Railway | **Sem mudança** — decisão sua |
 | 9 | `BRAPI_TOKEN` | **Sem mudança** — pendente, se o mapa ticker→empresa for adiante |
-| 10 | Renomear `seed_cvm.py` | **Sem mudança** — ainda mecânico, ainda não feito |
+| 10 | Renomear `seed_cvm.py` | **Resolvido** — `app/seed_fontes.py`, rename 100% + 28 referências ajustadas, sem mudança de comportamento (commit `452085b`) |
 
 **Achados novos**, do mapeamento de base (`.planning/codebase/CONCERNS.md`,
 commit `225d834`), fora do escopo de 02-03/08:
@@ -51,6 +51,41 @@ commit `225d834`), fora do escopo de 02-03/08:
 - Guarda de produção contra `PORTAL_API_ABERTA` ativa ou `PORTAL_ADMIN_TOKEN` ausente, em `tests/test_deploy.py` — commit `aca7b89`, com push.
 - `PORTAL_ADMIN_TOKEN` **rotacionado em produção**: o valor antigo apareceu na tela desta sessão durante um diagnóstico (`railway variables --kv`); o valor novo foi setado via stdin, sem exposição, e o serviço `mydata` já redeployou com ele (`8b4c79b7`, `SUCCESS`).
 - Mapeamento completo da base via 4 agentes GSD (rodando dentro do codex) em `.planning/codebase/` — commit `225d834`, com push.
+- `app/seed_cvm.py` renomeado para `app/seed_fontes.py`, com as 28 referências no repositório (código, testes, docs) ajustadas — commit `452085b`, com push.
+- Registro desta atualização em `RELATORIO-NOITE.md` — commit `ff39b20`, com push.
+
+## Fechamento — 2026-08-16
+
+Cinco commits, todos com push (`225d834` → `452085b`), zero force-push, zero
+revert. Todo o "Precisa de você" de 02-03/08 saiu de aberto para resolvido,
+obsoleto ou "decisão sua sem mudança" — nada ficou em estado desconhecido.
+
+**Suíte, de ponta a ponta:** `npm run build` e `npm test` (38/38) no front;
+com `web/dist` presente, `pytest -q` fecha em **488 passed, 0 failed, 0
+skipped** — as 3 falhas e os 2 skips que apareciam antes eram todos
+condicionados à ausência do build do front, não bug.
+
+**O que ficou pronto hoje**, sem nenhuma decisão sua pendente:
+
+- Cron, banco de produção, handoff e suíte Postgres — verificados, não havia mais o que fazer.
+- Guarda de produção contra `PORTAL_API_ABERTA`/`PORTAL_ADMIN_TOKEN` ausente.
+- Regressão explícita do escopo B3 em `ticker`/`segmento_listagem`.
+- `PORTAL_ADMIN_TOKEN` rotacionado em produção.
+- `seed_cvm.py` → `seed_fontes.py`.
+- Mapa de base completo em `.planning/codebase/`.
+
+**O que só você decide, sem mudança hoje:**
+
+| Decisão | Onde está documentada |
+|---|---|
+| Preço B3: falar com a B3 ou manter uso interno | item 3 da tabela acima |
+| Ler a ODbL e declarar a licença da API derivada | item 5 |
+| Teto de gasto (*Usage Limits*) no Railway | item 8 |
+| `BRAPI_TOKEN`, se o mapa ticker→empresa avançar | item 9 |
+| CI (pausado por regra de custo/ambiente) | `.planning/codebase/CONCERNS.md` |
+| Consolidar os dois pipelines CVM (`src/cvm_financas/` vs `app/motor`) | `.planning/codebase/CONCERNS.md` |
+| Retenção/backup do bronze, que cresce sem parar | `.planning/codebase/CONCERNS.md` |
+| Etapa 8 (acesso público gratuito) | depende das duas primeiras desta lista |
 
 ## O achado da noite
 
