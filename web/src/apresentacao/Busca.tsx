@@ -2,7 +2,7 @@
 // produto: das ~2.500 companhias registradas na CVM, interessa quem negocia
 // na B3 e publica balanço — e a tela diz quantas são, não só lista.
 import { useEffect, useRef, useState } from "react";
-import { Botao, Caixa, Campo, Carregando, Erro, Selecao, Selo, Tabela, Vazio } from "../ui";
+import { Botao, Caixa, Campo, Carregando, Erro, Selecao, Selo, Vazio } from "../ui";
 import { api, type Empresa, type FiltrosEmpresas } from "./api";
 
 const SEGMENTOS = [
@@ -13,8 +13,42 @@ const SEGMENTOS = [
   { valor: "MB", rotulo: "Balcão organizado (MB)" },
 ];
 
+/** Uma linha de tabela força 6 colunas por companhia mesmo quando o dado não
+ * existe — a maioria fora do filtro de B3 preenchia 4 delas com "—". O card
+ * mostra só o campo que a companhia tem. Mesmo padrão visual do `Cartao` de
+ * `Empresa.tsx`, para não introduzir um terceiro estilo de card no produto. */
+function CartaoEmpresa({ e }: { e: Empresa }) {
+  return (
+    <a
+      href={`#/empresa/${e.cd_cvm}`}
+      role="listitem"
+      className="border border-borda rounded bg-superficie p-3 grid gap-1 content-start
+                 hover:border-tinta focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
+    >
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className="font-medium">{e.denom_social ?? `Companhia ${e.cd_cvm}`}</span>
+        {e.ticker && <span className="font-mono text-xs text-tinta-suave">{e.ticker}</span>}
+        {e.listada_b3 && <Selo texto={e.segmento_listagem || "básico"} />}
+      </div>
+      {(e.setor_atividade || e.uf) && (
+        <p className="text-xs text-tinta-suave">
+          {[e.setor_atividade, e.uf].filter(Boolean).join(" · ")}
+        </p>
+      )}
+      {e.cnpj && <p className="text-xs text-tinta-suave font-mono">{e.cnpj}</p>}
+    </a>
+  );
+}
+
 export function Busca() {
-  const [filtros, setFiltros] = useState<FiltrosEmpresas>({});
+  // Sem filtro, a base é as ~2.500 companhias registradas na CVM — a maioria
+  // não negocia na B3 e não publica balanço recente, então a lista nasceria
+  // cheia de campo vazio. Quem abre esta tela quer companhia com dado; os
+  // dois filtros começam ligados, e dá pra desligar pra ver o universo cru.
+  const [filtros, setFiltros] = useState<FiltrosEmpresas>({
+    listada_b3: true,
+    com_balanco: true,
+  });
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -113,38 +147,15 @@ export function Busca() {
       )}
 
       {empresas.length > 0 && (
-        <Tabela
-          legenda="Companhias no recorte atual"
-          colunas={["Companhia", "CNPJ", "Ticker", "Segmento", "Setor", "UF"]}
+        <div
+          role="list"
+          aria-label="Companhias no recorte atual"
+          className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"
         >
           {empresas.map((e) => (
-            <tr key={e.cd_cvm} className="border-b border-borda last:border-0">
-              <th scope="row" className="text-left px-3 py-2">
-                <a
-                  href={`#/empresa/${e.cd_cvm}`}
-                  className="font-medium underline decoration-dotted"
-                >
-                  {e.denom_social ?? `Companhia ${e.cd_cvm}`}
-                </a>
-                <span className="block text-xs text-tinta-suave">
-                  cd_cvm {e.cd_cvm}
-                  {e.nome_pregao && ` · ${e.nome_pregao}`}
-                </span>
-              </th>
-              <td className="px-3 py-2 font-mono text-xs">{e.cnpj ?? "—"}</td>
-              <td className="px-3 py-2 font-mono text-xs">{e.ticker ?? "—"}</td>
-              <td className="px-3 py-2 text-xs">
-                {e.listada_b3 ? (
-                  <Selo texto={e.segmento_listagem || "básico"} />
-                ) : (
-                  "—"
-                )}
-              </td>
-              <td className="px-3 py-2 text-xs">{e.setor_atividade ?? "—"}</td>
-              <td className="px-3 py-2 text-xs">{e.uf ?? "—"}</td>
-            </tr>
+            <CartaoEmpresa key={e.cd_cvm} e={e} />
           ))}
-        </Tabela>
+        </div>
       )}
 
       {cursor && (
