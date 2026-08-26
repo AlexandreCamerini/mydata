@@ -111,6 +111,48 @@ no repositório do consumidor.
 | BolsIA (`b3-agente`) | volume esperado, para dimensionar quota | **resolvida** — refresh semanal de ~100 papéis; 60/min e 1.000/dia |
 | BolsIA (`b3-agente`) | emitir a chave contra o Postgres de produção | aberta — a local já existe; ver acima |
 | BolsIA (`b3-agente`) | classe de opções | **entregue** — a classe é `negociacao_b3`, não `opcoes_b3`; ver abaixo |
+| BolsIA (`b3-agente`) | implementar `mydata_client.py` e desligar Yahoo/brapi/COTAHIST paralelo | **aberta** — ver "Avaliação de centralização" abaixo; a migração é do lado de lá |
+| BolsIA (`b3-agente`) | ampliar escopo da chave para `negociacao_b3` | aberta — a cadeia de opções está pronta aqui desde 04/08 e a chave dele ainda não a lê |
+
+## Avaliação de centralização — 2026-08-26
+
+Auditoria read-only do repositório do BolsIA (`b3-agente`), feita daqui, para
+responder: o que ele consome de dado de mercado, o que o MyData já cobre, e o
+que falta para todo dado core morar num lugar só. Nada foi alterado lá.
+
+**O achado que muda a urgência:** o BolsIA não faz nenhuma chamada ao MyData
+hoje — o cliente nunca foi implementado (`docs/adr/004`, lado de lá, admite:
+"nada disso está implementado em nenhum dos dois lados") — e em 25/08 ele
+**reimplementou em paralelo a ingestão do COTAHIST** que este hub já roda em
+produção (ADR-019 de lá, tabela `b3_daily_quotes`). Duas capturas do mesmo
+arquivo oficial, com proveniências separadas: exatamente o que a fronteira
+existe para impedir.
+
+### O que o BolsIA usa hoje, e a situação de cada dado
+
+| Dado | Fonte atual (lado de lá) | Cobertura aqui | Ação |
+|---|---|---|---|
+| Cotação diária OHLC | brapi (master) + Yahoo (backup) + COTAHIST próprio | **coberta** — `gold_cotacoes`, com `hv21`/`hv63` que ele calcula na mão | migrar e desligar as três |
+| Cadeia de opções + IV + gregas | Yahoo não-oficial (401/403/429 frequentes; gate `degraded` já bloqueia compra simulada por causa disso) | **coberta e superior** — `gold_opcoes` tem estilo de exercício, que o Yahoo nem expõe | migrar; é a fonte mais frágil do repo dele |
+| Catálogo de empresas | 20 tickers hardcoded | **coberta** — `dim_empresa` completo | migrar |
+| Volatilidade histórica | cálculo local | **coberta** — `hv21`/`hv63` prontos | consumir pronto |
+| Fundamentos calculados (P/L, ROE, ROIC, EV/EBITDA, CAGR 5a…) | usebolsai.com + brapi (agregadores) | **parcial** — `fato_conta` tem a matéria-prima CVM; conferir quais desses indicadores já estão no catálogo de campos calculados e derivar os que faltarem | trabalho aqui: derivação declarativa, não ingestão nova |
+| Índice Ibovespa (série do `^BVSP`) | Yahoo | **não coberta** — nenhuma classe de índice | ingestão nova; fonte primária B3 |
+| Proventos e eventos corporativos (dividendo, JCP, desdobramento) | ninguém tem — só o DY agregado de terceiro | **não coberta** | ingestão nova; fonte B3 (proventos) / CVM-IPE (fatos) |
+| Candle intraday | Yahoo | **não coberta** — escopo atual é pregão diário | decisão de escopo pendente do Alex, não dívida |
+
+### Ordem de migração proposta (maior ganho primeiro)
+
+1. **Opções** — a fonte atual dele é a que mais quebra e o dado daqui é melhor.
+2. **Cotação diária** — desliga a ingestão redundante de COTAHIST de lá.
+3. **Catálogo de empresas** — troca 20 hardcoded pelo universo completo.
+4. **Fundamentos** — conferir/derivar os indicadores no catálogo de calculados.
+5. **Ibovespa** e **proventos** — ingestões novas aqui, com ADR próprio cada.
+
+Itens 1–3 não exigem nenhuma linha de código no MyData: rota, dado e chave já
+existem — falta o cliente do lado de lá e o escopo `negociacao_b3` na chave.
+O item 4 é trabalho declarativo aqui. Os itens 5+ são classes novas e seguem o
+rito normal (ADR, `cfg_*`, seed).
 
 ### A camada de opções
 
