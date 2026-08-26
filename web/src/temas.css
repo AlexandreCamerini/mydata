@@ -21,8 +21,11 @@
   --color-acento: #2f3d8f;
   --color-acento-suave: #eaecf7;
   --color-alerta: #8a4b00;
+  --color-alerta-suave: #fffbeb;
   --color-erro: #99131a;
+  --color-erro-suave: #fef2f2;
   --color-ok: #1c5c34;
+  --color-ok-suave: #f0fdf4;
 
   --font-display: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
   --font-corpo: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -37,7 +40,9 @@
   --color-papel: #0d1117;        --color-superficie: #161b22;
   --color-borda: #2a323c;
   --color-acento: #2dd4bf;       --color-acento-suave: #10312e;
-  --color-alerta: #d29922;       --color-erro: #f85149;  --color-ok: #3fb950;
+  --color-alerta: #d29922;       --color-alerta-suave: #272318;
+  --color-erro: #f85149;         --color-erro-suave: #2c191e;
+  --color-ok: #3fb950;           --color-ok-suave: #14271e;
   --font-display: ui-monospace, "SF Mono", Menlo, monospace;
   --font-corpo: ui-sans-serif, system-ui, sans-serif;
   --font-numero: ui-monospace, "SF Mono", Menlo, monospace;
@@ -52,7 +57,9 @@
   --color-papel: #f7f9fb;        --color-superficie: #ffffff;
   --color-borda: #d3dae2;
   --color-acento: #1f5fb8;       --color-acento-suave: #e8f0fb;
-  --color-alerta: #8a4b00;       --color-erro: #99131a;  --color-ok: #1c5c34;
+  --color-alerta: #8a4b00;       --color-alerta-suave: #fffbeb;
+  --color-erro: #99131a;         --color-erro-suave: #fef2f2;
+  --color-ok: #1c5c34;           --color-ok-suave: #f0fdf4;
   --font-display: ui-sans-serif, system-ui, sans-serif;
   --font-corpo: ui-sans-serif, system-ui, sans-serif;
   --font-numero: ui-monospace, Menlo, monospace;
@@ -67,7 +74,9 @@
   --color-papel: #fcfaf7;        --color-superficie: #ffffff;
   --color-borda: #e0d8cd;
   --color-acento: #0f766e;       --color-acento-suave: #e6f2f0;
-  --color-alerta: #9a5b00;       --color-erro: #a01c22;  --color-ok: #15803d;
+  --color-alerta: #9a5b00;       --color-alerta-suave: #f5efe6;
+  --color-erro: #a01c22;         --color-erro-suave: #f6e8e9;
+  --color-ok: #15803d;           --color-ok-suave: #e8f2ec;
   --font-display: ui-sans-serif, system-ui, sans-serif;
   --font-corpo: ui-sans-serif, system-ui, sans-serif;
   --font-numero: ui-monospace, Menlo, monospace;
