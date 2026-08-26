@@ -40,10 +40,14 @@ FATOR_DURACAO = 3.0
 PISO_DURACAO_MS = 60_000
 MINIMO_AMOSTRAS = 4
 
-# Agendamento vencido só vira alerta com folga sobre o horário devido: o cron
-# do painel acorda de hora em hora, então "devido há 10 minutos" é operação
-# normal, não incidente.
-FOLGA_AGENDAMENTO = timedelta(hours=2)
+# Agendamento vencido só vira alerta com folga sobre o horário devido — e a
+# folga é amarrada à cadência do painel, que acorda 1×/dia às 06:00 UTC por
+# decisão registrada (docs/deploy-railway.md, 26/08/2026). O COTAHIST devido
+# às 02:59 UTC rodando às 06:00 é operação normal; com folga menor que um dia
+# o alerta gritaria essa janela toda madrugada, e alarme que grita à toa
+# ensina a ignorar alarme. 26h só dispara quando uma rodada inteira do painel
+# foi perdida — o incidente de verdade.
+FOLGA_AGENDAMENTO = timedelta(hours=26)
 
 
 def _agora() -> datetime:

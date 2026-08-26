@@ -70,11 +70,17 @@ integrado está em [contrato-consumidor.md](contrato-consumidor.md).
    diário.
 
    **A frequência do painel não é o horário das cargas.** O painel só acorda
-   o processo; quem decide o que roda é `cfg_agendamento`. Acordar de hora em
-   hora é suficiente e barato: cada invocação que não tem nada vencido sai em
-   milissegundos. O que importa é acordar pelo menos uma vez entre dois
-   disparos do agendamento mais frequente — hoje o do COTAHIST, às 23:59, com
-   o cadastro de instrumentos meia hora antes.
+   o processo; quem decide o que roda é `cfg_agendamento`. O que importa é
+   acordar pelo menos uma vez entre dois disparos do agendamento mais
+   frequente — hoje o do COTAHIST, às 23:59, com o cadastro de instrumentos
+   meia hora antes.
+
+   **A cadência vigente é 1×/dia às 06:00 UTC** (decisão de 26/08/2026,
+   declarada em `.railway/railway.ts`). A consequência aceita: o pregão de
+   D fica disponível ~03:00 de São Paulo em D+1, cerca de três horas depois
+   do horário devido — irrelevante para dado diário. A folga do alerta de
+   agendamento atrasado (`app/motor/alertas.py`) é calibrada para esta
+   cadência: só grita quando uma rodada inteira do painel foi perdida.
 
    **O horário declarado vale no fuso declarado.** Até 04/08/2026 a coluna
    `cfg_agendamento.timezone` era gravada e nunca lida, e todo cron era

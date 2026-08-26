@@ -32,6 +32,8 @@ export default defineRailway(() => {
     // para sempre. Comportamento efetivo é o declarado; ignorar o resíduo.
     deploy: { restartPolicyType: "ON_FAILURE", restartPolicyMaxRetries: 3 },
     replicas: { "us-east4-eqdc4a": 1 },
+    // Os dois domínios são intencionais (decisão do Alex, 26/08/2026) —
+    // não "corrigir" o semente.dev fora daqui.
     domains: ["mydata.acamerini.app", "semente.dev"],
     env: {
       BRAPI_TOKEN: preserve(),
@@ -49,8 +51,11 @@ export default defineRailway(() => {
     start: "sh scripts/entrada.sh",
     replicas: { "us-east4-eqdc4a": 1 },
     // O horário do painel só ACORDA o processo; o que roda é decisão de
-    // cfg_agendamento (docs/deploy-railway.md). A frequência de verdade é
-    // decidida lá — este cron diário é o que estava no painel no import.
+    // cfg_agendamento (docs/deploy-railway.md). 1×/dia às 06:00 UTC é
+    // cadência DECIDIDA (Alex, 26/08/2026), não resíduo de import — o
+    // pregão de D chega ~03:00 de São Paulo em D+1, e está aceito. A folga
+    // do alerta de agendamento (app/motor/alertas.py) é calibrada para
+    // isto; apertar este cron pede recalibrar lá.
     deploy: { cronSchedule: "0 6 * * *", restartPolicyType: "NEVER" },
     env: {
       DATABASE_URL: preserve(),
