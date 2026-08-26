@@ -80,6 +80,10 @@ function telaAtual(): string {
 
 export function App() {
   const [rota, setRota] = useState(telaAtual);
+  // No celular as 4 categorias empilhadas passavam de 700px de navegação
+  // antes do conteúdo — a partir de `md:` a navegação sempre aparece
+  // inteira; abaixo disso, fica atrás de um botão.
+  const [menuAberto, setMenuAberto] = useState(false);
 
   useEffect(() => {
     const aoMudar = () => setRota(telaAtual());
@@ -91,8 +95,12 @@ export function App() {
   const Componente = tela.componente;
 
   useEffect(() => {
-    document.title = `${tela.titulo} — Portal de Dados`;
+    document.title = `${tela.titulo} — MyData`;
   }, [tela.titulo]);
+
+  useEffect(() => {
+    setMenuAberto(false);
+  }, [rota]);
 
   return (
     <>
@@ -100,19 +108,40 @@ export function App() {
         Pular para o conteúdo
       </a>
       <div className="min-h-screen grid grid-rows-[auto_1fr]">
-        <header className="border-b border-borda bg-white">
-          <div className="max-w-6xl mx-auto px-4 py-3">
-            <p className="font-semibold">Portal de Dados — B3/CVM</p>
-            <p className="text-xs text-tinta-suave">
-              Hub multi-fonte. O dado oficial é imutável; o derivado se
-              recomputa.
-            </p>
+        <header className="border-b border-borda bg-superficie">
+          <div className="max-w-6xl mx-auto px-4 py-3 flex items-baseline justify-between gap-4">
+            <div>
+              <p className="font-semibold">MyData — configuração</p>
+              <p className="text-xs text-tinta-suave">
+                Hub multi-fonte. O dado oficial é imutável; o derivado se
+                recomputa.
+              </p>
+            </div>
+            <a
+              href="/"
+              className="text-xs text-tinta-suave underline decoration-dotted whitespace-nowrap"
+            >
+              ver companhias
+            </a>
           </div>
           <nav
             aria-label="Seções de configuração"
             className="max-w-6xl mx-auto px-4"
           >
-            <div className="flex flex-wrap items-end gap-x-6 gap-y-1">
+            <button
+              type="button"
+              className="md:hidden flex items-center gap-2 py-2 text-sm font-medium"
+              aria-expanded={menuAberto}
+              aria-controls="nav-admin-grupos"
+              onClick={() => setMenuAberto((a) => !a)}
+            >
+              <span aria-hidden="true">{menuAberto ? "▾" : "▸"}</span>
+              Seções · {tela.titulo}
+            </button>
+            <div
+              id="nav-admin-grupos"
+              className={`${menuAberto ? "flex" : "hidden"} md:flex flex-col md:flex-row flex-wrap items-start md:items-end gap-x-6 gap-y-1 pb-2 md:pb-0`}
+            >
               {GRUPOS_NAV.map(([grupo, itens]) => (
                 <div key={grupo}>
                   {grupo !== "Visão geral" && (
