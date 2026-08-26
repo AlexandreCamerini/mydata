@@ -94,6 +94,7 @@ export function Demonstracoes({
   cd_cvm,
   grupoInicial,
   consolidadoInicial,
+  tipoInicial,
 }: {
   cd_cvm: number;
   grupoInicial?: string;
@@ -101,6 +102,11 @@ export function Demonstracoes({
   // pra este grupo — sem isto a tela sempre abria consolidado, e uma empresa
   // que só publicou individual chegava aqui e via a tabela vazia.
   consolidadoInicial?: boolean;
+  // Mesma razão do consolidado, dimensão diferente: DFP (anual) só existe
+  // meses depois do fim do exercício — pro ano corrente, boa parte das
+  // companhias só tem ITR publicado ainda. A tela era travada em DFP; card
+  // prometia linha e não tinha pra onde levar.
+  tipoInicial?: "DFP" | "ITR";
 }) {
   const empresa = useDados(() => api.empresa(cd_cvm), [cd_cvm]);
   // O grupo vem do endereço quando ele o traz. Trocar de grupo reescreve o
@@ -127,6 +133,13 @@ export function Demonstracoes({
     // manual do próprio usuário depois de montada.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grupoInicial, cd_cvm]);
+  const [tipo, setTipo] = useState<"DFP" | "ITR">(tipoInicial ?? "DFP");
+  useEffect(() => {
+    if (tipoInicial !== undefined && tipoInicial !== tipo) {
+      setTipo(tipoInicial);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grupoInicial, cd_cvm]);
   const [linhas, setLinhas] = useState<Conta[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [contaAberta, setContaAberta] = useState<string | null>(null);
@@ -136,13 +149,13 @@ export function Demonstracoes({
     setLinhas(null);
     setErro(null);
     api
-      .demonstracoes(cd_cvm, { tipo: "DFP", grupo, consolidado })
+      .demonstracoes(cd_cvm, { tipo, grupo, consolidado })
       .then((d) => vivo && setLinhas(d))
       .catch((e) => vivo && setErro((e as Error).message));
     return () => {
       vivo = false;
     };
-  }, [cd_cvm, grupo, consolidado]);
+  }, [cd_cvm, grupo, consolidado, tipo]);
 
   const nome = empresa.dados?.dados.denom_social ?? `Companhia ${cd_cvm}`;
 
@@ -178,8 +191,11 @@ export function Demonstracoes({
       <header>
         <h1 className="text-xl font-semibold">{nome}</h1>
         <p className="text-sm text-tinta-suave">
-          Demonstrações anuais (DFP), valores em reais — a CVM publica em
-          milhares; o original de cada conta fica disponível ao abri-la.
+          {tipo === "DFP"
+            ? "Demonstrações anuais (DFP)"
+            : "Demonstrações trimestrais (ITR), acumulado no ano"}
+          , valores em reais — a CVM publica em milhares; o original de cada
+          conta fica disponível ao abri-la.
         </p>
       </header>
 
@@ -199,10 +215,16 @@ export function Demonstracoes({
           }}
           opcoes={GRUPOS}
         />
-        <EscolhaConsolidado valor={consolidado} aoMudar={(v) => {
-          setConsolidado(v);
-          setContaAberta(null);
-        }} />
+        <div className="grid gap-4">
+          <EscolhaTipo valor={tipo} aoMudar={(v) => {
+            setTipo(v);
+            setContaAberta(null);
+          }} />
+          <EscolhaConsolidado valor={consolidado} aoMudar={(v) => {
+            setConsolidado(v);
+            setContaAberta(null);
+          }} />
+        </div>
       </section>
 
       {erro && <Erro mensagem={erro} />}
@@ -224,7 +246,7 @@ export function Demonstracoes({
             </p>
           )}
           <Tabela
-            legenda={`${grupo} de ${nome}, ${consolidado ? "consolidado" : "individual"}, por ano`}
+            legenda={`${grupo} (${tipo}) de ${nome}, ${consolidado ? "consolidado" : "individual"}, por ano`}
             colunas={[
               "Conta",
               ...anos.map((a) => {
@@ -281,6 +303,47 @@ export function Demonstracoes({
         </>
       )}
     </div>
+  );
+}
+
+/** DFP × ITR: qual documento está sendo lido. DFP (anual) só existe meses
+ * depois do fim do exercício — pro ano corrente, muitas vezes só o ITR
+ * (trimestral) já foi publicado. Sem esta escolha visível, a tela travava
+ * em DFP e ficava vazia pra qualquer companhia sem DFP ainda no ar. */
+function EscolhaTipo({
+  valor,
+  aoMudar,
+}: {
+  valor: "DFP" | "ITR";
+  aoMudar: (v: "DFP" | "ITR") => void;
+}) {
+  const id = useId();
+  return (
+    <fieldset>
+      <legend className="block text-sm font-medium mb-1">Documento</legend>
+      <div className="flex gap-4">
+        <label htmlFor={`${id}-dfp`} className="inline-flex items-center gap-2 text-sm">
+          <input
+            id={`${id}-dfp`}
+            type="radio"
+            name={id}
+            checked={valor === "DFP"}
+            onChange={() => aoMudar("DFP")}
+          />
+          DFP (anual)
+        </label>
+        <label htmlFor={`${id}-itr`} className="inline-flex items-center gap-2 text-sm">
+          <input
+            id={`${id}-itr`}
+            type="radio"
+            name={id}
+            checked={valor === "ITR"}
+            onChange={() => aoMudar("ITR")}
+          />
+          ITR (trimestral, acumulado no ano)
+        </label>
+      </div>
+    </fieldset>
   );
 }
 

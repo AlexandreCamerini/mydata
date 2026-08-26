@@ -20,7 +20,13 @@ type Rota =
   | { tela: "busca" }
   | { tela: "empresa"; cd_cvm: number }
   | { tela: "ficha"; cd_cvm: number }
-  | { tela: "demonstracoes"; cd_cvm: number; grupo?: string; consolidado?: boolean }
+  | {
+      tela: "demonstracoes";
+      cd_cvm: number;
+      grupo?: string;
+      consolidado?: boolean;
+      tipo?: "DFP" | "ITR";
+    }
   | { tela: "indicadores"; cd_cvm: number }
   | { tela: "arquivos"; cd_cvm: number }
   | { tela: "negociacao"; ticker: string }
@@ -33,20 +39,26 @@ function rotaAtual(): Rota {
   const neg = h.match(/^#\/negociacao(?:\/([A-Za-z0-9]+))?/);
   if (neg) return { tela: "negociacao", ticker: (neg[1] ?? "PETR4").toUpperCase() };
 
-  // O terceiro grupo é opcional e vem de um card de Empresa.tsx que já sabe
-  // qual dos dois modos (consolidado/individual) tem linha pra este grupo —
-  // sem isto a tela sempre abria consolidado, mesmo quando só individual
-  // tinha dado.
+  // consolidado/tipo são opcionais e vêm de um card de Empresa.tsx que já
+  // sabe qual modo e qual documento (DFP/ITR) têm linha pra este grupo —
+  // sem isto a tela sempre abria DFP consolidado, mesmo quando só ITR
+  // individual tinha dado. A query vem como grupo capturado à parte porque
+  // a ordem dos parâmetros não é garantida.
   const dem = h.match(
-    /^#\/empresa\/(\d+)\/demonstracoes(?:\/([A-Za-z_]+))?(?:\?consolidado=([01]))?/,
+    /^#\/empresa\/(\d+)\/demonstracoes(?:\/([A-Za-z_]+))?(?:\?(.*))?/,
   );
-  if (dem)
+  if (dem) {
+    const qs = new URLSearchParams(dem[3] ?? "");
+    const consolidadoStr = qs.get("consolidado");
+    const tipoStr = qs.get("tipo");
     return {
       tela: "demonstracoes",
       cd_cvm: Number(dem[1]),
       grupo: dem[2],
-      consolidado: dem[3] === undefined ? undefined : dem[3] === "1",
+      consolidado: consolidadoStr === null ? undefined : consolidadoStr === "1",
+      tipo: tipoStr === "DFP" || tipoStr === "ITR" ? tipoStr : undefined,
     };
+  }
 
   const ind = h.match(/^#\/empresa\/(\d+)\/indicadores/);
   if (ind) return { tela: "indicadores", cd_cvm: Number(ind[1]) };
@@ -155,6 +167,7 @@ export function App() {
               cd_cvm={rota.cd_cvm}
               grupoInicial={rota.grupo}
               consolidadoInicial={rota.consolidado}
+              tipoInicial={rota.tipo}
             />
           )}
           {rota.tela === "indicadores" && <Indicadores cd_cvm={rota.cd_cvm} />}

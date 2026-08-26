@@ -150,23 +150,30 @@ export function Empresa({ cd_cvm }: { cd_cvm: number }) {
   const r: ResumoEmpresa = resumo.dados.dados;
 
   // Uma família reúne mais de um grupo da CVM; a contagem é a soma deles, e o
-  // período é a união — mas dentro de UM modo só. `/v1/…/resumo` agrupa por
-  // consolidado (app/api/main.py, GROUP BY inclui `consolidado`), então
-  // somar os dois juntos mentia: o card dizia "62 linhas" somando individual
-  // com consolidado, e a tela de demonstrações — que só mostra um modo por
-  // vez — abria no que estava vazio. Consolidado entra quando ele tem linha;
-  // senão cai pra individual, nunca os dois somados.
+  // período é a união — mas dentro de UM par (tipo, consolidado) só.
+  // `/v1/…/resumo` agrupa por grupo, tipo_doc E consolidado (app/api/main.py,
+  // GROUP BY inclui os três) — misturar tudo mentia. Duas dimensões, nessa
+  // ordem: primeiro DFP × ITR (DFP só existe meses depois do fim do
+  // exercício — pro ano corrente, a maioria das companhias só tem ITR
+  // publicado ainda; Demonstracoes.tsx ficava travada em DFP, então uma
+  // família só-ITR prometia destino que não existia), depois consolidado ×
+  // individual dentro do documento escolhido.
   const porFamilia = FAMILIAS.map((f) => {
     const todas = r.demonstracoes.filter((d) => f.grupos.includes(d.grupo));
-    const consolidado = todas.some((d) => d.consolidado && d.linhas > 0);
-    const linhas = todas.filter((d) => d.consolidado === consolidado);
+    const tipo = todas.some((d) => d.tipo_doc === "DFP" && d.linhas > 0)
+      ? "DFP"
+      : "ITR";
+    const doTipo = todas.filter((d) => d.tipo_doc === tipo);
+    const consolidado = doTipo.some((d) => d.consolidado && d.linhas > 0);
+    const linhas = doTipo.filter((d) => d.consolidado === consolidado);
     return {
       ...f,
+      tipo,
       consolidado,
       total: linhas.reduce((s, d) => s + d.linhas, 0),
       de: linhas.map((d) => d.de).sort()[0] ?? "",
       ate: linhas.map((d) => d.ate).sort().slice(-1)[0] ?? "",
-      // Abre no primeiro grupo declarado que tem dado NO MODO escolhido
+      // Abre no primeiro grupo declarado que tem dado NO PAR escolhido
       // acima. A ordem em FAMILIAS é a ordem natural de leitura — ativo
       // antes de passivo, resultado antes do abrangente —, e não a de
       // volume: o passivo tem mais linhas que o ativo, e abrir o balanço
@@ -211,7 +218,7 @@ export function Empresa({ cd_cvm }: { cd_cvm: number }) {
                 key={f.nome}
                 nome={f.nome}
                 sobre={f.sobre}
-                href={`#/empresa/${cd_cvm}/demonstracoes/${f.grupoAbrir}?consolidado=${f.consolidado ? 1 : 0}`}
+                href={`#/empresa/${cd_cvm}/demonstracoes/${f.grupoAbrir}?consolidado=${f.consolidado ? 1 : 0}&tipo=${f.tipo}`}
                 medida={`${fmt.format(f.total)} linhas`}
                 detalhe={periodo(f.de, f.ate)}
               />
