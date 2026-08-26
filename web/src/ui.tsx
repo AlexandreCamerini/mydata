@@ -154,7 +154,7 @@ export function Botao(props: {
     // mesma cor do texto —, e por isso nada competia pela atenção.
     primario: "bg-acento text-papel hover:opacity-90",
     secundario: "bg-superficie text-tinta border border-borda hover:bg-acento-suave",
-    destrutivo: "bg-erro text-white hover:opacity-90",
+    destrutivo: "bg-erro text-papel hover:opacity-90",
   }[props.variante ?? "secundario"];
 
   return (
@@ -192,7 +192,7 @@ export function Erro({ mensagem }: { mensagem: string }) {
   return (
     <div
       role="alert"
-      className="border border-erro bg-red-50 text-erro rounded p-3 text-sm mb-4"
+      className="border border-erro bg-erro-suave text-erro rounded p-3 text-sm mb-4"
     >
       {mensagem}
     </div>
@@ -201,7 +201,7 @@ export function Erro({ mensagem }: { mensagem: string }) {
 
 export function Aviso({ children }: { children: ReactNode }) {
   return (
-    <div className="border border-borda bg-white rounded p-3 text-sm mb-4">
+    <div className="border border-borda bg-superficie rounded p-3 text-sm mb-4">
       {children}
     </div>
   );
@@ -218,7 +218,7 @@ export function Tabela(props: {
     // navega por teclado não alcança o conteúdo que ficou fora da viewport.
     // (axe: scrollable-region-focusable)
     <div
-      className="overflow-x-auto border border-borda rounded bg-white"
+      className="overflow-x-auto border border-borda rounded bg-superficie"
       tabIndex={0}
       role="region"
       aria-label={props.legenda}
@@ -247,11 +247,11 @@ export function Tabela(props: {
 export function Selo({ texto }: { texto: string }) {
   const cor =
     {
-      publicado: "bg-green-50 text-ok border-ok",
-      em_dia: "bg-green-50 text-ok border-ok",
-      bloqueada: "bg-amber-50 text-alerta border-alerta",
-      atrasada: "bg-amber-50 text-alerta border-alerta",
-      falha: "bg-red-50 text-erro border-erro",
+      publicado: "bg-ok-suave text-ok border-ok",
+      em_dia: "bg-ok-suave text-ok border-ok",
+      bloqueada: "bg-alerta-suave text-alerta border-alerta",
+      atrasada: "bg-alerta-suave text-alerta border-alerta",
+      falha: "bg-erro-suave text-erro border-erro",
       sem_carga: "bg-superficie text-tinta-suave border-borda",
     }[texto] ?? "bg-superficie text-tinta-suave border-borda";
   // O rótulo textual carrega o significado; a cor é reforço, não a

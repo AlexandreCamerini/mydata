@@ -36,10 +36,10 @@ const METODOS_DOCUMENTADOS = ["get", "post", "put", "patch", "delete"];
 
 const COR_METODO: Record<string, string> = {
   get: "bg-acento-suave text-acento border-acento",
-  post: "bg-green-50 text-ok border-ok",
-  put: "bg-amber-50 text-alerta border-alerta",
-  patch: "bg-amber-50 text-alerta border-alerta",
-  delete: "bg-red-50 text-erro border-erro",
+  post: "bg-ok-suave text-ok border-ok",
+  put: "bg-alerta-suave text-alerta border-alerta",
+  patch: "bg-alerta-suave text-alerta border-alerta",
+  delete: "bg-erro-suave text-erro border-erro",
 };
 
 function operacoesDoEspec(spec: EspecOpenApi): Operacao[] {

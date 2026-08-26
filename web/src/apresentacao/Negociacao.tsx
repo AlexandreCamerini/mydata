@@ -200,7 +200,7 @@ export function Negociacao({ ticker: inicial }: { ticker: string }) {
       </section>
 
       {erro && (
-        <div role="alert" className="border border-erro bg-red-50 text-erro rounded p-3 text-sm">
+        <div role="alert" className="border border-erro bg-erro-suave text-erro rounded p-3 text-sm">
           {erro}
         </div>
       )}
