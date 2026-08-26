@@ -6,8 +6,8 @@
 // O que ela mostra é a comparação que a camada de opções existe para fazer:
 // a volatilidade **implícita** do contrato ao lado da **realizada** do papel.
 // Uma é o que o mercado está cobrando; a outra é o que o papel de fato fez.
-import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type Cotacao, type Opcao, type Vencimento } from "./api";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { api, type Cotacao, type Empresa, type Opcao, type Vencimento } from "./api";
 
 const ALTURA_LINHA = 34;
 const FOLGA = 8;
@@ -110,6 +110,11 @@ export function janela(
 export function Negociacao({ ticker: inicial }: { ticker: string }) {
   const [ticker, setTicker] = useState(inicial);
   const [busca, setBusca] = useState(inicial);
+  const [sugestoes, setSugestoes] = useState<Empresa[] | null>(null);
+  const [listaAberta, setListaAberta] = useState(false);
+  const [ativo, setAtivo] = useState(-1);
+  const atrasoBusca = useRef<number | undefined>(undefined);
+  const idLista = useId();
   const [vencs, setVencs] = useState<Vencimento[] | null>(null);
   const [venc, setVenc] = useState<string>("");
   const [tipo, setTipo] = useState<"" | "CALL" | "PUT">("");
@@ -158,6 +163,53 @@ export function Negociacao({ ticker: inicial }: { ticker: string }) {
     [contratos],
   );
 
+  // Busca ao vivo contra /v1/empresas — mesmo padrão de debounce de
+  // Busca.tsx. Só listadas na B3, que é quem tem cadeia de opções.
+  useEffect(() => {
+    window.clearTimeout(atrasoBusca.current);
+    const termo = busca.trim();
+    if (termo.length < 2) {
+      setSugestoes(null);
+      return;
+    }
+    atrasoBusca.current = window.setTimeout(() => {
+      api
+        .empresas({ q: termo, listada_b3: true, limite: 8 })
+        .then((r) => setSugestoes(r.dados))
+        .catch(() => setSugestoes(null));
+    }, 500);
+    return () => window.clearTimeout(atrasoBusca.current);
+  }, [busca]);
+
+  function selecionarSugestao(c: Empresa) {
+    const t = (c.ticker ?? "").toUpperCase();
+    if (!t) return;
+    setTicker(t);
+    setBusca(t);
+    setSugestoes(null);
+    setListaAberta(false);
+    setAtivo(-1);
+    window.location.hash = `#/negociacao/${t}`;
+  }
+
+  function aoTeclarBusca(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!sugestoes || sugestoes.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setListaAberta(true);
+      setAtivo((a) => Math.min(a + 1, sugestoes.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setAtivo((a) => Math.max(a - 1, 0));
+    } else if (e.key === "Escape") {
+      setListaAberta(false);
+      setAtivo(-1);
+    } else if (e.key === "Enter" && listaAberta && ativo >= 0) {
+      e.preventDefault();
+      selecionarSugestao(sugestoes[ativo]);
+    }
+  }
+
   return (
     <div className="grid gap-6">
       <section aria-labelledby="t">
@@ -177,18 +229,64 @@ export function Negociacao({ ticker: inicial }: { ticker: string }) {
             const t = busca.trim().toUpperCase();
             if (t) {
               setTicker(t);
+              setListaAberta(false);
               window.location.hash = `#/negociacao/${t}`;
             }
           }}
         >
-          <label className="text-sm">
+          <label className="text-sm relative">
             <span className="block font-medium mb-1">Ativo-objeto</span>
             <input
+              role="combobox"
+              aria-expanded={listaAberta && (sugestoes?.length ?? 0) > 0}
+              aria-controls={idLista}
+              aria-autocomplete="list"
+              aria-activedescendant={ativo >= 0 ? `${idLista}-${ativo}` : undefined}
               value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="PETR4"
-              className="border border-borda rounded px-2 py-1 w-36 uppercase"
+              onChange={(e) => {
+                setBusca(e.target.value);
+                setListaAberta(true);
+                setAtivo(-1);
+              }}
+              onFocus={() => setListaAberta(true)}
+              // Atraso, não fecha na hora: onMouseDown da opção precisa disparar
+              // antes deste blur, senão o clique nunca chega a selecionar nada.
+              onBlur={() => window.setTimeout(() => setListaAberta(false), 150)}
+              onKeyDown={aoTeclarBusca}
+              placeholder="nome ou ticker — ex.: petrobras, PETR4"
+              autoComplete="off"
+              className="border border-borda rounded px-2 py-1 w-56 uppercase"
             />
+            {listaAberta && sugestoes && sugestoes.length > 0 && (
+              <ul
+                id={idLista}
+                role="listbox"
+                aria-label="Companhias sugeridas"
+                className="absolute z-10 mt-1 w-72 max-h-64 overflow-auto border border-borda rounded bg-superficie shadow-sm"
+              >
+                {sugestoes.map((c, i) => (
+                  <li
+                    key={c.cd_cvm}
+                    id={`${idLista}-${i}`}
+                    role="option"
+                    aria-selected={i === ativo}
+                    onMouseDown={() => selecionarSugestao(c)}
+                    className={`px-3 py-1.5 text-sm normal-case cursor-pointer ${
+                      i === ativo ? "bg-acento-suave text-acento" : "hover:bg-acento-suave"
+                    }`}
+                  >
+                    <span className="font-medium">
+                      {c.denom_social ?? `Companhia ${c.cd_cvm}`}
+                    </span>
+                    {c.ticker && (
+                      <span className="text-tinta-suave font-mono text-xs ml-2">
+                        {c.ticker}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </label>
           <button
             type="submit"
