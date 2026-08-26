@@ -150,19 +150,27 @@ export function Empresa({ cd_cvm }: { cd_cvm: number }) {
   const r: ResumoEmpresa = resumo.dados.dados;
 
   // Uma família reúne mais de um grupo da CVM; a contagem é a soma deles, e o
-  // período é a união. Consolidado e individual entram juntos aqui porque a
-  // escolha entre os dois é da tela de demonstrações, não desta.
+  // período é a união — mas dentro de UM modo só. `/v1/…/resumo` agrupa por
+  // consolidado (app/api/main.py, GROUP BY inclui `consolidado`), então
+  // somar os dois juntos mentia: o card dizia "62 linhas" somando individual
+  // com consolidado, e a tela de demonstrações — que só mostra um modo por
+  // vez — abria no que estava vazio. Consolidado entra quando ele tem linha;
+  // senão cai pra individual, nunca os dois somados.
   const porFamilia = FAMILIAS.map((f) => {
-    const linhas = r.demonstracoes.filter((d) => f.grupos.includes(d.grupo));
+    const todas = r.demonstracoes.filter((d) => f.grupos.includes(d.grupo));
+    const consolidado = todas.some((d) => d.consolidado && d.linhas > 0);
+    const linhas = todas.filter((d) => d.consolidado === consolidado);
     return {
       ...f,
+      consolidado,
       total: linhas.reduce((s, d) => s + d.linhas, 0),
       de: linhas.map((d) => d.de).sort()[0] ?? "",
       ate: linhas.map((d) => d.ate).sort().slice(-1)[0] ?? "",
-      // Abre no primeiro grupo declarado que tem dado. A ordem em FAMILIAS é
-      // a ordem natural de leitura — ativo antes de passivo, resultado antes
-      // do abrangente —, e não a de volume: o passivo tem mais linhas que o
-      // ativo, e abrir o balanço pelo passivo é começar pelo fim.
+      // Abre no primeiro grupo declarado que tem dado NO MODO escolhido
+      // acima. A ordem em FAMILIAS é a ordem natural de leitura — ativo
+      // antes de passivo, resultado antes do abrangente —, e não a de
+      // volume: o passivo tem mais linhas que o ativo, e abrir o balanço
+      // pelo passivo é começar pelo fim.
       grupoAbrir:
         f.grupos.find((g) => linhas.some((d) => d.grupo === g)) ?? f.grupos[0],
     };
@@ -203,7 +211,7 @@ export function Empresa({ cd_cvm }: { cd_cvm: number }) {
                 key={f.nome}
                 nome={f.nome}
                 sobre={f.sobre}
-                href={`#/empresa/${cd_cvm}/demonstracoes/${f.grupoAbrir}`}
+                href={`#/empresa/${cd_cvm}/demonstracoes/${f.grupoAbrir}?consolidado=${f.consolidado ? 1 : 0}`}
                 medida={`${fmt.format(f.total)} linhas`}
                 detalhe={periodo(f.de, f.ate)}
               />

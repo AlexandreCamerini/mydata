@@ -93,9 +93,14 @@ function ProvaDoOriginal({ serie }: { serie: Conta[] }) {
 export function Demonstracoes({
   cd_cvm,
   grupoInicial,
+  consolidadoInicial,
 }: {
   cd_cvm: number;
   grupoInicial?: string;
+  // Vem do card de Empresa.tsx, que já sabe qual dos dois modos tem linha
+  // pra este grupo — sem isto a tela sempre abria consolidado, e uma empresa
+  // que só publicou individual chegava aqui e via a tabela vazia.
+  consolidadoInicial?: boolean;
 }) {
   const empresa = useDados(() => api.empresa(cd_cvm), [cd_cvm]);
   // O grupo vem do endereço quando ele o traz. Trocar de grupo reescreve o
@@ -113,7 +118,15 @@ export function Demonstracoes({
       setGrupoEstado(grupoInicial.toUpperCase());
     }
   }, [grupoInicial]);
-  const [consolidado, setConsolidado] = useState(true);
+  const [consolidado, setConsolidado] = useState(consolidadoInicial ?? true);
+  useEffect(() => {
+    if (consolidadoInicial !== undefined && consolidadoInicial !== consolidado) {
+      setConsolidado(consolidadoInicial);
+    }
+    // Só reage à mudança de grupo/cd_cvm (via grupoInicial), não a toggle
+    // manual do próprio usuário depois de montada.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grupoInicial, cd_cvm]);
   const [linhas, setLinhas] = useState<Conta[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [contaAberta, setContaAberta] = useState<string | null>(null);

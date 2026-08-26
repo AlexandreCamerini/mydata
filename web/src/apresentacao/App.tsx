@@ -20,7 +20,7 @@ type Rota =
   | { tela: "busca" }
   | { tela: "empresa"; cd_cvm: number }
   | { tela: "ficha"; cd_cvm: number }
-  | { tela: "demonstracoes"; cd_cvm: number; grupo?: string }
+  | { tela: "demonstracoes"; cd_cvm: number; grupo?: string; consolidado?: boolean }
   | { tela: "indicadores"; cd_cvm: number }
   | { tela: "arquivos"; cd_cvm: number }
   | { tela: "negociacao"; ticker: string }
@@ -33,9 +33,20 @@ function rotaAtual(): Rota {
   const neg = h.match(/^#\/negociacao(?:\/([A-Za-z0-9]+))?/);
   if (neg) return { tela: "negociacao", ticker: (neg[1] ?? "PETR4").toUpperCase() };
 
-  const dem = h.match(/^#\/empresa\/(\d+)\/demonstracoes(?:\/([A-Za-z_]+))?/);
+  // O terceiro grupo é opcional e vem de um card de Empresa.tsx que já sabe
+  // qual dos dois modos (consolidado/individual) tem linha pra este grupo —
+  // sem isto a tela sempre abria consolidado, mesmo quando só individual
+  // tinha dado.
+  const dem = h.match(
+    /^#\/empresa\/(\d+)\/demonstracoes(?:\/([A-Za-z_]+))?(?:\?consolidado=([01]))?/,
+  );
   if (dem)
-    return { tela: "demonstracoes", cd_cvm: Number(dem[1]), grupo: dem[2] };
+    return {
+      tela: "demonstracoes",
+      cd_cvm: Number(dem[1]),
+      grupo: dem[2],
+      consolidado: dem[3] === undefined ? undefined : dem[3] === "1",
+    };
 
   const ind = h.match(/^#\/empresa\/(\d+)\/indicadores/);
   if (ind) return { tela: "indicadores", cd_cvm: Number(ind[1]) };
@@ -140,7 +151,11 @@ export function App() {
           {rota.tela === "empresa" && <Empresa cd_cvm={rota.cd_cvm} />}
           {rota.tela === "ficha" && <Ficha cd_cvm={rota.cd_cvm} />}
           {rota.tela === "demonstracoes" && (
-            <Demonstracoes cd_cvm={rota.cd_cvm} grupoInicial={rota.grupo} />
+            <Demonstracoes
+              cd_cvm={rota.cd_cvm}
+              grupoInicial={rota.grupo}
+              consolidadoInicial={rota.consolidado}
+            />
           )}
           {rota.tela === "indicadores" && <Indicadores cd_cvm={rota.cd_cvm} />}
           {rota.tela === "arquivos" && <Arquivos cd_cvm={rota.cd_cvm} />}
