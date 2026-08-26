@@ -14,32 +14,51 @@ import { Api } from "./telas/Api";
 
 // Roteamento por hash: funciona servido estaticamente em /admin sem
 // configuração de servidor e sem dependência de biblioteca de rotas.
+//
+// `grupo` é só rótulo de navegação — não muda rota nem componente. 12 abas
+// no mesmo nível não davam pista de qual pertencia a quê; os três nomes
+// abaixo são os que docs/arquitetura.md já usa para essas camadas, não
+// taxonomia nova. "Visão geral" fica sem rótulo — não é uma categoria de
+// verdade, é onde a navegação começa.
 const TELAS = [
-  { id: "gestao", titulo: "Gestão", componente: Gestao,
+  { id: "gestao", titulo: "Gestão", grupo: "Visão geral", componente: Gestao,
     resumo: "O que o hub tem, quem consome e o que está para vencer o SLA" },
-  { id: "classes", titulo: "Classes", componente: Classes,
+  { id: "classes", titulo: "Classes", grupo: "Modelo de dado", componente: Classes,
     resumo: "A informação que o portal guarda, e quem a alimenta" },
-  { id: "fontes", titulo: "Fontes", componente: Fontes,
+  { id: "fontes", titulo: "Fontes", grupo: "Modelo de dado", componente: Fontes,
     resumo: "De onde o dado vem" },
-  { id: "datasets", titulo: "Mapeamentos", componente: Datasets,
+  { id: "datasets", titulo: "Mapeamentos", grupo: "Modelo de dado", componente: Datasets,
     resumo: "Ligação fonte → classe: o que extrair e como tipar" },
-  { id: "calculados", titulo: "Campos calculados", componente: Calculados,
+  { id: "calculados", titulo: "Campos calculados", grupo: "Modelo de dado", componente: Calculados,
     resumo: "Derivadas com linhagem" },
-  { id: "qualidade", titulo: "Qualidade", componente: Qualidade,
+  { id: "qualidade", titulo: "Qualidade", grupo: "Operação do pipeline", componente: Qualidade,
     resumo: "Regras que barram publicação" },
-  { id: "execucoes", titulo: "Execuções", componente: Execucoes,
+  { id: "execucoes", titulo: "Execuções", grupo: "Operação do pipeline", componente: Execucoes,
     resumo: "Histórico, replay e publicações" },
-  { id: "carga", titulo: "Carga e custo", componente: Carga,
+  { id: "carga", titulo: "Carga e custo", grupo: "Operação do pipeline", componente: Carga,
     resumo: "O que cada execução pesa em disco, e o que isso custa" },
-  { id: "chaves", titulo: "Chaves de API", componente: Chaves,
+  { id: "chaves", titulo: "Chaves de API", grupo: "Acesso e consumo", componente: Chaves,
     resumo: "Consumidores e quotas" },
-  { id: "catalogo", titulo: "Catálogo", componente: Catalogo,
+  { id: "catalogo", titulo: "Catálogo", grupo: "Acesso e consumo", componente: Catalogo,
     resumo: "Schema e amostra" },
-  { id: "acesso", titulo: "Acesso", componente: Acesso,
+  { id: "acesso", titulo: "Acesso", grupo: "Acesso e consumo", componente: Acesso,
     resumo: "Quem entra no portal, por onde, e como revogar" },
-  { id: "api", titulo: "API", componente: Api,
+  { id: "api", titulo: "API", grupo: "Acesso e consumo", componente: Api,
     resumo: "Toda rota exposta, documentada e testável ao vivo" },
 ] as const;
+
+/** TELAS já vem na ordem de leitura certa (visão geral, depois cada grupo
+ * inteiro) — agrupar preservando a ordem de primeira ocorrência basta, sem
+ * precisar de uma lista de grupos à parte para manter em sincronia. */
+const GRUPOS_NAV = (() => {
+  const porGrupo = new Map<string, (typeof TELAS)[number][]>();
+  for (const t of TELAS) {
+    const lista = porGrupo.get(t.grupo) ?? [];
+    lista.push(t);
+    porGrupo.set(t.grupo, lista);
+  }
+  return [...porGrupo.entries()];
+})();
 
 /** A tela é o que vem antes do "?". O que vem depois é argumento dela.
  *
@@ -93,23 +112,32 @@ export function App() {
             aria-label="Seções de configuração"
             className="max-w-6xl mx-auto px-4"
           >
-            <ul className="flex flex-wrap gap-1 -mb-px">
-              {TELAS.map((t) => (
-                <li key={t.id}>
-                  <a
-                    href={`#/${t.id}`}
-                    aria-current={t.id === rota ? "page" : undefined}
-                    className={`inline-block px-3 py-2 text-sm border-b-2 ${
-                      t.id === rota
-                        ? "border-acento text-acento font-medium"
-                        : "border-transparent text-tinta-suave hover:text-tinta"
-                    }`}
-                  >
-                    {t.titulo}
-                  </a>
-                </li>
+            <div className="flex flex-wrap items-end gap-x-6 gap-y-1">
+              {GRUPOS_NAV.map(([grupo, itens]) => (
+                <div key={grupo}>
+                  {grupo !== "Visão geral" && (
+                    <p className="rotulo px-3">{grupo}</p>
+                  )}
+                  <ul className="flex flex-wrap gap-1 -mb-px">
+                    {itens.map((t) => (
+                      <li key={t.id}>
+                        <a
+                          href={`#/${t.id}`}
+                          aria-current={t.id === rota ? "page" : undefined}
+                          className={`inline-block px-3 py-2 text-sm border-b-2 ${
+                            t.id === rota
+                              ? "border-acento text-acento font-medium"
+                              : "border-transparent text-tinta-suave hover:text-tinta"
+                          }`}
+                        >
+                          {t.titulo}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ))}
-            </ul>
+            </div>
           </nav>
         </header>
 
