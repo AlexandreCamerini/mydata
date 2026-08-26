@@ -15,7 +15,8 @@ from pydantic import BaseModel, Field
 
 from .. import repositorio as repo
 from ..motor import (
-    correlacao, credenciais, custo, ddl, ingestao, observabilidade, publicacao,
+    alertas, correlacao, credenciais, custo, ddl, ingestao, observabilidade,
+    publicacao,
 )
 from ..repositorio import (
     CampoCalculado, Coluna, Dataset, ErroConfiguracao, Fonte, RegraQualidade,
@@ -433,10 +434,14 @@ async def get_execucoes(
     request: Request,
     dataset: str | None = Query(
         None, description="Restringe ao mapeamento com esta chave. Omitido, traz todos"),
+    status: str | None = Query(
+        None, description="Lista de status separada por vírgula (ex.: falha,bloqueada). "
+                          "É o que permite à tela mostrar só o que quebrou"),
     limite: int = Query(50, description="Quantas execuções recentes trazer"),
 ) -> Any:
     """Histórico de carga — o que rodou, para a tela de Execuções."""
-    return {"dados": repo.execucoes(obter_sink(request), limite, dataset)}
+    filtro = [s.strip() for s in status.split(",") if s.strip()] if status else None
+    return {"dados": repo.execucoes(obter_sink(request), limite, dataset, filtro)}
 
 
 @router.post("/execucoes")
@@ -703,6 +708,30 @@ async def get_travessia(
             status_code=404,
             detail={"codigo": "correlacao_nao_declarada", "mensagem": str(e)},
         ) from e
+
+
+@router.get("/alertas")
+async def get_alertas(request: Request) -> Any:
+    """O que precisa de intervenção agora, já ordenado por severidade.
+
+    É a resposta à pergunta que o operador faz primeiro — "tem algo que eu
+    precise fazer?" — computada sobre estado que já existia espalhado:
+    frescor, falhas recentes, credencial ausente, DDL divergente, duração
+    anômala e agendamento que não rodou. Cada alerta traz a rota da tela
+    onde se age. `resumo.situacao` é o semáforo: ok, atencao ou critico.
+    """
+    return {"dados": alertas.ativos(obter_sink(request))}
+
+
+@router.get("/agendamentos")
+async def get_agendamentos(request: Request) -> Any:
+    """Cada agendamento com o próximo disparo esperado, no fuso declarado.
+
+    `cfg_agendamento` nunca teve tela — o horário do COTAHIST só existia
+    como expressão de cron no banco. Aqui a interface mostra "próxima carga:
+    hoje 23:59" sem ninguém precisar decifrar `59 23 * * 1-5`.
+    """
+    return {"dados": alertas.proximas_execucoes(obter_sink(request))}
 
 
 @router.get("/gestao")

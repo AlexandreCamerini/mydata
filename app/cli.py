@@ -136,9 +136,53 @@ def cmd_agendados(args) -> int:
             saida.append({"agendamento": ag["chave"], "janela": janela,
                           "status": "falha", "erro": str(e)})
             log.error("agendamento %s falhou: %s", ag["chave"], e)
+    _notificar_alertas(sink, saida, falhas)
     print(json.dumps(saida, ensure_ascii=False, indent=2))
     sink.fechar()
     return 1 if falhas else 0
+
+
+def _notificar_alertas(sink, rodada: list[dict], falhas: int) -> None:
+    """Empurra os alertas críticos para `PORTAL_WEBHOOK_ALERTAS`, se definida.
+
+    Era o único furo do ciclo: falha ficava gravada e ninguém era avisado —
+    a detecção dependia de alguém abrir o painel. O webhook é genérico (POST
+    de JSON), então serve a qualquer receptor sem dependência nova nem custo:
+    um bridge de Slack/Discord/Telegram, um `ntfy.sh`, um endpoint próprio.
+
+    Nunca derruba a rodada: alarme que quebra o processo monitorado é pior
+    que alarme nenhum.
+    """
+    import os
+    import urllib.request
+
+    url = os.getenv("PORTAL_WEBHOOK_ALERTAS")
+    if not url:
+        return
+    try:
+        from .motor import alertas as motor_alertas
+
+        estado = motor_alertas.ativos(sink)
+        if estado["resumo"]["situacao"] != "critico" and not falhas:
+            return
+        criticos = [a for a in estado["alertas"] if a["severidade"] == "critico"]
+        corpo = json.dumps({
+            "origem": "mydata",
+            "situacao": estado["resumo"]["situacao"],
+            "falhas_na_rodada": falhas,
+            "text": "MyData: "
+                    + (f"{len(criticos)} alerta(s) crítico(s). " if criticos else "")
+                    + (f"{falhas} falha(s) nesta rodada de cron. " if falhas else "")
+                    + "; ".join(a["titulo"] for a in criticos[:5]),
+            "alertas": criticos[:10],
+        }, ensure_ascii=False, default=str).encode()
+        pedido = urllib.request.Request(
+            url, data=corpo, headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(pedido, timeout=10)  # noqa: S310 — URL vem do operador, não de dado
+        log.info("alertas notificados via webhook")
+    except Exception as e:  # noqa: BLE001 — notificação nunca derruba a rodada
+        log.warning("webhook de alertas falhou: %s", e)
 
 
 def cmd_recomputar(args) -> int:

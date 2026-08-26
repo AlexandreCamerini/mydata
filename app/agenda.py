@@ -87,6 +87,35 @@ def ultima_ocorrencia(cron: str, agora: datetime, limite_dias: int = 400) -> dat
     return None
 
 
+def proxima_ocorrencia(cron: str, agora: datetime, limite_dias: int = 400) -> datetime | None:
+    """O primeiro momento depois de `agora` em que este cron vai disparar.
+
+    Espelho de `ultima_ocorrencia`, andando para a frente. É o que permite à
+    interface mostrar "próxima carga do COTAHIST: hoje 23:59" — sem isto o
+    operador só descobre o horário lendo a expressão de cron de cabeça.
+    """
+    campos = cron.split()
+    if len(campos) != 5:
+        raise ErroCron(f"cron precisa de 5 campos, recebeu {len(campos)}: {cron!r}")
+    m, h, dom, mes, dow = campos
+    minutos, horas = _campo(m, 0, 59), _campo(h, 0, 23)
+    doms, meses, dows = _campo(dom, 1, 31), _campo(mes, 1, 12), _campo(dow, 0, 6)
+    dom_livre, dow_livre = dom.strip() == "*", dow.strip() == "*"
+
+    dia = agora.replace(second=0, microsecond=0)
+    for passo in range(limite_dias):
+        if dia.month in meses and _dia_casa(dia, doms, dows, dom_livre, dow_livre):
+            candidatos = [
+                dia.replace(hour=hh, minute=mm)
+                for hh in horas for mm in minutos
+                if passo > 0 or (hh, mm) > (agora.hour, agora.minute)
+            ]
+            if candidatos:
+                return min(candidatos)
+        dia = (dia + timedelta(days=1)).replace(hour=0, minute=0)
+    return None
+
+
 def zona(nome: str | None) -> tzinfo:
     """O fuso declarado no agendamento, com UTC como piso.
 
