@@ -92,7 +92,7 @@ export function App() {
         Pular para o conteúdo
       </a>
       <div className="min-h-screen grid grid-rows-[auto_1fr]">
-        <header className="border-b border-borda bg-white">
+        <header className="border-b border-borda bg-superficie">
           <div className="max-w-5xl mx-auto px-4 py-3 flex items-baseline justify-between gap-4">
             <div>
               <p className="font-semibold">
@@ -111,7 +111,7 @@ export function App() {
                 href="#/negociacao/PETR4"
                 className="text-xs text-tinta-suave underline decoration-dotted"
               >
-                opções
+                opções (B3)
               </a>
               <a
                 href="#/operador"
