@@ -487,7 +487,7 @@ export function DatasetForm(props: {
 
       <form
         onSubmit={aoSubmeter}
-        className="border border-borda rounded bg-white p-4"
+        className="border border-borda rounded bg-superficie p-4"
       >
         {erros.geral && <Erro mensagem={erros.geral} />}
         <div className="grid gap-x-6 md:grid-cols-2">

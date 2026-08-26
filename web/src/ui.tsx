@@ -38,7 +38,7 @@ export function Campo(props: {
     "aria-describedby": descritores || undefined,
     "aria-required": props.obrigatorio || undefined,
     placeholder: props.placeholder,
-    className: `w-full rounded border px-3 py-2 text-sm bg-white ${
+    className: `w-full rounded border px-3 py-2 text-sm bg-superficie ${
       props.erro ? "border-erro" : "border-borda"
     } ${props.monoespacado ? "font-mono" : ""}`,
   };
@@ -93,7 +93,7 @@ export function Selecao(props: {
         value={props.valor}
         onChange={(e) => props.aoMudar(e.target.value)}
         aria-describedby={props.ajuda ? idAjuda : undefined}
-        className="w-full rounded border border-borda px-3 py-2 text-sm bg-white"
+        className="w-full rounded border border-borda px-3 py-2 text-sm bg-superficie"
       >
         {props.opcoes.map((o) => (
           <option key={o.valor} value={o.valor}>
@@ -299,7 +299,7 @@ export function Confirmar(props: {
         aria-modal="true"
         aria-labelledby="dlg-titulo"
         aria-describedby="dlg-corpo"
-        className="bg-white rounded border border-borda max-w-md w-full p-5"
+        className="bg-superficie rounded border border-borda max-w-md w-full p-5"
       >
         <h2 id="dlg-titulo" className="font-semibold mb-2">
           {props.titulo}

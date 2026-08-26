@@ -137,7 +137,7 @@ function EditorDoDataset({
   return (
     <section
       aria-labelledby="editar-calc"
-      className="border border-borda rounded bg-white p-4"
+      className="border border-borda rounded bg-superficie p-4"
     >
       <h2 id="editar-calc" className="font-medium mb-3">
         Editar calculados de um dataset
@@ -227,7 +227,7 @@ function FormMetrica({ aoSalvar }: { aoSalvar: () => void }) {
       </h2>
       <form
         onSubmit={salvar}
-        className="border border-borda rounded p-4 bg-white max-w-2xl"
+        className="border border-borda rounded p-4 bg-superficie max-w-2xl"
       >
         {erros.geral && <Erro mensagem={erros.geral} />}
         {contas && (

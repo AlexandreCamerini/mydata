@@ -256,7 +256,7 @@ function Detalhe({
           diferentes: o que esta classe promete, e o que ela vira no banco. */}
       <ContratoDaClasse classe={classe.chave} />
 
-      <details className="border border-borda rounded bg-white p-3">
+      <details className="border border-borda rounded bg-superficie p-3">
         <summary className="text-sm font-medium cursor-pointer">
           DDL que esta configuração implica
         </summary>
@@ -289,7 +289,7 @@ function ContratoDaClasse({ classe }: { classe: string }) {
   const [aberto, setAberto] = useState(false);
   return (
     <details
-      className="border border-borda rounded bg-white p-3"
+      className="border border-borda rounded bg-superficie p-3"
       onToggle={(e) => setAberto((e.currentTarget as HTMLDetailsElement).open)}
     >
       <summary className="text-sm font-medium cursor-pointer">

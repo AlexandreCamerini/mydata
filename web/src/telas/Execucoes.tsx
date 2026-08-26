@@ -143,7 +143,7 @@ export function Execucoes() {
         <h2 id="disparar" className="font-medium mb-3">
           Disparar carga
         </h2>
-        <form onSubmit={disparar} className="border border-borda rounded p-4 bg-white">
+        <form onSubmit={disparar} className="border border-borda rounded p-4 bg-superficie">
           {falha && <Erro mensagem={falha} />}
           <div className="mb-4">
             <label htmlFor="ds" className="block text-sm font-medium mb-1">
@@ -153,7 +153,7 @@ export function Execucoes() {
               id="ds"
               value={alvo}
               onChange={(e) => setAlvo(e.target.value)}
-              className="w-full rounded border border-borda px-3 py-2 text-sm bg-white"
+              className="w-full rounded border border-borda px-3 py-2 text-sm bg-superficie"
             >
               <option value="">Selecione…</option>
               {(datasets.dados?.dados ?? []).map((d: Dataset) => (
@@ -191,7 +191,7 @@ export function Execucoes() {
         </form>
 
         {saida && (
-          <div role="status" className="mt-4 border border-borda rounded p-4 bg-white text-sm">
+          <div role="status" className="mt-4 border border-borda rounded p-4 bg-superficie text-sm">
             <p className="font-medium mb-2">
               Execução #{saida.execucao_id} — <Selo texto={saida.status} />
             </p>

@@ -118,7 +118,7 @@ export function Chaves() {
         <h2 id="nova-chave" className="font-medium mb-3">
           Emitir chave
         </h2>
-        <form onSubmit={emitir} className="border border-borda rounded p-4 bg-white">
+        <form onSubmit={emitir} className="border border-borda rounded p-4 bg-superficie">
           {erroForm && <Erro mensagem={erroForm} />}
           <Campo
             rotulo="Consumidor"

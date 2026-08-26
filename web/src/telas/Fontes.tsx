@@ -95,7 +95,7 @@ export function Fontes() {
         <h2 id="nova-fonte" className="font-medium mb-3">
           Nova versão de fonte
         </h2>
-        <form onSubmit={salvar} className="border border-borda rounded p-4 bg-white">
+        <form onSubmit={salvar} className="border border-borda rounded p-4 bg-superficie">
           {erroForm.geral && <Erro mensagem={erroForm.geral} />}
           <Campo
             rotulo="Chave"

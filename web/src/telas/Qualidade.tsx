@@ -99,7 +99,7 @@ function EditorDoDataset({
   return (
     <section
       aria-labelledby="editar-regras"
-      className="border border-borda rounded bg-white p-4"
+      className="border border-borda rounded bg-superficie p-4"
     >
       <h2 id="editar-regras" className="font-medium mb-3">
         Editar regras de um dataset

@@ -94,7 +94,7 @@ export function Busca() {
       <h1 className="sr-only">Companhias abertas registradas na CVM</h1>
       <section
         aria-labelledby="filtros"
-        className="border border-borda rounded bg-white p-4"
+        className="border border-borda rounded bg-superficie p-4"
       >
         <h2 id="filtros" className="sr-only">
           Busca e filtros

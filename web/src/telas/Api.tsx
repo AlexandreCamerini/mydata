@@ -238,7 +238,7 @@ function ItemOperacao({
   }
 
   return (
-    <div className="border border-borda rounded bg-white">
+    <div className="border border-borda rounded bg-superficie">
       <button
         onClick={() => setAberta((a) => !a)}
         aria-expanded={aberta}

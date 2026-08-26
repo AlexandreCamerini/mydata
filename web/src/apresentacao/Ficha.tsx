@@ -114,7 +114,7 @@ export function Ficha({ cd_cvm }: { cd_cvm: number }) {
 
       <section
         aria-labelledby="proveniencia"
-        className="border border-borda rounded bg-white p-4"
+        className="border border-borda rounded bg-superficie p-4"
       >
         <h2 id="proveniencia" className="font-medium mb-2">
           Proveniência

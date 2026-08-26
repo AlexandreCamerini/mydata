@@ -64,7 +64,7 @@ export function Datasets() {
       </Aviso>
 
       {dados.dados.map((d: Dataset) => (
-        <article key={d.chave} className="border border-borda rounded bg-white">
+        <article key={d.chave} className="border border-borda rounded bg-superficie">
           <h2>
             <button
               onClick={() => setAberto(aberto === d.chave ? null : d.chave)}

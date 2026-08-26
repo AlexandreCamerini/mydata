@@ -172,7 +172,7 @@ export function Demonstracoes({
 
       <section
         aria-labelledby="recorte"
-        className="border border-borda rounded bg-white p-4 grid gap-x-6 sm:grid-cols-[minmax(0,320px)_auto] items-end"
+        className="border border-borda rounded bg-superficie p-4 grid gap-x-6 sm:grid-cols-[minmax(0,320px)_auto] items-end"
       >
         <h2 id="recorte" className="sr-only">
           Recorte da demonstração
@@ -340,7 +340,7 @@ function PainelConta({
   return (
     <section
       aria-labelledby="painel-conta"
-      className="border border-borda rounded bg-white p-4 grid gap-4"
+      className="border border-borda rounded bg-superficie p-4 grid gap-4"
     >
       <h2 id="painel-conta" className="font-medium">
         <span className="font-mono text-sm">{cd_conta}</span>{" "}
@@ -460,7 +460,7 @@ function GraficoSerie({
         aria-label={`Série de ${titulo}: ${pontos
           .map((p) => `${p.rotulo} ${fmtCurto.format(p.valor)}`)
           .join(", ")}`}
-        className="w-full max-w-2xl border border-borda rounded bg-white"
+        className="w-full max-w-2xl border border-borda rounded bg-superficie"
       >
         {min < 0 && max > 0 && (
           <line

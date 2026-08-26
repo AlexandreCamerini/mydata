@@ -206,7 +206,7 @@ function SecaoLinhagem() {
         A cadeia inteira de um atributo: fontes na ordem de precedência,
         coluna do arquivo, regras que o vigiam e capturas recentes.
       </p>
-      <div className="border border-borda rounded bg-white p-4 grid gap-x-6 sm:grid-cols-[minmax(0,240px)_minmax(0,240px)_auto] items-end">
+      <div className="border border-borda rounded bg-superficie p-4 grid gap-x-6 sm:grid-cols-[minmax(0,240px)_minmax(0,240px)_auto] items-end">
         <Selecao
           rotulo="Classe"
           valor={classe}

@@ -90,7 +90,7 @@ export function Indicadores({ cd_cvm }: { cd_cvm: number }) {
               {chaves.map((k) => (
                 <div
                   key={k}
-                  className="border border-borda rounded bg-white px-3 py-2 grid gap-1"
+                  className="border border-borda rounded bg-superficie px-3 py-2 grid gap-1"
                 >
                   <dt className="font-medium text-sm">
                     {definicoes[k].nome}

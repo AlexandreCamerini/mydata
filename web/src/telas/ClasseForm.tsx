@@ -180,7 +180,7 @@ export function ClasseForm(props: {
     return (
       <section
         aria-labelledby="classe-salva"
-        className="border border-borda rounded bg-white p-4"
+        className="border border-borda rounded bg-superficie p-4"
       >
         <h2 id="classe-salva" className="font-medium mb-2">
           Classe {form.chave} salva
@@ -212,7 +212,7 @@ export function ClasseForm(props: {
         nasce (ou evolui) da configuração. O DDL aparece aqui antes de rodar.
       </Aviso>
 
-      <form onSubmit={verDdl} className="border border-borda rounded bg-white p-4">
+      <form onSubmit={verDdl} className="border border-borda rounded bg-superficie p-4">
         {erros.geral && <Erro mensagem={erros.geral} />}
 
         <div className="grid gap-x-6 md:grid-cols-2">
@@ -415,7 +415,7 @@ export function ClasseForm(props: {
       {previa && (
         <section
           aria-labelledby="previa-ddl"
-          className="border border-borda rounded bg-white p-4"
+          className="border border-borda rounded bg-superficie p-4"
         >
           <h3 id="previa-ddl" className="font-medium mb-2">
             O que vai rodar no banco
