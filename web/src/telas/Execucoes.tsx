@@ -5,8 +5,18 @@ import {
   Aviso, Botao, Campo, Carregando, Confirmar, Erro, Selo, Tabela, Vazio, useDados,
 } from "../ui";
 
+// O recorte do histórico. "Problemas" existe porque era o caso sem resposta:
+// achar uma falha exigia rolar 50 linhas procurando um selo vermelho — o
+// filtro estava pronto na API desde sempre e nenhuma tela o oferecia.
+const RECORTES = [
+  { valor: "", rotulo: "todas" },
+  { valor: "falha,bloqueada", rotulo: "problemas" },
+  { valor: "publicado", rotulo: "publicadas" },
+] as const;
+
 export function Execucoes() {
-  const execs = useDados(() => api.execucoes());
+  const [recorte, setRecorte] = useState<string>("");
+  const execs = useDados(() => api.execucoes(undefined, recorte || undefined), [recorte]);
   const datasets = useDados(() => api.datasets());
   const pubs = useDados(() => api.publicacoes());
 
@@ -52,15 +62,35 @@ export function Execucoes() {
         <Frescor />
 
         <section aria-labelledby="hist">
-          <h2 id="hist" className="font-medium mb-3">
-            Histórico
-          </h2>
+          <div className="flex items-baseline justify-between gap-3 flex-wrap mb-3">
+            <h2 id="hist" className="font-medium">
+              Histórico
+            </h2>
+            <div className="flex gap-2" role="group" aria-label="Filtrar por situação">
+              {RECORTES.map((r) => (
+                <button
+                  key={r.rotulo}
+                  onClick={() => setRecorte(r.valor)}
+                  aria-pressed={recorte === r.valor}
+                  className={`text-xs rounded border px-2 py-1 ${
+                    recorte === r.valor
+                      ? "border-acento bg-acento-suave text-acento font-medium"
+                      : "border-borda hover:bg-acento-suave"
+                  }`}
+                >
+                  {r.rotulo}
+                </button>
+              ))}
+            </div>
+          </div>
           {execs.carregando && <Carregando oque="execuções" />}
           {execs.erro && <Erro mensagem={execs.erro} />}
           {execs.dados && execs.dados.dados.length === 0 && (
             <Vazio
-              titulo="Nenhuma execução ainda"
-              dica="Dispare a primeira carga ao lado."
+              titulo={recorte ? "Nenhuma execução neste recorte" : "Nenhuma execução ainda"}
+              dica={recorte
+                ? "Troque o filtro acima — no recorte de problemas, vazio é boa notícia."
+                : "Dispare a primeira carga ao lado."}
             />
           )}
           {execs.dados && execs.dados.dados.length > 0 && (

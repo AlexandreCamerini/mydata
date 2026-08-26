@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { api } from "./api";
 import { Gestao } from "./telas/Gestao";
 import { Classes } from "./telas/Classes";
 import { Fontes } from "./telas/Fontes";
@@ -78,8 +79,35 @@ function telaAtual(): string {
   return TELAS.some((t) => t.id === id) ? id : "classes";
 }
 
+/** O semáforo na navegação: um ponto em "Gestão" quando há alerta ativo.
+ *
+ * O alarme mais barato é o que aparece onde a pessoa já está. Sem isto, quem
+ * trabalha em Mapeamentos só descobre uma falha quando resolve abrir Gestão —
+ * e a auditoria mediu que ninguém abre por acaso. Sondagem de minuto em
+ * minuto: estado operacional muda em minutos, não em segundos.
+ */
+function useSituacao(): "ok" | "atencao" | "critico" | null {
+  const [situacao, setSituacao] = useState<"ok" | "atencao" | "critico" | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    const sondar = () =>
+      api
+        .alertas()
+        .then((r) => vivo && setSituacao(r.dados.resumo.situacao))
+        .catch(() => vivo && setSituacao(null));
+    sondar();
+    const id = window.setInterval(sondar, 60_000);
+    return () => {
+      vivo = false;
+      window.clearInterval(id);
+    };
+  }, []);
+  return situacao;
+}
+
 export function App() {
   const [rota, setRota] = useState(telaAtual);
+  const situacao = useSituacao();
   // No celular as 4 categorias empilhadas passavam de 700px de navegação
   // antes do conteúdo — a partir de `md:` a navegação sempre aparece
   // inteira; abaixo disso, fica atrás de um botão.
@@ -160,6 +188,17 @@ export function App() {
                           }`}
                         >
                           {t.titulo}
+                          {t.id === "gestao" && situacao && situacao !== "ok" && (
+                            <span
+                              aria-label={situacao === "critico"
+                                ? "há alertas críticos"
+                                : "há pontos de atenção"}
+                              role="img"
+                              className={`inline-block w-2 h-2 rounded-full ml-1.5 align-middle ${
+                                situacao === "critico" ? "bg-erro" : "bg-alerta"
+                              }`}
+                            />
+                          )}
                         </a>
                       </li>
                     ))}

@@ -90,6 +90,8 @@ export const api = {
       `/admin/api/carga${dataset ? `?dataset=${dataset}` : ""}`,
     ),
   gestao: () => pedir<Resposta<Gestao>>("/admin/api/gestao"),
+  alertas: () => pedir<Resposta<EstadoAlertas>>("/admin/api/alertas"),
+  agendamentos: () => pedir<Resposta<Agendamento[]>>("/admin/api/agendamentos"),
   fases: (execucao: number) =>
     pedir<Resposta<Fase[]>>(`/admin/api/execucoes/${execucao}/fases`),
 
@@ -156,10 +158,15 @@ export const api = {
       body: JSON.stringify(corpo),
     }),
 
-  execucoes: (dataset?: string) =>
-    pedir<Resposta<Execucao[]>>(
-      `/admin/api/execucoes${dataset ? `?dataset=${dataset}` : ""}`,
-    ),
+  execucoes: (dataset?: string, status?: string) => {
+    const p = new URLSearchParams();
+    if (dataset) p.set("dataset", dataset);
+    if (status) p.set("status", status);
+    const qs = p.toString();
+    return pedir<Resposta<Execucao[]>>(
+      `/admin/api/execucoes${qs ? `?${qs}` : ""}`,
+    );
+  },
   disparar: (dataset_chave: string, janela: string, baixar: boolean) =>
     pedir<Resposta<ResultadoExecucao>>("/admin/api/execucoes", {
       method: "POST",
@@ -758,4 +765,34 @@ export type Gestao = {
   }[];
   correlacoes: { chave: string; origem: string; destino: string }[];
   fora_do_sla: string[];
+};
+
+/** Um alerta acionável de `/admin/api/alertas` — sempre com a porta de
+ *  saída: a rota da tela onde se age. */
+export type Alerta = {
+  tipo: string;
+  severidade: "critico" | "atencao";
+  titulo: string;
+  detalhe: string;
+  acao: { rotulo: string; rota: string };
+};
+
+export type EstadoAlertas = {
+  alertas: Alerta[];
+  /** O semáforo: `ok` sem alerta, `atencao` só com atenção, `critico`
+   *  quando qualquer um é crítico. */
+  resumo: { critico: number; atencao: number; situacao: "ok" | "atencao" | "critico" };
+};
+
+/** Um agendamento com o próximo disparo já resolvido do cron, no fuso
+ *  declarado — `/admin/api/agendamentos`. */
+export type Agendamento = {
+  chave: string;
+  dataset_chave: string;
+  cron: string;
+  timezone: string | null;
+  ativo: boolean;
+  proxima: string | null;
+  ultima_situacao: string | null;
+  ultima_em: string | null;
 };

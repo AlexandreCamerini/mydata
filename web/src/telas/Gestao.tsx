@@ -13,9 +13,158 @@
 import { useState } from "react";
 import { Botao, Carregando, Erro, Selo, Tabela, Vazio, useDados } from "../ui";
 import { SaudeClasse, bytes } from "../objetos";
-import { api, type Correlacao } from "../api";
+import { api, type Agendamento, type Alerta, type Correlacao } from "../api";
 
 const fmt = new Intl.NumberFormat("pt-BR");
+
+/** "hoje 23:59", "amanhã 06:00", senão "26/08 23:59" — a agenda é para bater
+ * o olho, e data completa em toda linha esconde justamente a mais próxima. */
+function quando(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const hora = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const hoje = new Date();
+  const amanha = new Date(hoje);
+  amanha.setDate(hoje.getDate() + 1);
+  const mesmoDia = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+  if (mesmoDia(d, hoje)) return `hoje ${hora}`;
+  if (mesmoDia(d, amanha)) return `amanhã ${hora}`;
+  return `${d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} ${hora}`;
+}
+
+/** O semáforo e a lista do que precisa de intervenção — o primeiro bloco da
+ * tela, porque é a primeira pergunta: "tem algo que eu precise fazer?".
+ *
+ * Antes, falha ficava enterrada numa lista de 50 execuções e SLA vencido era
+ * uma frase num banner. O alerta traz a ação junto (a rota da tela onde se
+ * age): alarme sem porta de saída é só ansiedade com timestamp. */
+function Semaforo() {
+  const { dados, erro, carregando } = useDados(() => api.alertas(), []);
+  if (carregando && !dados) return <Carregando oque="alertas" />;
+  if (erro) return <Erro mensagem={erro} />;
+  if (!dados) return null;
+
+  const { alertas, resumo } = dados.dados;
+  const cor = {
+    ok: "border-ok bg-ok-suave text-ok",
+    atencao: "border-alerta bg-alerta-suave text-alerta",
+    critico: "border-erro bg-erro-suave text-erro",
+  }[resumo.situacao];
+  const frase = {
+    ok: "Tudo em dia",
+    atencao: `${resumo.atencao} ponto${resumo.atencao > 1 ? "s" : ""} de atenção`,
+    critico: `${resumo.critico} alerta${resumo.critico > 1 ? "s" : ""} crítico${resumo.critico > 1 ? "s" : ""}`,
+  }[resumo.situacao];
+
+  return (
+    <section aria-labelledby="semaforo" className="grid gap-2">
+      <h2 id="semaforo" className="sr-only">
+        Situação do hub
+      </h2>
+      <p
+        role="status"
+        className={`border rounded px-4 py-3 text-lg font-medium ${cor}`}
+      >
+        {frase}
+        {resumo.situacao === "critico" && resumo.atencao > 0 && (
+          <span className="text-sm font-normal">
+            {" "}
+            · {resumo.atencao} de atenção
+          </span>
+        )}
+        {resumo.situacao === "ok" && (
+          <span className="block text-xs font-normal text-tinta-suave mt-0.5">
+            Nenhuma classe atrasada, nenhuma falha nas últimas 24h, nenhuma
+            credencial ausente.
+          </span>
+        )}
+      </p>
+      {alertas.length > 0 && (
+        <ul className="grid gap-2">
+          {alertas.map((a) => (
+            <ItemAlerta key={`${a.tipo}:${a.titulo}`} a={a} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function ItemAlerta({ a }: { a: Alerta }) {
+  const critico = a.severidade === "critico";
+  return (
+    <li
+      className={`border rounded p-3 grid gap-1 ${
+        critico ? "border-erro bg-erro-suave" : "border-alerta bg-alerta-suave"
+      }`}
+    >
+      <div className="flex items-baseline justify-between gap-3 flex-wrap">
+        <p className={`text-sm font-medium ${critico ? "text-erro" : "text-alerta"}`}>
+          {a.titulo}
+        </p>
+        <a
+          href={a.acao.rota}
+          className={`text-xs underline whitespace-nowrap ${
+            critico ? "text-erro" : "text-alerta"
+          }`}
+        >
+          {a.acao.rotulo} →
+        </a>
+      </div>
+      <p className="text-xs text-tinta-suave">{a.detalhe}</p>
+    </li>
+  );
+}
+
+/** Próximas cargas, já resolvidas do cron para "hoje 23:59".
+ *
+ * `cfg_agendamento` nunca teve tela: o horário do COTAHIST só existia como
+ * `59 23 * * 1-5` no banco, e o operador não tinha como saber o que o sistema
+ * fará em seguida — só o que ele já fez. */
+function ProximasCargas() {
+  const { dados, erro, carregando } = useDados(() => api.agendamentos(), []);
+  if (carregando && !dados) return <Carregando oque="a agenda" />;
+  if (erro) return <Erro mensagem={erro} />;
+  const lista = (dados?.dados ?? []).filter((a) => a.ativo);
+  if (lista.length === 0) return null;
+
+  return (
+    <section aria-labelledby="agenda" className="grid gap-2">
+      <h2 id="agenda" className="font-medium">
+        Próximas cargas
+      </h2>
+      <Tabela
+        legenda="Agendamentos ativos com o próximo disparo esperado"
+        colunas={["Agendamento", "Próxima", "Última rodada"]}
+      >
+        {lista.map((a: Agendamento) => (
+          <tr key={a.chave} className="border-b border-borda last:border-0">
+            <th scope="row" className="text-left px-3 py-1.5">
+              {a.chave}
+              <span className="block text-xs text-tinta-suave font-mono">
+                {a.cron}
+                {a.timezone ? ` · ${a.timezone}` : ""}
+              </span>
+            </th>
+            <td className="px-3 py-1.5 text-sm numero whitespace-nowrap">
+              {quando(a.proxima)}
+            </td>
+            <td className="px-3 py-1.5">
+              {a.ultima_situacao ? (
+                <Selo texto={a.ultima_situacao} />
+              ) : (
+                <span className="text-xs text-tinta-suave">nunca rodou</span>
+              )}
+            </td>
+          </tr>
+        ))}
+      </Tabela>
+    </section>
+  );
+}
 
 export function Gestao() {
   const { dados, erro, carregando } = useDados(() => api.gestao(), []);
@@ -35,16 +184,11 @@ export function Gestao() {
 
   return (
     <div className="grid gap-6">
-      {g.fora_do_sla.length > 0 && (
-        <p
-          role="status"
-          className="border border-borda rounded bg-superficie px-3 py-2 text-sm"
-        >
-          Fora do SLA: <strong>{g.fora_do_sla.join(", ")}</strong>. Uma classe
-          que nunca carregou aparece aqui — é o caso mais fácil de passar
-          despercebido.
-        </p>
-      )}
+      {/* O banner "Fora do SLA" virou alerta do semáforo: mesma informação,
+          agora com severidade, contexto e a ação do lado. */}
+      <Semaforo />
+
+      <ProximasCargas />
 
       <section aria-labelledby="resumo" className="grid gap-2">
         <h2 id="resumo" className="font-medium">
