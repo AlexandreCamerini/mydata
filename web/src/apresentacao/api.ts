@@ -152,6 +152,10 @@ export type Vencimento = {
 export type Cotacao = {
   dt_pregao: string;
   ticker: string;
+  // A API já devolve os quatro — gold_cotacoes (app/seed_fontes.py) seleciona
+  // preco_abertura do COTAHIST (campo PREABE) junto dos outros três. Só
+  // faltava o tipo declarar, que é o que barrava candle OHLC no front.
+  preco_abertura: number | null;
   preco_fechamento: number | null;
   preco_maximo: number | null;
   preco_minimo: number | null;
