@@ -24,12 +24,16 @@ const FAMILIAS: { nome: string; sobre: string; grupos: string[] }[] = [
   },
   {
     nome: "Resultado",
-    sobre: "Receita, custo e lucro do exercício, e o resultado abrangente.",
+    sobre:
+      "Receita, custo e lucro do exercício, e o resultado abrangente — " +
+      "com o trimestre isolado do ITR disponível por conta.",
     grupos: ["DRE", "DRA"],
   },
   {
     nome: "Fluxo de caixa",
-    sobre: "De onde o dinheiro veio e para onde foi, pelos dois métodos.",
+    sobre:
+      "De onde o dinheiro veio e para onde foi, pelos dois métodos — " +
+      "com o trimestre isolado do ITR disponível por conta.",
     grupos: ["DFC_MI", "DFC_MD"],
   },
   {
@@ -108,7 +112,7 @@ function Cartao(props: {
   );
 
   const classe =
-    "border border-borda rounded bg-white p-3 grid gap-1 content-start";
+    "border border-borda rounded bg-superficie p-3 grid gap-1 content-start";
 
   if (!props.href) {
     // Indisponível é borda tracejada, não opacidade: opacidade derruba o
@@ -204,17 +208,6 @@ export function Empresa({ cd_cvm }: { cd_cvm: number }) {
                 detalhe={periodo(f.de, f.ate)}
               />
             ))}
-
-            {r.trimestres && (
-              <Cartao
-                nome="Trimestres isolados"
-                sobre="O ITR publica acumulado no ano; aqui o trimestre já vem separado."
-                href={`#/empresa/${cd_cvm}/demonstracoes/DRE`}
-                medida={`${fmt.format(r.trimestres.linhas)} linhas`}
-                detalhe={periodo(r.trimestres.de, r.trimestres.ate)}
-                estado="derivado"
-              />
-            )}
 
             {r.metricas.length > 0 && (
               <Cartao
