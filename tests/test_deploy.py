@@ -19,11 +19,20 @@ RAIZ = Path(__file__).resolve().parents[1]
 # --------------------------------------------------------------------------
 # Configuração de deploy
 # --------------------------------------------------------------------------
-def test_railway_json_e_valido_e_aponta_para_o_healthcheck():
-    cfg = json.loads((RAIZ / "railway.json").read_text())
-    assert cfg["build"]["builder"] == "DOCKERFILE"
-    assert cfg["deploy"]["healthcheckPath"] == "/health"
-    assert "scripts/entrada.sh" in cfg["deploy"]["startCommand"]
+def _iac() -> str:
+    """A configuração de deploy — `.railway/railway.ts` desde a migração do
+    `railway.json` deprecado (corte da plataforma em 2026-12-01)."""
+    return (RAIZ / ".railway" / "railway.ts").read_text()
+
+
+def test_iac_declara_healthcheck_e_start_dos_dois_servicos():
+    texto = _iac()
+    assert 'healthcheck: "/health"' in texto
+    # Web e cron partilham a mesma imagem e o mesmo ponto de entrada; o papel
+    # vem de PORTAL_PAPEL. Cada serviço declara o start explicitamente —
+    # perder um deles no apply é deploy que sobe sem processo.
+    assert texto.count('start: "sh scripts/entrada.sh"') == 2
+    assert 'service("mydata"' in texto and 'service("mydata-cron"' in texto
 
 
 def test_entrada_migra_antes_de_servir_e_separa_os_papeis():
@@ -41,16 +50,18 @@ def test_entrada_migra_antes_de_servir_e_separa_os_papeis():
     assert "exit 64" in texto
 
 
-def test_imagem_contem_tudo_que_o_startcommand_referencia():
-    """O startCommand aponta para um arquivo; arquivo fora da imagem é deploy
-    que sobe e morre com "cannot open". Aconteceu uma vez."""
-    cfg = json.loads((RAIZ / "railway.json").read_text())
+def test_imagem_contem_tudo_que_o_start_referencia():
+    """O start aponta para um arquivo; arquivo fora da imagem é deploy que
+    sobe e morre com "cannot open". Aconteceu uma vez."""
     dockerfile = (RAIZ / "Dockerfile").read_text()
-    for palavra in cfg["deploy"]["startCommand"].split():
-        if "/" in palavra and not palavra.startswith("-"):
-            assert palavra in dockerfile, (
-                f"o startCommand usa '{palavra}', que o Dockerfile não copia"
-            )
+    comandos = re.findall(r'start: "([^"]+)"', _iac())
+    assert comandos, "nenhum start declarado no .railway/railway.ts"
+    for comando in comandos:
+        for palavra in comando.split():
+            if "/" in palavra and not palavra.startswith("-"):
+                assert palavra in dockerfile, (
+                    f"o start usa '{palavra}', que o Dockerfile não copia"
+                )
 
 
 def test_dockerfile_nao_fixa_porta_e_nao_roda_como_root():

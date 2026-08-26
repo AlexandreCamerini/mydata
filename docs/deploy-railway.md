@@ -25,9 +25,14 @@ integrado está em [contrato-consumidor.md](contrato-consumidor.md).
 
 ## O que já está no repositório
 
-- `railway.json` — builder Docker, healthcheck em `/health`, e o boot roda
-  `python -m app.cli migrar --seed` antes de servir. O seed é idempotente por
-  digest: reaplicar configuração idêntica não cria versão nova.
+- `.railway/railway.ts` — a configuração de deploy como código (IaC), no
+  formato que substituiu o `railway.json` deprecado (corte da plataforma em
+  2026-12-01). Declara os dois serviços (`mydata` e `mydata-cron`), start
+  command, healthcheck em `/health` e política de restart; o boot roda
+  `python -m app.cli migrar --seed` antes de servir, e o seed é idempotente
+  por digest. `railway config plan` mostra o desvio contra a produção sem
+  mudar nada; `railway config apply` aplica. As variáveis aparecem como
+  `preserve()` — o valor mora só no painel, nunca no repositório.
 - `Dockerfile` — build do front e da API na mesma imagem, usuário não-root,
   porta vinda de `$PORT`.
 - `.env.example` — toda variável que o código lê. Há um teste que falha se
