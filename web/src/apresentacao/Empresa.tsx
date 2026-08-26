@@ -150,20 +150,16 @@ export function Empresa({ cd_cvm }: { cd_cvm: number }) {
   const r: ResumoEmpresa = resumo.dados.dados;
 
   // Uma família reúne mais de um grupo da CVM; a contagem é a soma deles, e o
-  // período é a união — mas só dentro do que Demonstracoes.tsx de fato busca.
-  // `/v1/…/resumo` agrupa por grupo, tipo_doc E consolidado (app/api/main.py,
-  // GROUP BY inclui os três) — `r.demonstracoes` mistura DFP com ITR na
-  // mesma lista. A primeira correção só filtrou consolidado e ainda contava
-  // linha de ITR num card que abre uma tela que só busca `tipo: "DFP"`
-  // (Demonstracoes.tsx não tem seletor de tipo — nunca buscou ITR). Uma
-  // família com dado só em ITR continuava prometendo um destino que não
-  // existe. Filtra DFP primeiro; consolidado decide dentro do que sobrar.
+  // período é a união — mas dentro de UM modo só. `/v1/…/resumo` agrupa por
+  // consolidado (app/api/main.py, GROUP BY inclui `consolidado`), então
+  // somar os dois juntos mentia: o card dizia "62 linhas" somando individual
+  // com consolidado, e a tela de demonstrações — que só mostra um modo por
+  // vez — abria no que estava vazio. Consolidado entra quando ele tem linha;
+  // senão cai pra individual, nunca os dois somados.
   const porFamilia = FAMILIAS.map((f) => {
-    const dfp = r.demonstracoes.filter(
-      (d) => f.grupos.includes(d.grupo) && d.tipo_doc === "DFP",
-    );
-    const consolidado = dfp.some((d) => d.consolidado && d.linhas > 0);
-    const linhas = dfp.filter((d) => d.consolidado === consolidado);
+    const todas = r.demonstracoes.filter((d) => f.grupos.includes(d.grupo));
+    const consolidado = todas.some((d) => d.consolidado && d.linhas > 0);
+    const linhas = todas.filter((d) => d.consolidado === consolidado);
     return {
       ...f,
       consolidado,
