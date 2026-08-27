@@ -1048,6 +1048,76 @@ diário — e essa é outra decisão, com o dado de uso na mão.
 
 ---
 
+### ADR-22 — proventos e eventos corporativos entram como classe própria, da mesma API de listadas
+
+**Contexto.** A avaliação de centralização de 26/08/2026
+([contrato-consumidor.md](contrato-consumidor.md)) encontrou o dado que
+ninguém tem: o calendário de proventos — dividendo, JCP, desdobramento,
+bonificação. O BolsIA só conhece o *dividend yield* agregado de um terceiro
+pago (usebolsai.com); o MyData não tem classe nenhuma para o evento em si. E
+o evento importa além do yield: provento no intervalo é exatamente o que
+torna a call americana diferente da europeia — a limitação declarada em
+`app/motor/nucleos.py` e no [ADR-20](#adr-20--o-cadastro-de-instrumentos-entra-como-classe-própria-e-não-substitui-o-cotahist).
+
+**A fonte foi medida antes de ser escolhida** (sondagens de 26/08/2026):
+
+| Candidata | O que a medição mostrou |
+|---|---|
+| Portal de arquivos (`arquivos.b3.com.br`) — o mesmo do cadastro | **Não expõe proventos**: `CashDividends`, `CorporateActions` e variantes respondem 400, com controle positivo — `InstrumentsConsolidated`, na mesma chamada, responde 200 |
+| API de listadas (`sistemaswebb3-listados.b3.com.br`) — a mesma fonte de `b3_listadas` | **Tem tudo.** `GetListedSupplementCompany` com `issuingCompany=PETR` devolve `cashDividends[]` (ISIN, valor, rótulo DIVIDENDO/JCP, data de aprovação, **data-com**, **data de pagamento**), `stockDividends[]` e — decisivo — **`codeCVM: "9512"`** na mesma resposta. `GetListedCashDividends` pagina o histórico completo: 337 registros só de Petrobras |
+
+O `codeCVM` na resposta repete o achado que fechou a questão 1 do §14: a B3
+publica o vínculo com a CVM no próprio registro. A identidade da classe nasce
+em `cd_cvm` sem mapa, sem casamento heurístico e sem terceiro.
+
+**Alternativas.**
+
+| Alternativa | Por que não venceu |
+|---|---|
+| CVM (IPE / fatos relevantes) | O provento está lá dentro de PDF não estruturado — extração, não ingestão. A CVM aberta não publica o calendário como dado |
+| Derivar da DMPL (`fato_conta`) | Dá o total distribuído por exercício, não o evento com data-com e pagamento — que é o que precifica opção e ajusta série |
+| Agregador (brapi/usebolsai) | Terceiro revendendo o que a B3 publica — o motivo de o MyData existir é não pagar essa travessia |
+| **API de listadas da B3, mesma fonte de `b3_listadas`** | Origem oficial, sem autenticação, transporte e parâmetros-em-base64 **já construídos no motor** para a fonte que existe |
+
+**Decisão.** Pedida pelo Alex em 26/08/2026, na sequência da avaliação de
+centralização. Classe própria — `provento_b3` — alimentada pela mesma fonte
+`b3_listadas`, sob os mesmos Termos de Uso da B3 e portanto **o mesmo uso
+pessoal** do [ADR-18](#adr-18--cotahist-entra-sob-uso-pessoal-e-a-classe-é-negociação):
+a restrição é de redistribuição, e vale aqui o que valeu lá.
+
+**Consequências de modelo.**
+
+- **Evento, não saldo.** Identidade candidata: `cd_cvm` + ISIN + tipo do
+  evento + data de aprovação (a data-com pode ser retificada; a aprovação é o
+  fato). A confirmar contra o dado real na construção — retificação de
+  provento existe e precisa aparecer como versão, não como duplicata.
+- **Dinheiro e ações são recortes da mesma classe**, como opção é recorte de
+  `negociacao_b3`: `cashDividends` e `stockDividends` viram vistas, não duas
+  classes.
+- **Correlação declarada com `empresa`** por `cd_cvm` — de graça, pelo
+  `codeCVM` da própria resposta.
+- **A carga itera companhias**, uma chamada por `issuingCompany` das listadas
+  (~350 na B3) — janela por companhia ou por rodada, a decidir na construção
+  com o custo real da paginação na mão.
+
+**Consequências de motor** — quase nada, e é por isso que a fonte venceu:
+
+- Transporte `http_json` com parâmetros em base64 no caminho: **já existe**,
+  é o que `b3_listadas` usa desde a questão 1.
+- Vírgula decimal (`0,47156696`): `decimal_ptbr` **já existe**.
+- Datas `dd/MM/yyyy`: formato a declarar na configuração, não código novo.
+- A resposta do `GetListedSupplementCompany` vem **duplamente codificada**
+  (uma string JSON embrulhando o array). Conferir na construção se o
+  desencapsulamento do transporte atual cobre; se não, é regra declarável de
+  parsing, nunca um `if b3` no motor.
+
+**O que este ADR não decide.** O schema final dos atributos e a política de
+retificação — ambos se decidem na construção, contra o arquivo real, como o
+ADR-20 fez com o cadastro. Este documento fixa fonte, classe, identidade de
+partida e restrição de uso.
+
+---
+
 ## 14. Questões em aberto
 
 1. ~~**Origem do mapa ticker → `cd_cvm`**~~ — **fechada em 06/08/2026**, e o
