@@ -138,7 +138,7 @@ existe para impedir.
 | Volatilidade histórica | cálculo local | **coberta** — `hv21`/`hv63` prontos | consumir pronto |
 | Fundamentos calculados (P/L, ROE, ROIC, EV/EBITDA, CAGR 5a…) | usebolsai.com + brapi (agregadores) | **parcial** — `fato_conta` tem a matéria-prima CVM; conferir quais desses indicadores já estão no catálogo de campos calculados e derivar os que faltarem | trabalho aqui: derivação declarativa, não ingestão nova |
 | Índice Ibovespa (série do `^BVSP`) | Yahoo | **não coberta** — nenhuma classe de índice | ingestão nova; fonte primária B3 |
-| Proventos e eventos corporativos (dividendo, JCP, desdobramento) | ninguém tem — só o DY agregado de terceiro | **decidida** — [ADR-22](arquitetura.md#adr-22--proventos-e-eventos-corporativos-entram-como-classe-própria-da-mesma-api-de-listadas): classe `provento_b3`, mesma API de `b3_listadas`, fonte medida em 26/08/2026 | construir a classe (config + seed), não ingestão exploratória |
+| Proventos e eventos corporativos (dividendo, JCP, desdobramento) | ninguém tem — só o DY agregado de terceiro | **decidida** — [ADR-22](arquitetura.md#adr-22--proventos-e-eventos-corporativos-entram-como-classe-própria-da-mesma-api-de-listadas): classe `provento_b3`, mesma API de `b3_listadas`, fonte medida em 26/08/2026 | **construída em 26/08/2026** — rota de consumo via gold_proventos; falta só a primeira carga de produção |
 | Candle intraday | Yahoo | **fora de escopo por decisão** (Alex, 26/08/2026) — o diário atende: IV, gregas e HV são calculados sobre fechamento | nada a fazer; reabrir só com caso real de timing intradiário, e com o custo da fonte oficial na mesa |
 
 ### Ordem de migração proposta (maior ganho primeiro)

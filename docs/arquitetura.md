@@ -1116,6 +1116,23 @@ retificação — ambos se decidem na construção, contra o arquivo real, como 
 ADR-20 fez com o cadastro. Este documento fixa fonte, classe, identidade de
 partida e restrição de uso.
 
+**O que a construção acrescentou** (26/08/2026, mesma noite):
+
+- **A identidade de partida caiu duas vezes contra o dado real.** A Petrobras
+  aprova duas parcelas de JCP na mesma deliberação — mesmo ISIN, tipo e
+  aprovação, separadas pela data de pagamento — e o Banco do Brasil aprovou
+  **três bonificações no mesmo dia de 1996** (20%, 30% e 50%), separadas só
+  pelo fator. A solução é o atributo `discriminante`: cada recorte declara
+  qual campo separa os irmãos da mesma deliberação (data de pagamento no
+  dinheiro, fator nas ações). Medido: 84 eventos de 4 companhias, zero
+  colisões, zero nulos.
+- **O suplemento carrega história funda**, não só a fatia recente que a
+  sondagem sugeria — as bonificações de 1996 vieram nele. O backfill pelo
+  endpoint paginado pode nunca ser necessário.
+- **Zero código de fonte no motor**, como previsto — as três capacidades
+  novas (iteração declarada por SQL, desencapsular na leitura, herança do
+  pai) são genéricas e declaradas em `cfg_dataset.parametros`.
+
 ---
 
 ## 14. Questões em aberto
