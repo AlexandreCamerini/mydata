@@ -139,7 +139,7 @@ existe para impedir.
 | Fundamentos calculados (P/L, ROE, ROIC, EV/EBITDA, CAGR 5a…) | usebolsai.com + brapi (agregadores) | **parcial** — `fato_conta` tem a matéria-prima CVM; conferir quais desses indicadores já estão no catálogo de campos calculados e derivar os que faltarem | trabalho aqui: derivação declarativa, não ingestão nova |
 | Índice Ibovespa (série do `^BVSP`) | Yahoo | **não coberta** — nenhuma classe de índice | ingestão nova; fonte primária B3 |
 | Proventos e eventos corporativos (dividendo, JCP, desdobramento) | ninguém tem — só o DY agregado de terceiro | **não coberta** | ingestão nova; fonte B3 (proventos) / CVM-IPE (fatos) |
-| Candle intraday | Yahoo | **não coberta** — escopo atual é pregão diário | decisão de escopo pendente do Alex, não dívida |
+| Candle intraday | Yahoo | **fora de escopo por decisão** (Alex, 26/08/2026) — o diário atende: IV, gregas e HV são calculados sobre fechamento | nada a fazer; reabrir só com caso real de timing intradiário, e com o custo da fonte oficial na mesa |
 
 ### Ordem de migração proposta (maior ganho primeiro)
 
