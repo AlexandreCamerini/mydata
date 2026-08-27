@@ -37,7 +37,7 @@ def test_vistas_vem_da_configuracao(sink_cvm):
     nomes = set(publicacao.vistas(sink_cvm))
     assert nomes == {"gold_demonstracoes", "gold_itr_trimestre",
                      "gold_indicadores", "gold_empresa",
-                     "gold_cotacoes", "gold_opcoes"}
+                     "gold_cotacoes", "gold_opcoes", "gold_proventos"}
     repo.salvar_vista(sink_cvm, repo.Vista(
         chave="gold_empresa_sp", classe_chave="empresa",
         corpo="SELECT * FROM dim_empresa WHERE uf = 'SP' "
@@ -49,7 +49,7 @@ def test_vistas_vem_da_configuracao(sink_cvm):
 def test_tabelas_publicaveis_vem_das_classes(sink_cvm):
     assert set(publicacao.tabelas_publicaveis(sink_cvm)) == {
         "fato_conta", "dim_empresa", "fato_indicador", "fato_negociacao",
-        "dim_instrumento",
+        "dim_instrumento", "fato_provento",
     }
 
 

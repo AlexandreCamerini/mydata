@@ -58,9 +58,12 @@ FONTE_B3 = Fonte(
     descricao="Empresas com registro de negociação na B3, com ticker, "
               "segmento de listagem e o código CVM que faz a ligação.",
     tipo_transporte="http_json",
+    # `{endpoint}` vem do dataset: a mesma API serve as companhias
+    # (GetInitialCompanies) e o suplemento com proventos por companhia
+    # (GetListedSupplementCompany, ADR-22) — uma origem, N endpoints.
     url_template=(
         "https://sistemaswebb3-listados.b3.com.br/listedCompaniesProxy/"
-        "CompanyCall/GetInitialCompanies/{parametros}"
+        "CompanyCall/{endpoint}/{parametros}"
     ),
     encoding="utf-8",
 )
@@ -68,6 +71,7 @@ FONTE_B3 = Fonte(
 # A API pagina em 100 e recusa páginas maiores; os parâmetros vão em JSON
 # codificado em base64 dentro do caminho, não em query string.
 PARAMETROS_B3 = {
+    "endpoint": "GetInitialCompanies",
     "modelo": {"language": "pt-br", "pageNumber": "{pagina}", "pageSize": 100},
     "codificacao": "base64_json",
     "paginacao": {"tamanho": 100, "caminho_total_paginas": "page.totalPages"},
@@ -732,8 +736,107 @@ COLUNAS_COTAHIST = [
     Coluna("DISMES@243-245", "num_distribuicao", "texto", ordem=25),
 ]
 
+# --------------------------------------------------------------------------
+# B3 — proventos e eventos corporativos (ADR-22)
+# --------------------------------------------------------------------------
+# A mesma API de listadas que alimenta `b3_listadas` responde, por companhia,
+# o suplemento com três recortes: dividendo/JCP, bonificação/desdobramento e
+# subscrição. O `codeCVM` vem no objeto-pai da resposta, e é por herança
+# declarada (`herdar`) que ele chega a cada evento — a identidade nasce em
+# `cd_cvm` sem mapa e sem terceiro, como no achado da questão 1 do §14.
+#
+# A resposta é por companhia, então a captura itera as listadas: o SQL da
+# iteração é declarado aqui (configuração é dado) e o motor só o executa,
+# como já faz com vista e campo calculado.
+CLASSE_PROVENTO = Classe(
+    chave="provento_b3",
+    nome="Provento e evento corporativo",
+    descricao="O evento que a companhia declarou: dividendo, JCP, "
+              "bonificação, desdobramento. É evento, não saldo — a DMPL "
+              "tem o total do exercício; aqui está o fato com data-com.",
+    tabela="fato_provento",
+    # `discriminante` é o campo que separa eventos-irmãos aprovados na mesma
+    # deliberação — medido contra o dado real, cada recorte tem o seu: a
+    # Petrobras aprova duas parcelas de JCP na mesma reunião, separadas pela
+    # data de pagamento; o Banco do Brasil aprovou TRÊS bonificações no
+    # mesmo dia de 1996 (20%, 30% e 50%), separadas só pelo fator. Cada
+    # dataset declara qual campo preenche o discriminante.
+    chave_identidade=["cd_cvm", "isin", "tipo_evento", "aprovado_em",
+                      "discriminante"],
+    indices=[["cd_cvm"], ["isin"], ["dt_com"]],
+    # Provento novo aparece com dias de antecedência da data-com; uma
+    # fotografia por dia útil folga o suficiente.
+    sla_horas=24 * 4,
+    atributos=[
+        _atr("cd_cvm", "inteiro", obrigatorio=True, ordem=1,
+             descricao="Vem do `codeCVM` do objeto-pai da resposta — a "
+                       "mesma chave que liga `empresa` à CVM."),
+        _atr("ticker_raiz", ordem=2,
+             descricao="A raiz do código de negociação (PETR, VALE), do "
+                       "campo `code` do pai. O papel específico sai do ISIN."),
+        _atr("isin", obrigatorio=True, ordem=3,
+             descricao="Identifica o papel exato (ON, PN) que recebe o "
+                       "evento — é o elo com `negociacao_b3.isin`."),
+        _atr("tipo_evento", obrigatorio=True, ordem=4,
+             descricao="Como a B3 rotula: DIVIDENDO, JRS CAP PROPRIO, "
+                       "BONIFICACAO, DESDOBRAMENTO…"),
+        _atr("aprovado_em", "data", obrigatorio=True, ordem=5,
+             descricao="A deliberação. É o fato jurídico, e por isso está "
+                       "na identidade — data-com pode ser retificada."),
+        _atr("dt_com", "data", ordem=6,
+             descricao="Último dia com direito (lastDatePrior). O pregão "
+                       "seguinte negocia ex — é a data que precifica opção."),
+        _atr("dt_pagamento", "data", ordem=7,
+             descricao="Quando o dinheiro sai. Vazia em evento sem "
+                       "pagamento (bonificação, desdobramento)."),
+        _atr("discriminante", obrigatorio=True, ordem=8,
+             descricao="O que separa eventos-irmãos da mesma deliberação: a "
+                       "data de pagamento no recorte em dinheiro, o fator no "
+                       "recorte em ações. Ver o comentário da classe."),
+        _atr("valor", "numero", guarda_texto=True, ordem=9,
+             descricao="R$ por ação, no recorte em dinheiro. A B3 publica "
+                       "com vírgula decimal; o original fica em valor_txt."),
+        _atr("relativo_a", ordem=10,
+             descricao="O exercício a que o evento se refere (Anual/2026)."),
+        _atr("fator", "numero", guarda_texto=True, ordem=11,
+             descricao="A proporção do evento em ações: 5,00 numa "
+                       "bonificação de 5%."),
+        _atr("observacao", ordem=12),
+    ],
+)
+
+# O que os dois recortes têm em comum. O `discriminante` fica de fora:
+# cada recorte declara qual campo o preenche (data de pagamento no dinheiro,
+# fator nas ações) — `vazio:-` porque chave nula não deduplica.
+_COLUNAS_PROVENTO_COMUNS = [
+    Coluna("cd_cvm", "cd_cvm", "inteiro", obrigatoria=True, ordem=1),
+    Coluna("raiz", "ticker_raiz", "texto", ordem=2),
+    Coluna("isinCode", "isin", "texto", obrigatoria=True, ordem=3),
+    Coluna("label", "tipo_evento", "texto", obrigatoria=True, ordem=4),
+    Coluna("approvedOn", "aprovado_em", "data", obrigatoria=True, ordem=5),
+    Coluna("lastDatePrior", "dt_com", "data", ordem=6),
+    Coluna("paymentDate", "dt_pagamento", "data", ordem=7),
+    Coluna("remarks", "observacao", "texto", ordem=12),
+]
+
+# Os parâmetros que os dois recortes compartilham: mesmo endpoint, mesma
+# iteração; muda só o array extraído (`caminho_registros`).
+def _parametros_provento(caminho_registros: str) -> dict:
+    return {
+        "endpoint": "GetListedSupplementCompany",
+        "modelo": {"issuingCompany": "{item}", "language": "pt-br"},
+        "codificacao": "base64_json",
+        "caminho_registros": caminho_registros,
+        "herdar": {"cd_cvm": "codeCVM", "raiz": "code"},
+        "iteracao": {
+            "sql": "SELECT DISTINCT ticker FROM dim_empresa "
+                   "WHERE listada_b3 AND ticker IS NOT NULL ORDER BY ticker",
+        },
+    }
+
+
 CLASSES = [CLASSE_DEMONSTRACAO, CLASSE_EMPRESA, CLASSE_INDICADOR,
-           CLASSE_NEGOCIACAO, CLASSE_INSTRUMENTO]
+           CLASSE_NEGOCIACAO, CLASSE_INSTRUMENTO, CLASSE_PROVENTO]
 
 # --------------------------------------------------------------------------
 # Vistas de gold — o contrato que o consumidor lê
@@ -865,6 +968,22 @@ VISTAS = [
         WHERE n.tp_mercado IN ('070', '080')
           AND n.publicado_em_versao IS NOT NULL
           AND n.publicado_em_versao <= {V}
+    """,
+    ),
+    Vista(
+        chave="gold_proventos",
+        classe_chave="provento_b3",
+        descricao="Todo evento declarado — dinheiro e ações na mesma vista, "
+                  "distinguidos por tipo_evento. Dinheiro tem valor e data "
+                  "de pagamento; bonificação tem fator; nulo no que não se "
+                  "aplica é fato, não falha.",
+        ordem=6,
+        corpo="""
+        SELECT cd_cvm, ticker_raiz, isin, tipo_evento, aprovado_em, dt_com,
+               dt_pagamento, valor, relativo_a, fator, observacao,
+               captura_id, fonte_arquivo, publicado_em_versao
+        FROM fato_provento
+        WHERE publicado_em_versao IS NOT NULL AND publicado_em_versao <= {V}
     """,
     ),
     # `gold_empresa` não está aqui: a classe `empresa` resolve por precedência
@@ -1283,6 +1402,79 @@ def datasets() -> list[Dataset]:
             )
             for chave, codigo, nome, descricao, unidade in SERIES_BCB
         ],
+        # Proventos (ADR-22): dois recortes da mesma resposta, um dataset
+        # cada — como DFP e ITR alimentam fato_conta. `origem_dataset` na
+        # identidade física deixa os dois coexistirem.
+        Dataset(
+            chave="b3_proventos_dinheiro",
+            fonte_chave="b3",
+            nome="Proventos em dinheiro (dividendo e JCP)",
+            descricao="O evento em dinheiro que a companhia declarou, com "
+                      "valor por ação, data-com e data de pagamento — o que "
+                      "precifica opção e explica salto de série.",
+            padrao_arquivo=r"^b3_proventos_dinheiro\.json$",
+            tabela_destino="fato_provento",
+            classe_chave="provento_b3",
+            chave_natural=["cd_cvm", "isin", "tipo_evento", "aprovado_em",
+                           "discriminante"],
+            parametros=_parametros_provento("cashDividends"),
+            colunas=[
+                *_COLUNAS_PROVENTO_COMUNS,
+                Coluna("paymentDate", "discriminante", "texto", "vazio:-",
+                       ordem=8),
+                Coluna("rate", "valor", "numero", "decimal_ptbr",
+                       obrigatoria=True, ordem=9),
+                Coluna("relatedTo", "relativo_a", "texto", ordem=10),
+            ],
+            calculados=[],
+            regras=[
+                RegraQualidade(
+                    nome="provento_sem_valor",
+                    expressao_sql=(
+                        "SELECT 1 FROM fato_provento WHERE valor IS NULL "
+                        "AND valor_txt IS NOT NULL AND valor_txt <> ''"
+                    ),
+                    severidade="bloqueia",
+                    descricao="Texto presente e número nulo: a B3 mudou o "
+                              "formato do valor e a conversão silenciou.",
+                ),
+            ],
+        ),
+        Dataset(
+            chave="b3_proventos_acoes",
+            fonte_chave="b3",
+            nome="Eventos em ações (bonificação e desdobramento)",
+            descricao="O evento que muda a quantidade de ações — é o que "
+                      "ajusta strike e faz a série histórica saltar sem que "
+                      "nada tenha acontecido com o negócio.",
+            padrao_arquivo=r"^b3_proventos_acoes\.json$",
+            tabela_destino="fato_provento",
+            classe_chave="provento_b3",
+            chave_natural=["cd_cvm", "isin", "tipo_evento", "aprovado_em",
+                           "discriminante"],
+            parametros=_parametros_provento("stockDividends"),
+            colunas=[
+                *_COLUNAS_PROVENTO_COMUNS,
+                # O fator é o que separa as três bonificações de 1996 do
+                # Banco do Brasil, aprovadas no mesmo dia. Medido, não suposto.
+                Coluna("factor", "discriminante", "texto", "vazio:-", ordem=8),
+                Coluna("factor", "fator", "numero", "decimal_ptbr",
+                       obrigatoria=True, ordem=11),
+            ],
+            calculados=[],
+            regras=[
+                RegraQualidade(
+                    nome="evento_sem_fator",
+                    expressao_sql=(
+                        "SELECT 1 FROM fato_provento WHERE fator IS NULL "
+                        "AND fator_txt IS NOT NULL AND fator_txt <> ''"
+                    ),
+                    severidade="bloqueia",
+                    descricao="Texto presente e número nulo: a B3 mudou o "
+                              "formato do fator e a conversão silenciou.",
+                ),
+            ],
+        ),
     ]
 
 
@@ -1391,6 +1583,11 @@ AGENDAMENTOS = [
     # a cadeia, e chegar depois dela deixaria a noite inteira com a
     # negociação publicada e o estilo de exercício ausente.
     ("b3_instrumentos_diario", "b3_instrumentos", "30 23 * * 1-5", "hoje"),
+    # Proventos (ADR-22): a captura itera as ~350 listadas, uma chamada por
+    # companhia. De manhã, fora da janela noturna do pregão — anúncio de
+    # provento sai de deliberação de conselho, não do fechamento.
+    ("b3_proventos_dinheiro_diario", "b3_proventos_dinheiro", "0 4 * * 1-5", "hoje"),
+    ("b3_proventos_acoes_diario", "b3_proventos_acoes", "20 4 * * 1-5", "hoje"),
 ]
 
 

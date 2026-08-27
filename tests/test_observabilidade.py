@@ -39,7 +39,7 @@ def carregado(sink_cvm, zip_dfp_2023, csv_cadastro):
 def test_frescor_lista_toda_classe_com_idade_e_situacao(carregado):
     por_classe = {f["classe"]: f for f in obs.frescor(carregado)}
     assert set(por_classe) == {"demonstracao_financeira", "empresa",
-                               "instrumento_b3",
+                               "instrumento_b3", "provento_b3",
                                "indicador_macro", "negociacao_b3"}
     # A fixture carrega CVM e B3; o BCB, o COTAHIST e o cadastro de
     # instrumentos estão configurados e nunca foram ingeridos, e é justamente
@@ -47,6 +47,7 @@ def test_frescor_lista_toda_classe_com_idade_e_situacao(carregado):
     assert por_classe.pop("indicador_macro")["situacao"] == "sem_carga"
     assert por_classe.pop("negociacao_b3")["situacao"] == "sem_carga"
     assert por_classe.pop("instrumento_b3")["situacao"] == "sem_carga"
+    assert por_classe.pop("provento_b3")["situacao"] == "sem_carga"
     for f in por_classe.values():
         assert f["situacao"] == "em_dia"
         assert f["idade_horas"] is not None and f["idade_horas"] < 1
@@ -210,6 +211,7 @@ def test_endpoint_de_frescor(cliente):
     classes = {d["classe"]: d["situacao"] for d in r.json()["dados"]}
     assert classes == {"demonstracao_financeira": "em_dia", "empresa": "em_dia",
                        "instrumento_b3": "sem_carga",
+                       "provento_b3": "sem_carga",
                        "indicador_macro": "sem_carga",
                        "negociacao_b3": "sem_carga"}
 

@@ -23,7 +23,10 @@ CLASSES_ESPERADAS = {"demonstracao_financeira": "fato_conta",
                      "negociacao_b3": "fato_negociacao",
                      # Cadastro, não evento: o COTAHIST publica o pregão de um
                      # instrumento, este publica o instrumento. ADR-20.
-                     "instrumento_b3": "dim_instrumento"}
+                     "instrumento_b3": "dim_instrumento",
+                     # Evento, não saldo: o fato com data-com, não o total do
+                     # exercício que a DMPL já tem. ADR-22.
+                     "provento_b3": "fato_provento"}
 
 
 def test_seed_cadastra_as_classes_da_cvm(sink_cvm):
