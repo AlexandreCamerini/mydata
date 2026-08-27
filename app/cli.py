@@ -223,8 +223,13 @@ def cmd_chave(args) -> int:
     from .api import auth
 
     sink = criar_sink()
-    escopos = (",".join(f"classe:{c}" for c in args.classe)
-               if args.classe else "leitura")
+    # `fonte:b3` é o opt-in que libera os atributos de origem B3 para uma
+    # chave restrita por classe — sem ele, a resposta vem amputada com 200
+    # (auth.pode_ver_fonte). É consentimento explícito por causa da restrição
+    # de redistribuição do ADR-18, não um detalhe de sintaxe.
+    partes = [f"classe:{c}" for c in args.classe]
+    partes += [f"fonte:{f}" for f in args.fonte]
+    escopos = ",".join(partes) if partes else "leitura"
     emitida = auth.emitir(sink, args.consumidor, args.quota_minuto,
                           args.quota_dia, escopos=escopos)
     print(f"consumidor: {emitida.consumidor}")
@@ -359,6 +364,10 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--quota-dia", type=int, default=50000)
     c.add_argument("--classe", action="append", default=[],
                    help="restringe a chave a uma classe (repetível)")
+    c.add_argument("--fonte", action="append", default=[],
+                   help="opt-in de fonte com restrição de uso (ex.: b3) — sem "
+                        "ele, chave restrita por classe recebe a resposta sem "
+                        "os atributos dessa origem (repetível)")
     c.set_defaults(func=cmd_chave)
 
     k = sub.add_parser("chaves", help="lista as chaves de API")

@@ -60,10 +60,18 @@ implica código novo, aqui nem lá.
 
 | Consumidor | Prefixo | Escopo | Quota | Emitida em |
 |---|---|---|---|---|
-| BolsIA (`b3-agente`) | `f00b4554` | `empresa`, `demonstracao_financeira`, `negociacao_b3`, `provento_b3` | 60/min · 2.000/dia | 2026-08-26, **produção** — substitui a `dadbd4b0`; revogar a antiga depois da troca |
-| Portal MCP | `c8125eee` | `empresa`, `demonstracao_financeira`, `negociacao_b3`, `provento_b3` | 120/min · 5.000/dia | 2026-08-26, **produção** — substitui a `ebb05192` (escopo `leitura` total, nascida da tela de Chaves) e a `492d21fa` (revogada em 26/08) |
+| BolsIA (`b3-agente`) | `f00b4554` | `empresa`, `demonstracao_financeira`, `negociacao_b3`, `provento_b3` + `fonte:b3` | 60/min · 2.000/dia | 2026-08-26, **produção** — substitui a `dadbd4b0`; revogar a antiga depois da troca |
+| Portal MCP | `c8125eee` | `empresa`, `demonstracao_financeira`, `negociacao_b3`, `provento_b3` + `fonte:b3` | 120/min · 5.000/dia | 2026-08-26, **produção** — substitui a `ebb05192` (escopo `leitura` total, nascida da tela de Chaves) e a `492d21fa` (revogada em 26/08) |
 | BolsIA (`b3-agente`) | `dadbd4b0` | `empresa`, `demonstracao_financeira` | 60/min · 1.000/dia | 2026-08-04, produção — **a caminho de revogação**: sem `negociacao_b3`, era por ela que candle vinha negado |
 | BolsIA (`b3-agente`) | `2b82882a` | `empresa`, `demonstracao_financeira` | 60/min · 1.000/dia | 2026-08-03, base local — para desenvolvimento |
+
+**`fonte:b3` é opt-in, não decoração.** Chave restrita por classe recebe a
+resposta SEM os atributos de origem B3 — status 200 e campos de preço
+ausentes (`auth.pode_ver_fonte`, consequência da restrição de uso do ADR-18).
+Foi exatamente o sintoma de 26/08 ("não existem candles para WEGE3/VALE3"):
+o dado estava lá, o consentimento não. O CLI ganhou `--fonte b3` para as
+próximas emissões; nas duas chaves acima o escopo foi corrigido no registro,
+sem trocar o segredo.
 
 O prefixo é o que identifica a chave nos logs e o que se usa para revogá-la.
 A chave completa apareceu uma vez, no terminal de quem a emitiu; no banco fica
