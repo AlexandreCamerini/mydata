@@ -162,11 +162,12 @@ def ler_json(
     caminho_registros: str | None = None,
     contexto: dict[str, str] | None = None,
     extras: dict[str, Any] | None = None,
+    herdar: dict[str, str] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Lê registros de uma captura JSON paginada, com o mesmo mapeamento do CSV."""
     from .paginacao import registros_do_bronze
 
-    registros = registros_do_bronze(raw, caminho_registros)
+    registros = registros_do_bronze(raw, caminho_registros, herdar)
     cabecalho = {str(k).strip().upper() for r in registros[:50] for k in r}
     return mapear(iter(registros), colunas, cabecalho, contexto, extras)
 

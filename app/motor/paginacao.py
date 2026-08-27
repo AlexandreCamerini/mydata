@@ -51,15 +51,27 @@ def caminho(dado: Any, expressao: str) -> Any:
     return atual
 
 
-def montar_url(template: str, parametros: dict, pagina: int) -> str:
-    """Resolve o template para uma página específica."""
+def montar_url(template: str, parametros: dict, pagina: int,
+               item: str | None = None) -> str:
+    """Resolve o template para uma página específica.
+
+    `{item}` é o valor da iteração corrente, quando o dataset declara
+    `iteracao` — uma API que responde por companhia, por exemplo, recebe um
+    código por vez ali. Fica no modelo como `{pagina}` fica: placeholder
+    declarado, nunca nome de fonte no motor.
+    """
     modelo = parametros.get("modelo")
     if modelo is None:
         return template.format(pagina=pagina)
 
-    concreto = json.loads(
-        json.dumps(modelo).replace('"{pagina}"', str(pagina)).replace("{pagina}", str(pagina))
+    serializado = (
+        json.dumps(modelo)
+        .replace('"{pagina}"', str(pagina))
+        .replace("{pagina}", str(pagina))
     )
+    if item is not None:
+        serializado = serializado.replace("{item}", str(item))
+    concreto = json.loads(serializado)
     codificacao = parametros.get("codificacao", "base64_json")
     if codificacao == "base64_json":
         valor = base64.b64encode(
@@ -75,11 +87,18 @@ def montar_url(template: str, parametros: dict, pagina: int) -> str:
 def capturar(
     template: str, parametros: dict, baixar: Callable[[str], bytes],
     pausa: float = PAUSA_ENTRE_PAGINAS, limite: int = LIMITE_PAGINAS,
+    itens: list[str] | None = None,
 ) -> bytes:
     """Percorre as páginas e devolve o corpo do bronze.
 
     Devolve `{"paginas": [...]}` serializado: tudo o que a fonte respondeu,
     na ordem, sem fusão.
+
+    `itens` é a iteração declarada: uma fonte que responde por valor — uma
+    companhia por chamada — recebe cada valor em `{item}` do modelo, e todas
+    as respostas entram no mesmo bronze, na ordem dos itens. De onde os
+    valores vêm é decisão de quem chama (a ingestão resolve o SQL declarado
+    em `iteracao`); este módulo só percorre.
     """
     cfg = parametros.get("paginacao") or {}
     caminho_total = cfg.get("caminho_total_paginas")
@@ -96,52 +115,87 @@ def capturar(
     )
 
     paginas: list[Any] = []
-    total = None
-    numero = 1
-    while numero <= limite:
-        corpo = json.loads(baixar(montar_url(template, parametros, numero)))
-        paginas.append(corpo)
+    for item in itens if itens is not None else [None]:
+        total = None
+        numero = 1
+        while numero <= limite:
+            corpo = json.loads(baixar(montar_url(template, parametros, numero, item)))
+            paginas.append(corpo)
 
-        if pagina_unica:
-            break
-
-        if total is None and caminho_total:
-            total = caminho(corpo, caminho_total)
-            if total is None:
-                raise ErroPaginacao(
-                    f"a resposta não traz '{caminho_total}'; sem isso não há "
-                    f"como saber quantas páginas existem"
-                )
-            log.info("fonte paginada: %s páginas a buscar", total)
-
-        if total is not None and numero >= int(total):
-            break
-        if total is None:
-            # Sem contagem declarada, para quando a página vier vazia.
-            registros = caminho(corpo, caminho_registros) if caminho_registros else corpo
-            if not registros:
+            if pagina_unica:
                 break
-        numero += 1
-        if pausa:
+
+            if total is None and caminho_total:
+                total = caminho(corpo, caminho_total)
+                if total is None:
+                    raise ErroPaginacao(
+                        f"a resposta não traz '{caminho_total}'; sem isso não há "
+                        f"como saber quantas páginas existem"
+                    )
+                log.info("fonte paginada: %s páginas a buscar", total)
+
+            if total is not None and numero >= int(total):
+                break
+            if total is None:
+                # Sem contagem declarada, para quando a página vier vazia.
+                registros = caminho(corpo, caminho_registros) if caminho_registros else corpo
+                if not registros:
+                    break
+            numero += 1
+            if pausa:
+                time.sleep(pausa)
+        else:
+            raise ErroPaginacao(
+                f"parei em {limite} páginas sem a fonte indicar o fim"
+            )
+        if pausa and itens is not None:
             time.sleep(pausa)
-    else:
-        raise ErroPaginacao(
-            f"parei em {limite} páginas sem a fonte indicar o fim"
-        )
 
     return json.dumps({"paginas": paginas}, ensure_ascii=False).encode()
 
 
-def registros_do_bronze(payload: bytes, caminho_registros: str | None) -> list[dict]:
+def registros_do_bronze(
+    payload: bytes, caminho_registros: str | None,
+    herdar: dict[str, str] | None = None,
+) -> list[dict]:
     """Extrai os registros das páginas guardadas. É derivação, e por isso
-    acontece na leitura, nunca na captura."""
+    acontece na leitura, nunca na captura.
+
+    Uma página que seja uma *string* JSON é desencapsulada aqui: há API que
+    responde o corpo duplamente codificado — JSON dentro de string JSON — e
+    o bronze guarda o que veio; decidir o que aquilo significa é leitura.
+
+    `herdar` copia campos do objeto-pai para cada registro extraído. Existe
+    para resposta aninhada — um objeto por companhia com a lista de eventos
+    dentro — onde a identidade (o código da companhia) está no pai e o
+    registro é o filho. Declarado como `{destino_no_registro: campo_do_pai}`;
+    o motor não sabe o que os campos significam.
+    """
     corpo = json.loads(payload)
     paginas = corpo.get("paginas", []) if isinstance(corpo, dict) else corpo
     saida: list[dict] = []
     for pagina in paginas:
-        trecho = caminho(pagina, caminho_registros) if caminho_registros else pagina
-        if isinstance(trecho, list):
-            saida.extend(x for x in trecho if isinstance(x, dict))
-        elif isinstance(trecho, dict):
-            saida.append(trecho)
+        if isinstance(pagina, str):
+            try:
+                pagina = json.loads(pagina)
+            except ValueError:
+                continue
+        pais = pagina if isinstance(pagina, list) else [pagina]
+        for pai in pais:
+            if not isinstance(pai, dict):
+                continue
+            trecho = caminho(pai, caminho_registros) if caminho_registros else pai
+            if isinstance(trecho, dict):
+                trecho = [trecho]
+            if not isinstance(trecho, list):
+                continue
+            for registro in trecho:
+                if not isinstance(registro, dict):
+                    continue
+                if herdar:
+                    registro = {
+                        **registro,
+                        **{destino: pai.get(origem) for destino, origem in herdar.items()},
+                    }
+                saida.append(registro)
     return saida

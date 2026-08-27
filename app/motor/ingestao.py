@@ -160,6 +160,7 @@ def carregar_arquivo(
             payload, colunas,
             caminho_registros=_parametros(ds).get("caminho_registros"),
             contexto=contexto, extras=extras,
+            herdar=_parametros(ds).get("herdar"),
         )
     elif fonte.get("formato_registro") == "larguras":
         linhas = parsing.ler_larguras(
@@ -352,8 +353,28 @@ def executar(
                     # A janela expande aqui como expande para arquivo: uma API
                     # de série histórica recorta por ano no próprio endereço, e
                     # sem isso toda janela capturaria a mesma resposta.
+                    #
+                    # `iteracao` é a fonte que responde por valor — uma
+                    # companhia por chamada. O SQL vem declarado no dataset,
+                    # como vista e campo calculado já declaram os seus: o
+                    # motor executa o que a configuração diz, sem saber o que
+                    # os valores significam. Resolve-se aqui porque é aqui
+                    # que há banco; `paginacao` só percorre.
                     url = _urls_da_janela(fonte, ds, janela)[0]
-                    payload = paginacao.capturar(url, _parametros(ds), baixar)
+                    itens = None
+                    if (iteracao := _parametros(ds).get("iteracao")):
+                        linhas_it = sink.consultar(iteracao["sql"])
+                        itens = [str(list(ln.values())[0]) for ln in linhas_it
+                                 if list(ln.values())[0] is not None]
+                        if not itens:
+                            raise ErroIngestao(
+                                f"a iteração do dataset '{dataset_chave}' não "
+                                f"devolveu valor nenhum — sem itens não há o "
+                                f"que capturar. O SQL declarado depende de "
+                                f"outra classe já carregada?"
+                            )
+                    payload = paginacao.capturar(url, _parametros(ds), baixar,
+                                                 itens=itens)
                     _, nova = gravar_bronze(
                         sink, dataset_chave, janela,
                         credenciais.censurar(url, fonte["credencial_ref"]),
