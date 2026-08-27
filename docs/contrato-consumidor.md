@@ -60,7 +60,9 @@ implica código novo, aqui nem lá.
 
 | Consumidor | Prefixo | Escopo | Quota | Emitida em |
 |---|---|---|---|---|
-| BolsIA (`b3-agente`) | `dadbd4b0` | `empresa`, `demonstracao_financeira` | 60/min · 1.000/dia | 2026-08-04, **produção** |
+| BolsIA (`b3-agente`) | `f00b4554` | `empresa`, `demonstracao_financeira`, `negociacao_b3`, `provento_b3` | 60/min · 2.000/dia | 2026-08-26, **produção** — substitui a `dadbd4b0`; revogar a antiga depois da troca |
+| Portal MCP | `c8125eee` | `empresa`, `demonstracao_financeira`, `negociacao_b3`, `provento_b3` | 120/min · 5.000/dia | 2026-08-26, **produção** — substitui a `ebb05192` (escopo `leitura` total, nascida da tela de Chaves) e a `492d21fa` (revogada em 26/08) |
+| BolsIA (`b3-agente`) | `dadbd4b0` | `empresa`, `demonstracao_financeira` | 60/min · 1.000/dia | 2026-08-04, produção — **a caminho de revogação**: sem `negociacao_b3`, era por ela que candle vinha negado |
 | BolsIA (`b3-agente`) | `2b82882a` | `empresa`, `demonstracao_financeira` | 60/min · 1.000/dia | 2026-08-03, base local — para desenvolvimento |
 
 O prefixo é o que identifica a chave nos logs e o que se usa para revogá-la.
@@ -112,7 +114,7 @@ no repositório do consumidor.
 | BolsIA (`b3-agente`) | emitir a chave contra o Postgres de produção | aberta — a local já existe; ver acima |
 | BolsIA (`b3-agente`) | classe de opções | **entregue** — a classe é `negociacao_b3`, não `opcoes_b3`; ver abaixo |
 | BolsIA (`b3-agente`) | implementar `mydata_client.py` e desligar Yahoo/brapi/COTAHIST paralelo | **aberta** — ver "Avaliação de centralização" abaixo; a migração é do lado de lá |
-| BolsIA (`b3-agente`) | ampliar escopo da chave para `negociacao_b3` | aberta — a cadeia de opções está pronta aqui desde 04/08 e a chave dele ainda não a lê |
+| BolsIA (`b3-agente`) | ampliar escopo da chave para `negociacao_b3` | **resolvida em 26/08/2026** — chave `f00b4554` emitida com `negociacao_b3` e `provento_b3`; falta o lado de lá adotá-la e a `dadbd4b0` ser revogada |
 
 ## Avaliação de centralização — 2026-08-26
 

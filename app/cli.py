@@ -236,6 +236,74 @@ def cmd_chave(args) -> int:
     return 0
 
 
+def cmd_chaves(args) -> int:
+    """Lista as chaves de API. Nunca o segredo — ele não está no banco.
+
+    Só o hash é guardado, então esta listagem responde "quais existem", nunca
+    "qual é". A consequência prática merece ser dita em voz alta: uma chave
+    cujo segredo se perdeu não pode ser recuperada nem conferida — só revogada.
+
+    A coluna de escopo separa AMPLA de restrita porque a diferença decide o que
+    a chave enxerga: `leitura` recebe os atributos de origem B3, uma chave
+    restrita por classe não (ver `auth.pode_ver_fonte`), e a resposta vem
+    amputada com status 200.
+    """
+    sink = criar_sink()
+    try:
+        onde, params = ["1=1"], []
+        if args.consumidor:
+            onde.append("consumidor = ?")
+            params.append(args.consumidor)
+        if not args.todas:
+            onde.append("revogada_em IS NULL")
+
+        linhas = sink.consultar(
+            f"SELECT prefixo, consumidor, escopos, quota_minuto, quota_dia, "
+            f"criada_em, revogada_em FROM cfg_chave_api "
+            f"WHERE {' AND '.join(onde)} ORDER BY criada_em",
+            params,
+        )
+        if not linhas:
+            print("nenhuma chave" + (f" para {args.consumidor}" if args.consumidor else ""))
+            return 0
+
+        for l in linhas:
+            escopos = (l["escopos"] or "").strip()
+            largura = "AMPLA   " if escopos == "leitura" else "restrita"
+            estado = "revogada" if l["revogada_em"] else "ativa   "
+            print(f"{l['prefixo']}  {estado}  {largura}  "
+                  f"{l['consumidor']:<20} {str(l['criada_em'])[:19]}")
+            print(f"{'':10}escopos: {escopos}")
+            print(f"{'':10}quota:   {l['quota_minuto']}/min · {l['quota_dia']}/dia")
+        print()
+        print(f"{len(linhas)} chave(s). O segredo não fica no banco: chave sem "
+              f"segredo em mãos é para revogar, não reaproveitar.")
+        return 0
+    finally:
+        sink.fechar()
+
+
+def cmd_revogar(args) -> int:
+    """Revoga uma chave pelo prefixo. Sem volta: não existe des-revogar.
+
+    O prefixo é o identificador público — é o que aparece nos logs e o que o
+    consumidor pode citar sem entregar o segredo. O segredo não é aceito aqui
+    de propósito: pedir a chave inteira para desligá-la obrigaria a tê-la em
+    mãos, e a chave que mais precisa ser revogada é justamente a que se perdeu.
+    """
+    from .api import auth
+
+    sink = criar_sink()
+    try:
+        if not auth.revogar(sink, args.prefixo):
+            print(f"nada a revogar: {args.prefixo} não existe ou já está revogada.")
+            return 1
+        print(f"revogada: {args.prefixo}")
+        return 0
+    finally:
+        sink.fechar()
+
+
 def cmd_status(args) -> int:
     sink = criar_sink()
     print(f"publicação em gold: v{publicacao.versao_atual(sink)}")
@@ -292,6 +360,16 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--classe", action="append", default=[],
                    help="restringe a chave a uma classe (repetível)")
     c.set_defaults(func=cmd_chave)
+
+    k = sub.add_parser("chaves", help="lista as chaves de API")
+    k.add_argument("--consumidor", help="filtra por consumidor")
+    k.add_argument("--todas", action="store_true",
+                   help="inclui as já revogadas")
+    k.set_defaults(func=cmd_chaves)
+
+    rv = sub.add_parser("revogar", help="revoga uma chave de API pelo prefixo")
+    rv.add_argument("prefixo", help="o identificador público da chave")
+    rv.set_defaults(func=cmd_revogar)
 
     s = sub.add_parser("status", help="mostra publicação e últimas execuções")
     s.add_argument("--limite", type=int, default=10)
