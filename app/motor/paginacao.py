@@ -119,7 +119,25 @@ def capturar(
         total = None
         numero = 1
         while numero <= limite:
-            corpo = json.loads(baixar(montar_url(template, parametros, numero, item)))
+            cru = baixar(montar_url(template, parametros, numero, item))
+            try:
+                corpo = json.loads(cru)
+            except ValueError:
+                # Resposta vazia ou não-JSON. Sem paginação declarada não há
+                # estrutura a ler dela: entra no bronze como veio — texto cru,
+                # que a leitura vai pular — e a captura segue para o próximo
+                # item. Uma companhia sem resposta não derruba as outras 349.
+                # Com paginação declarada é diferente: sem JSON não há como
+                # contar páginas, e falhar alto é o único desfecho honesto.
+                if not pagina_unica:
+                    raise ErroPaginacao(
+                        f"resposta não-JSON de fonte paginada"
+                        + (f" (item {item})" if item is not None else "")
+                    ) from None
+                log.warning("resposta não-JSON%s: %d bytes; guardada crua",
+                            f" para o item {item}" if item is not None else "",
+                            len(cru))
+                corpo = cru.decode("utf-8", errors="replace")
             paginas.append(corpo)
 
             if pagina_unica:

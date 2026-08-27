@@ -144,6 +144,49 @@ def test_leitura_desencapsula_e_herda_do_pai():
     assert registros[0]["label"] == "JRS CAP PROPRIO"
 
 
+def test_companhia_sem_resposta_nao_derruba_as_outras():
+    """Descoberto na primeira carga real: das ~350 listadas, alguma responde
+    corpo vazio ou não-JSON — e a captura inteira morria por causa de uma.
+    Sem paginação declarada, a resposta entra crua no bronze e a leitura a
+    pula; as outras companhias seguem."""
+    def _baixar(url, cabecalhos=None):
+        pedido = json.loads(base64.b64decode(url.rsplit("/", 1)[-1]))
+        alvo = pedido["issuingCompany"]
+        if alvo == "MORT":
+            return b""
+        if alvo == "HTML":
+            return b"<html>erro 500 da fonte</html>"
+        corpo = SUPLEMENTOS.get(alvo, [])
+        return json.dumps(json.dumps(corpo, ensure_ascii=False)).encode()
+
+    payload = paginacao.capturar(
+        "https://x/GetListedSupplementCompany/{parametros}",
+        {"modelo": {"issuingCompany": "{item}"}},
+        _baixar, pausa=0, itens=["PETR", "MORT", "HTML", "BBAS"],
+    )
+    assert len(json.loads(payload)["paginas"]) == 4, "tudo guardado, como veio"
+    registros = paginacao.registros_do_bronze(
+        payload, "cashDividends", herdar={"cd_cvm": "codeCVM"},
+    )
+    # PETR tem 2, BBAS tem 1; as páginas mortas foram puladas na leitura.
+    assert len(registros) == 3
+
+
+def test_fonte_paginada_com_resposta_nao_json_falha_alto():
+    """Com paginação declarada não há tolerância: sem JSON não dá para contar
+    páginas, e adivinhar seria pior que parar."""
+    def _baixar(url, cabecalhos=None):
+        return b"<html>erro</html>"
+
+    with pytest.raises(paginacao.ErroPaginacao, match="não-JSON"):
+        paginacao.capturar(
+            "https://x/{parametros}",
+            {"modelo": {"pageNumber": "{pagina}"},
+             "paginacao": {"caminho_total_paginas": "page.totalPages"}},
+            _baixar, pausa=0,
+        )
+
+
 # --------------------------------------------------------------------------
 # O ciclo inteiro
 # --------------------------------------------------------------------------
