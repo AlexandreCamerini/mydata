@@ -79,6 +79,26 @@ def test_sair_fecha_as_duas(cliente_com_token):
     assert cliente_com_token.get("/admin/api/gestao").status_code == 401
 
 
+def test_observabilidade_cumpre_o_contrato_do_adr_23(cliente_com_token):
+    """`{situacao, alertas, ultimas_execucoes, proximas}` — o formato que o
+    console unificado consome de cada sistema, e que o ADR-23 afirma que o
+    MyData cumpre. Este teste é a afirmação virando cobrança."""
+    r = cliente_com_token.get(
+        "/admin/api/observabilidade", headers={"X-Admin-Token": TOKEN}
+    )
+    assert r.status_code == 200
+    dados = r.json()["dados"]
+    assert set(dados) == {"situacao", "alertas", "ultimas_execucoes",
+                          "proximas"}
+    assert dados["situacao"] in ("ok", "atencao", "critico")
+
+    # O semáforo é o mesmo que /alertas pinta — uma verdade, duas rotas.
+    alertas = cliente_com_token.get(
+        "/admin/api/alertas", headers={"X-Admin-Token": TOKEN}
+    ).json()["dados"]
+    assert dados["situacao"] == alertas["resumo"]["situacao"]
+
+
 def test_token_errado_nao_abre_nada(cliente_com_token):
     r = cliente_com_token.post(
         "/entrar", data={"token": "chute"}, follow_redirects=False

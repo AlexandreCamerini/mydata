@@ -419,6 +419,17 @@ Três bloqueios objetivos, não prudência genérica: a Fase 1 trava nos
 repositório do BolsIA (proibido daqui); e mudança de domínio em produção é
 o que o próprio prompt manda trazer de volta para decisão.
 
+### O único pedaço executável, executado
+
+O contrato de observabilidade do ADR-23 dizia que o MyData "já cumpre com
+rearranjo trivial" — tornei a frase verdadeira: `GET
+/admin/api/observabilidade` responde `{situacao, alertas,
+ultimas_execucoes, proximas}` agregando o que `/alertas`, `/execucoes` e
+`/agendamentos` já davam, com teste cobrando as quatro chaves e a
+coerência do semáforo. É a implementação de referência que o BolsIA e o
+MCP vão espelhar; aditiva e independente dos bloqueios acima. Suíte: 516
+verdes.
+
 ### Precisa de você (manhã de 27/08)
 
 1. **Aprovar ou vetar o ADR-23** — em especial as decisões 1, 4 e 6 acima.

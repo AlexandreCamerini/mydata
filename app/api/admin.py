@@ -734,6 +734,25 @@ async def get_agendamentos(request: Request) -> Any:
     return {"dados": alertas.proximas_execucoes(obter_sink(request))}
 
 
+@router.get("/observabilidade")
+async def get_observabilidade(request: Request) -> Any:
+    """O contrato de observabilidade do ADR-23, cumprido pelo MyData.
+
+    `{situacao, alertas, ultimas_execucoes, proximas}` é o que cada sistema
+    do portfólio publica para o console unificado. Nada aqui é dado novo —
+    é o rearranjo de `/alertas`, `/execucoes` e `/agendamentos` no formato
+    que o console consome, e a prova viva de que o contrato é cumprível.
+    """
+    sink = obter_sink(request)
+    estado = alertas.ativos(sink)
+    return {"dados": {
+        "situacao": estado["resumo"]["situacao"],
+        "alertas": estado["alertas"],
+        "ultimas_execucoes": repo.execucoes(sink, limite=10),
+        "proximas": alertas.proximas_execucoes(sink),
+    }}
+
+
 @router.get("/gestao")
 async def get_gestao(request: Request) -> Any:
     """O hub inteiro numa resposta: o que tem, quanto tem, quem consome,

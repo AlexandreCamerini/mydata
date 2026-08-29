@@ -1216,8 +1216,11 @@ GET <sistema>/observabilidade  (autenticado por chave de máquina)
   "proximas": [...] }           # o que vai rodar, se o sistema agenda
 ```
 
-MyData já cumpre esse contrato com rearranjo trivial; BolsIA e MCP
-publicam o deles (itens de contrato de consumidor).
+O MyData já cumpre esse contrato — `GET /admin/api/observabilidade`
+agrega alertas, últimas execuções e agenda exatamente neste formato, com
+teste cobrando as quatro chaves e a coerência do semáforo
+(`tests/test_sessao_admin.py`). É a implementação de referência para o
+BolsIA e o MCP publicarem a deles (itens de contrato de consumidor).
 
 **Fases, dependências e aceite** (uma por repositório, cada uma em sessão
 do repositório dono):
