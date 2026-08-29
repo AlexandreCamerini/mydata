@@ -601,6 +601,24 @@ MIGRACOES: list[Migracao] = [
                )""",
         ],
     ),
+    Migracao(
+        # Fase 2 do ADR-23: o MyData vira relying party do portal semente.id.
+        # `fluxo_semente_id` guarda o PKCE verifier e o nonce entre o
+        # redirect de ida e a volta do callback — não dá para levar isso no
+        # `state` em si, porque `state` viaja pela URL e o navegador é quem
+        # o expõe. Mesmo padrão de `desafio_webauthn`: uma linha, de uso
+        # único, com prazo curto.
+        nome="0019_semente_id",
+        sql=[
+            """CREATE TABLE IF NOT EXISTS fluxo_semente_id (
+                state         {TEXTO} PRIMARY KEY,
+                code_verifier {TEXTO} NOT NULL,
+                nonce         {TEXTO} NOT NULL,
+                destino       {TEXTO} NOT NULL,
+                criado_em     {TSTZ}  NOT NULL DEFAULT {AGORA}
+            )""",
+        ],
+    ),
 ]
 
 # Tabelas silver que participam do ciclo de publicação. A partir da Etapa 3

@@ -30,7 +30,7 @@ from ..motor import (
     contrato, correlacao, custo, ingestao, observabilidade, publicacao,
 )
 from ..sinks import Sink, criar_sink
-from . import acesso, admin, auth, proveniencia
+from . import acesso, admin, auth, proveniencia, semente_id
 from . import metricas as metricas_cat
 
 RAIZ_WEB = CaminhoDoArquivo(__file__).resolve().parents[2] / "web" / "dist"
@@ -1295,10 +1295,21 @@ PAGINA_ENTRAR = """<!doctype html>
   <h1 style="font-size:1.1rem">MyData</h1>
   <p style="font-size:.9rem;color:#57534e">{convite}</p>
   {erro}
+  {semente_id}
   {passkey}
   {formulario}
 </main>
 </body></html>"""
+
+# Só um link, sem JavaScript: o portal é quem conduz o resto do fluxo. Fica
+# antes do passkey por ser o caminho pensado para o dia a dia (Fase 2 do
+# ADR-23) — token e passkey continuam abaixo, sem sair de cena.
+BLOCO_SEMENTE_ID = """
+<a href="/entrar/semente-id?destino={destino}"
+   style="display:block;text-align:center;text-decoration:none;
+          background:#1c1917;color:#fff;border-radius:4px;
+          padding:.5rem 1rem;margin-bottom:1rem;">Entrar com semente.dev</a>
+"""
 
 # O bloco do passkey. JavaScript à mão, sem empacotador: esta página é servida
 # pelo FastAPI antes de qualquer bundle existir, e é justamente a página que
@@ -1386,6 +1397,9 @@ def _pagina_entrar(sink: Sink, erro: str = "", status: int = 401,
     corpo = PAGINA_ENTRAR.format(
         erro=f'<p class="erro" role="alert">{escape(erro)}</p>' if erro else "",
         convite=convite,
+        semente_id=(BLOCO_SEMENTE_ID.format(
+                        destino=escape(destino, quote=True))
+                    if semente_id.configurado() else ""),
         # `json.dumps` e não aspas à mão: o destino entra num literal de
         # JavaScript, e escapar HTML não escapa JavaScript.
         passkey=(BLOCO_PASSKEY.format(destino_js=json.dumps(destino))
@@ -1473,6 +1487,32 @@ async def acesso_passkey(request: Request):
         ) from e
     return _plantar_sessao(
         JSONResponse({"destino": destino}), request, ident
+    )
+
+
+@app.get("/entrar/semente-id", include_in_schema=False)
+async def entrar_semente_id(request: Request):
+    sink = obter_sink(request)
+    if not semente_id.configurado():
+        return _pagina_entrar(
+            sink, "O login pelo semente.id não está configurado aqui.")
+    destino = destino_local(request.query_params.get("destino", "/"))
+    url = semente_id.iniciar_login(sink, destino)
+    return Response(status_code=302, headers={"Location": url})
+
+
+@app.get("/callback/semente-id", include_in_schema=False)
+async def callback_semente_id(request: Request):
+    sink = obter_sink(request)
+    qp = request.query_params
+    try:
+        _email, destino = semente_id.concluir_login(
+            sink, qp.get("state"), qp.get("code"), qp.get("error"))
+    except semente_id.ErroSementeId as e:
+        return _pagina_entrar(sink, str(e))
+    return _plantar_sessao(
+        Response(status_code=303, headers={"Location": destino}),
+        request, acesso.abrir_sessao(sink, f"semente-id:{_email}"),
     )
 
 
