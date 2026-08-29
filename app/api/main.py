@@ -1381,6 +1381,7 @@ def _pagina_entrar(sink: Sink, erro: str = "", status: int = 401,
                    destino: str = "/") -> Response:
     import json
     from html import escape
+    from urllib.parse import quote as url_quote
 
     destino = destino_local(destino)
     onde = "A administração" if destino.startswith("/admin") else "A apresentação"
@@ -1397,8 +1398,13 @@ def _pagina_entrar(sink: Sink, erro: str = "", status: int = 401,
     corpo = PAGINA_ENTRAR.format(
         erro=f'<p class="erro" role="alert">{escape(erro)}</p>' if erro else "",
         convite=convite,
+        # `destino` vira valor de querystring dentro de um `href`: sem
+        # url-encode, o roteamento por hash (`/admin/#/empresa/123`) faz o
+        # navegador tratar tudo a partir do `#` como fragmento da própria
+        # URL do link, e ele nunca chega ao servidor — o login por
+        # semente.id sempre voltaria para a raiz do admin.
         semente_id=(BLOCO_SEMENTE_ID.format(
-                        destino=escape(destino, quote=True))
+                        destino=escape(url_quote(destino, safe=""), quote=True))
                     if semente_id.configurado() else ""),
         # `json.dumps` e não aspas à mão: o destino entra num literal de
         # JavaScript, e escapar HTML não escapa JavaScript.

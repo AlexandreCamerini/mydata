@@ -5,7 +5,7 @@ MyData de ponta a ponta"), exercitado pela rota real, não só pela função.
 from __future__ import annotations
 
 import time
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import pytest
 from authlib.jose import JsonWebKey, jwt
@@ -106,6 +106,33 @@ def test_erro_do_portal_no_callback_mostra_a_tela_de_entrar(cliente):
     r = cliente.get(f"/callback/semente-id?state={state}&error=access_denied")
     assert r.status_code == 401
     assert "portal_sessao" not in r.cookies
+
+
+def test_destino_com_rota_de_hash_sobrevive_ao_link_do_semente_id(
+    cliente, chave_portal, monkeypatch,
+):
+    # Rota real do admin (roteamento por hash): sem url-encode no `href`,
+    # o navegador cortaria a query no `#` e o servidor nunca veria o que
+    # vem depois — foi exatamente o bug relatado (login pelo semente.id
+    # sempre voltava para a raiz do admin, nunca para a página pedida).
+    destino_completo = "/admin/#/empresa/9512"
+    r = cliente.get(f"/?destino={quote(destino_completo, safe='')}")
+    assert quote(destino_completo, safe="") in r.text
+    assert f'destino={destino_completo}"' not in r.text
+
+    r = cliente.get(
+        f"/entrar/semente-id?destino={quote(destino_completo, safe='')}",
+        follow_redirects=False,
+    )
+    assert r.status_code == 302
+    q = parse_qs(urlparse(r.headers["location"]).query)
+
+    _mock_portal(monkeypatch, chave_portal,
+                 _id_token(chave_portal, nonce=q["nonce"][0]))
+    r = cliente.get(f"/callback/semente-id?state={q['state'][0]}&code=x",
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == destino_completo
 
 
 def test_botao_so_aparece_com_as_variaveis_definidas(cliente, monkeypatch):
