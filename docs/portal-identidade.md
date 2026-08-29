@@ -1,5 +1,13 @@
 # Portal único de identidade — análise e proposta (ADR proposto)
 
+> **Revisado em 26/08/2026 pelo
+> [ADR-23](arquitetura.md#adr-23--o-portfólio-consolida-em-sementedev-um-login-um-console-um-domínio):**
+> o Alex decidiu Apple/Google como provedores federados (com email
+> verificado como chave) e `semente.dev` como domínio de tudo. Deste
+> documento continuam valendo a separação dono×clientes do BolsIA, o
+> emissor próprio (alternativa b), a análise de segurança e as fases por
+> repositório; o que mudou está registrado lá.
+
 **Status: proposto, aguardando decisão do Alex.** Análise de 26/08/2026,
 encomendada como "portal único de login para as 3 aplicações (MCP, b3-agente
 e MyData), melhores práticas, usuário e senha, rodando somente na web".

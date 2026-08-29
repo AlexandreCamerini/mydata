@@ -1135,6 +1135,126 @@ partida e restrição de uso.
 
 ---
 
+### ADR-23 — o portfólio consolida em semente.dev: um login, um console, um domínio
+
+**Status: proposto — escrito na madrugada de 26→27/08/2026 sob autorização
+de execução noturna do Alex, para decisão dele pela manhã.** As decisões
+desta noite estão marcadas como tais; nenhuma é irreversível e nenhuma
+tocou produção.
+
+**Contexto.** Pedido do Alex em 26/08, verbatim no essencial: concentrar
+todos os apps em `semente.dev`; centralizar administração e observabilidade
+inclusive para o MCP e o BolsIA; centralizar a gestão de logins para todas
+as aplicações; e usar "a mesma solução do BolsIA", com **o email dos logins
+pela Apple e Google como chave principal de todos**.
+
+Este ADR **revisa** dois documentos no que eles decidiram diferente:
+
+- O [ADR-19](#adr-19--passkey-entra-ao-lado-do-token-não-no-lugar) rejeitou
+  OIDC de terceiro porque "o dono passa a depender de terceiro para
+  entrar". O Alex agora escolhe Apple/Google de olhos abertos — e a
+  objeção do ADR-19 não é anulada, é **coberta por desenho**: todo sistema
+  mantém o caminho de emergência local (`PORTAL_ACESSO_LEGADO=1` no
+  MyData e equivalente nos demais), o dono vincula **os dois** provedores à
+  mesma conta, e o passkey do MyData permanece. Terceiro no caminho
+  normal, nunca no único caminho.
+- [portal-identidade.md](portal-identidade.md) propunha passkey-first com
+  emissor próprio sem provedor externo. Fica valendo dele: o portal
+  próprio como emissor (alternativa b de lá), a separação dono×clientes do
+  BolsIA, a análise de segurança e o fato de SSO exigir OIDC por
+  redirecionamento. Muda: os provedores de entrada (Apple/Google
+  federados) e o domínio (`semente.dev` para tudo).
+
+**O que a medição já tinha estabelecido** (26/08, contra código real):
+o BolsIA valida ID token OIDC de Apple/Google e unifica identidades pelo
+**email verificado pelo provedor** (`server/app/auth.py:317-365` de lá) —
+essa verificação é parte inseparável da "solução do BolsIA": email como
+chave sem verificação é sequestro de conta trivial. O MCP não tem login
+humano (chave de máquina, resolvida em 26/08). O serviço `mydata` no
+Railway já tem `semente.dev` (ápice) como segundo domínio.
+
+**Alternativas.**
+
+| Alternativa | Por que não venceu |
+|---|---|
+| Cada app integra Apple/Google direto (sem portal) | Não é SSO: N configurações de client, N telas, contas não unificadas entre apps — e o console central ficaria sem emissor comum |
+| O BolsIA vira o IdP do portfólio ("mesma solução" ao pé da letra) | Acopla um produto com clientes ao login do dono de tudo; sessão dele é Bearer em `localStorage` (exposição XSS que o plano do dono não deve herdar); mesmo defeito estrutural de "MyData como emissor", rejeitado no portal-identidade.md |
+| IdP gerenciado | As duas regras de uma vez: custo fora do plano e mais um terceiro além de Apple/Google |
+| **Portal próprio que federa Apple/Google** — emissor OIDC nosso, provedores deles | Um lugar registra os clients da Apple/Google; os apps conhecem só o portal; a unificação por email verificado mora num lugar só; e o caminho de emergência continua sendo por app |
+
+**Decisão proposta.** Portal de identidade próprio — repositório novo
+`~/dev/semente-id`, serviço `id.semente.dev` no mesmo projeto Railway —
+que **federa** Apple e Google (Authorization Code + PKCE contra eles, e
+como emissor para os apps), com o email verificado pelo provedor como
+chave de unificação de conta. Contas do plano dono/operador são criadas
+por convite do dono, não por auto-registro — é o que permite senha
+Argon2id como fallback sem serviço de envio de email (a regra de custo
+continua valendo). Passkey permanece como método adicional no MyData.
+
+**Endereços** (decisões desta noite, reversíveis até o primeiro DNS):
+`id.semente.dev` (portal), `mydata.semente.dev` (hub, convivendo com
+`mydata.acamerini.app` até corte decidido pelo Alex), `bolsia.semente.dev`
+(já existe), `admin.semente.dev` (console). O ápice `semente.dev` hoje
+aponta para o serviço `mydata` — o destino final dele é decisão do Alex,
+não desta noite.
+
+**Console único de administração e observabilidade** — decisão desta
+noite: **não nasce serviço novo**. A Fase 3 estende o admin do MyData, que
+já tem o semáforo de alertas, a agenda de cargas e o painel de custo
+construídos em 26/08, para agregar as outras duas origens; ele passa a
+responder também em `admin.semente.dev` (domínio adicional do mesmo
+serviço). Console é agregador por API: **consome o que cada sistema
+publica, nunca banco nem código alheio**. Contrato mínimo de
+observabilidade por sistema, derivado do que o MyData já expõe
+(`/admin/api/alertas`, `/admin/api/gestao`):
+
+```
+GET <sistema>/observabilidade  (autenticado por chave de máquina)
+{ "situacao": "ok|atencao|critico",
+  "alertas": [{"severidade", "titulo", "detalhe", "acao"}],
+  "ultimas_execucoes": [...],   # o que rodou, status, quando
+  "proximas": [...] }           # o que vai rodar, se o sistema agenda
+```
+
+MyData já cumpre esse contrato com rearranjo trivial; BolsIA e MCP
+publicam o deles (itens de contrato de consumidor).
+
+**Fases, dependências e aceite** (uma por repositório, cada uma em sessão
+do repositório dono):
+
+| Fase | Onde | Entrega | Aceite verificável | Depende de |
+|---|---|---|---|---|
+| 1 | repo novo `semente-id` | Emissor OIDC (code+PKCE), federação Apple/Google, unificação por email verificado, contas por convite, senha Argon2id fallback | Fluxo completo em ambiente local com uma RP de teste: login Google → conta unificada → RP recebe identidade. Suíte própria verde | Client IDs da Apple e do Google — **só o Alex cria** (ver "Precisa de você" no RELATORIO-NOITE.md) |
+| 2 | este repo | MyData vira relying party; `/entrar` ganha "entrar com semente.dev"; `mydata.semente.dev` entra como domínio adicional | Login pelo portal abre o admin de ponta a ponta; token, passkey e `PORTAL_ACESSO_LEGADO` intactos; `python -m pytest -q` verde | Fase 1 |
+| 3 | este repo | Admin vira console: seções BolsIA e MCP consumindo o contrato de observabilidade; `admin.semente.dev` | Console mostra situação das três origens; origem fora do ar aparece como indisponível, sem derrubar as demais | Fase 2; contrato publicado pelos outros |
+| 4 | repo do BolsIA (sessão de lá) | `web-admin` como relying party; endpoint de observabilidade | Definido lá; daqui, o item de contrato | Fase 1 |
+
+**Modos de falha, respondidos por desenho** (exigência do prompt):
+
+- **Portal fora do ar** → cada sistema mantém o caminho legado por
+  variável de ambiente; o dono entra direto. Portal indisponível degrada
+  o SSO, nunca tranca o portfólio.
+- **Conta Apple ou Google perdida** → os dois provedores vinculados à
+  mesma conta desde o primeiro dia (a tela de contas do portal cobra
+  isso, como a de passkeys do MyData cobra o segundo autenticador); se
+  ambos caírem, caminho legado por app. Recuperação por email não existe
+  — herdada do ADR-19, e continua certa.
+- **Corte prematuro de `mydata.acamerini.app`** → proibido pelo plano: o
+  endereço antigo responde até os dois consumidores confirmarem a troca
+  (itens no contrato), e o corte é decisão explícita do Alex.
+
+**Custo.** Um serviço novo no total (o portal — FastAPI pequeno, sem JVM,
+dentro do plano). Console reaproveita o serviço `mydata`. Nenhuma
+licença, nenhum SaaS.
+
+**O que este ADR não decide.** O destino do ápice `semente.dev` e de
+`acamerini.app`; o momento do corte do endereço antigo; a migração dos
+**clientes finais** do BolsIA para o portal (segue explicitamente fora,
+como no portal-identidade.md — este ADR unifica o plano dono/operador);
+e o TTL exato das sessões, que se decide na construção da Fase 1.
+
+---
+
 ## 14. Questões em aberto
 
 1. ~~**Origem do mapa ticker → `cd_cvm`**~~ — **fechada em 06/08/2026**, e o

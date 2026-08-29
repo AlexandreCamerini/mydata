@@ -390,3 +390,48 @@ dist/assets/admin-DielUjqU.js          63.32 kB │ gzip: 15.64 kB
 
 Verificação de tela e auditoria `axe` das etapas 4b e 7 ficaram pendentes —
 ver "Precisa de você" nº 2.
+
+## Atualização — madrugada de 26→27/08/2026: consolidação em semente.dev
+
+Você autorizou execução noturna do prompt de consolidação
+(`prompt-consolidacao-semente-otimizado.md`) com decisões por minha conta,
+documentadas. O prompt manda começar pelo desenho, e foi o que rodou: o
+entregável da noite é o **ADR-23** em `docs/arquitetura.md`, as pendências
+novas em `docs/contrato-consumidor.md`, e esta seção. Nenhuma linha de
+código, nenhum DNS, nenhum serviço novo — produção intocada, e a suíte
+segue verde.
+
+### Decisões que tomei (todas reversíveis, nenhuma em produção)
+
+| # | Decisão | Racional em uma linha |
+|---|---|---|
+| 1 | Portal próprio que **federa** Apple/Google, em vez de cada app integrá-los ou de o BolsIA virar IdP | Um lugar para clients e unificação de conta; BolsIA-como-IdP acoplaria produto-com-clientes ao login do dono |
+| 2 | Email **verificado pelo provedor** como chave de unificação | "Email como chave" sem verificação é sequestro de conta; o BolsIA já faz certo e a decisão herda isso |
+| 3 | Caminho de emergência por app **permanece** (`PORTAL_ACESSO_LEGADO` e equivalentes) + os dois provedores vinculados à mesma conta | Cobre a objeção do ADR-19: terceiro no caminho normal, nunca no único caminho |
+| 4 | Console = admin do MyData estendido, respondendo também em `admin.semente.dev` — **sem serviço novo** | O semáforo/agenda/custo de 26/08 já são 70% do console; serviço novo só o portal de identidade |
+| 5 | Contas do portal por **convite**, senha Argon2id como fallback | Sem auto-registro não precisa de serviço de email — regra de custo intacta |
+| 6 | Endereços: `id.`/`mydata.`/`admin.semente.dev`; `mydata.acamerini.app` convive até corte seu | Corte seco derrubaria BolsIA e MCP, que apontam para o endereço atual |
+
+### Por que as fases de implementação NÃO rodaram esta noite
+
+Três bloqueios objetivos, não prudência genérica: a Fase 1 trava nos
+**client IDs de Apple/Google que só você pode criar**; a Fase 4 é
+repositório do BolsIA (proibido daqui); e mudança de domínio em produção é
+o que o próprio prompt manda trazer de volta para decisão.
+
+### Precisa de você (manhã de 27/08)
+
+1. **Aprovar ou vetar o ADR-23** — em especial as decisões 1, 4 e 6 acima.
+2. **Criar os clients dos provedores** (bloqueia a Fase 1):
+   - Google Cloud Console → OAuth client (web) com redirect
+     `https://id.semente.dev/callback/google`;
+   - Apple Developer → Services ID + key de Sign in with Apple com redirect
+     `https://id.semente.dev/callback/apple` (o BolsIA já tem team/config —
+     dá para reaproveitar o time, não o client).
+3. **Decidir o destino do ápice `semente.dev`** (hoje aponta para o serviço
+   `mydata`) e o futuro de `acamerini.app`.
+4. **DNS**: criar `id.semente.dev`, `mydata.semente.dev` e
+   `admin.semente.dev` no registrador quando aprovar.
+
+Com o ADR aprovado e os clients criados, a Fase 1 é uma sessão nova em
+`~/dev/semente-id`; a 2 e a 3 são sessões deste repositório; a 4, do BolsIA.
