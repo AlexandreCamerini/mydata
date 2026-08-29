@@ -122,6 +122,8 @@ no repositório do consumidor.
 | BolsIA (`b3-agente`) | emitir a chave contra o Postgres de produção | aberta — a local já existe; ver acima |
 | BolsIA (`b3-agente`) | classe de opções | **entregue** — a classe é `negociacao_b3`, não `opcoes_b3`; ver abaixo |
 | BolsIA (`b3-agente`) | implementar `mydata_client.py` e desligar Yahoo/brapi/COTAHIST paralelo | **aberta** — ver "Avaliação de centralização" abaixo; a migração é do lado de lá |
+| BolsIA (`b3-agente`) | web-admin virar relying party do portal de identidade | aberta — [portal-identidade.md](portal-identidade.md), fase 3; execução é do repositório de lá |
+| Portal de identidade (novo) | criar o serviço `id.acamerini.app` e registrar MyData + web-admin como clients | aberta — [portal-identidade.md](portal-identidade.md), fases 1–2; depende de o Alex aprovar a proposta (b) |
 | BolsIA (`b3-agente`) | ampliar escopo da chave para `negociacao_b3` | **resolvida em 26/08/2026** — chave `f00b4554` emitida com `negociacao_b3` e `provento_b3`; falta o lado de lá adotá-la e a `dadbd4b0` ser revogada |
 
 ## Avaliação de centralização — 2026-08-26
