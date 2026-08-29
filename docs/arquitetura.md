@@ -1137,10 +1137,12 @@ partida e restrição de uso.
 
 ### ADR-23 — o portfólio consolida em semente.dev: um login, um console, um domínio
 
-**Status: proposto — escrito na madrugada de 26→27/08/2026 sob autorização
-de execução noturna do Alex, para decisão dele pela manhã.** As decisões
-desta noite estão marcadas como tais; nenhuma é irreversível e nenhuma
-tocou produção.
+**Status: aceito — aprovado pelo Alex em 29/08/2026, com os clients de
+Apple e Google já criados por ele.** Escrito na madrugada de 26→27/08 sob
+autorização de execução noturna; a Fase 1 (portal `semente-id`, repositório
+`~/dev/semente-id`) foi construída em 29/08 com 28 testes verdes — emissor
+OIDC code+PKCE, federação Apple/Google, unificação por email verificado,
+convite por CLI e senha Argon2id de emergência.
 
 **Contexto.** Pedido do Alex em 26/08, verbatim no essencial: concentrar
 todos os apps em `semente.dev`; centralizar administração e observabilidade
