@@ -127,7 +127,7 @@ no repositório do consumidor.
 | BolsIA (`b3-agente`) | trocar `MYDATA_BASE_URL` para `mydata.semente.dev` quando o cliente existir | aberta — o endereço antigo convive até o corte, decidido pelo Alex |
 | Portal MCP | trocar o endereço-base para `mydata.semente.dev` | aberta — mesmo regime de convivência; a chave `c8125eee` não muda |
 | Portal MCP | publicar `GET /observabilidade` (ou health equivalente) para o console | aberta — contrato mínimo do ADR-23 |
-| Portal de identidade (novo, `~/dev/semente-id`) | criar o serviço `id.semente.dev`, federando Apple/Google, e registrar MyData + web-admin como clients | aberta — ADR-23 fases 1–2; bloqueada nos client IDs que só o Alex cria (ver RELATORIO-NOITE.md) |
+| Portal de identidade (novo, `~/dev/semente-id`) | criar o serviço `id.semente.dev`, federando Apple/Google, e registrar MyData como client | **resolvida em 29/08/2026** — portal no ar, MyData é relying party (`mydata.semente.dev` como endereço primário); falta só o web-admin do BolsIA (fase 4, linha acima) |
 | BolsIA (`b3-agente`) | ampliar escopo da chave para `negociacao_b3` | **resolvida em 26/08/2026** — chave `f00b4554` emitida com `negociacao_b3` e `provento_b3`; falta o lado de lá adotá-la e a `dadbd4b0` ser revogada |
 
 ## Avaliação de centralização — 2026-08-26
