@@ -4,42 +4,6 @@ on:
   push:
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: ci-password
-          POSTGRES_DB: mydata_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install Python dependencies
-        run: pip install -e ".[dev]" -r requisitos.txt
-
-      - name: Test with DuckDB
-        run: python -m pytest -q
-
-      - name: Test with PostgreSQL
-        env:
-          PORTAL_TESTE_POSTGRES: postgresql://postgres:ci-password@localhost:5432/mydata_test
-        run: python -m pytest -q
-
   front:
     runs-on: ubuntu-latest
     defaults:
@@ -64,3 +28,52 @@ jobs:
 
       - name: Test frontend
         run: npm test
+
+      - name: Upload frontend build
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+
+  test:
+    runs-on: ubuntu-latest
+    needs: front
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-password
+          POSTGRES_DB: mydata_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -e ".[dev]" -r requisitos.txt
+
+      - name: Test with DuckDB
+        run: python -m pytest -q
+
+      - name: Test with PostgreSQL
+        env:
+          PORTAL_TESTE_POSTGRES: postgresql://postgres:ci-password@localhost:5432/mydata_test
+        run: python -m pytest -q
