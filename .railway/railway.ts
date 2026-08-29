@@ -32,9 +32,12 @@ export default defineRailway(() => {
     // para sempre. Comportamento efetivo é o declarado; ignorar o resíduo.
     deploy: { restartPolicyType: "ON_FAILURE", restartPolicyMaxRetries: 3 },
     replicas: { "us-east4-eqdc4a": 1 },
-    // Os dois domínios são intencionais (decisão do Alex, 26/08/2026) —
-    // não "corrigir" o semente.dev fora daqui.
-    domains: ["mydata.acamerini.app", "semente.dev"],
+    // Os domínios são intencionais (decisão do Alex, 26/08/2026, mais
+    // `mydata.semente.dev` anexado em 29/08 — Fase 2 do ADR-23) — não
+    // "corrigir" nenhum deles fora daqui. `mydata.acamerini.app` convive
+    // até o Alex decidir o corte; `PORTAL_URL_PUBLICA` já aponta para
+    // `mydata.semente.dev`, que é o endereço primário a partir de agora.
+    domains: ["mydata.acamerini.app", "mydata.semente.dev", "semente.dev"],
     env: {
       BRAPI_TOKEN: preserve(),
       DATABASE_URL: preserve(),
@@ -43,6 +46,10 @@ export default defineRailway(() => {
       PORTAL_ORIGENS: preserve(),
       PORTAL_PAPEL: preserve(),
       PORTAL_URL_PUBLICA: preserve(),
+      // Fase 2 do ADR-23: MyData como relying party do portal semente.id.
+      SEMENTE_ID_CLIENT_ID: preserve(),
+      SEMENTE_ID_CLIENT_SECRET: preserve(),
+      SEMENTE_ID_EMAIL_DONO: preserve(),
     },
   });
 
