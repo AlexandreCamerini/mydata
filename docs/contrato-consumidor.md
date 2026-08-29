@@ -58,6 +58,12 @@ implica código novo, aqui nem lá.
 
 ## Consumidores integrados
 
+> **O consumidor `b3-agente` chama-se Boris+** desde 10/08/2026 (o nome
+> BolsIA foi aposentado; o codinome interno `b3-agente` permanece de
+> propósito, e com ele o bundle id `com.alexandrecamerini.bolsia`, que é
+> identidade do app na Apple). Linhas antigas desta tabela preservam o
+> nome da época — o que foi emitido para "bolsia" foi emitido assim.
+
 | Consumidor | Prefixo | Escopo | Quota | Emitida em |
 |---|---|---|---|---|
 | BolsIA (`b3-agente`) | `f00b4554` | `empresa`, `demonstracao_financeira`, `negociacao_b3`, `provento_b3` + `fonte:b3` | 60/min · 2.000/dia | 2026-08-26, **produção** — substitui a `dadbd4b0`; revogar a antiga depois da troca |
@@ -102,7 +108,7 @@ conceder tudo.
 
 ### O que sobrou de configuração
 
-`PORTAL_ORIGENS` continua vazia por escolha. `https://bolsia.semente.dev` só
+`PORTAL_ORIGENS` continua vazia por escolha. `https://boris.semente.dev` só
 precisa ser declarada se o BolsIA chamar `/v1` pelo navegador do usuário; num
 refresh semanal servidor-a-servidor, CORS não entra na conta, e origem não
 declarada é uma superfície a menos. Se o navegador for chamar, a variável entra
@@ -116,12 +122,12 @@ no repositório do consumidor.
 
 | Consumidor | Pendência | Situação |
 |---|---|---|
-| BolsIA (`b3-agente`) | origem pública para `PORTAL_ORIGENS` | **resolvida** — `https://bolsia.semente.dev`. Fica vazia enquanto o uso for servidor-a-servidor |
+| Boris+ (`b3-agente`) | origem pública para `PORTAL_ORIGENS` | **resolvida** — `https://boris.semente.dev` (medido em 29/08/2026; `bolsia.semente.dev` nunca existiu ativo). Fica vazia enquanto o uso for servidor-a-servidor |
 | BolsIA (`b3-agente`) | quais classes a chave dele deve ler | **resolvida** — `empresa` + `demonstracao_financeira` |
 | BolsIA (`b3-agente`) | volume esperado, para dimensionar quota | **resolvida** — refresh semanal de ~100 papéis; 60/min e 1.000/dia |
 | BolsIA (`b3-agente`) | emitir a chave contra o Postgres de produção | aberta — a local já existe; ver acima |
 | BolsIA (`b3-agente`) | classe de opções | **entregue** — a classe é `negociacao_b3`, não `opcoes_b3`; ver abaixo |
-| BolsIA (`b3-agente`) | implementar `mydata_client.py` e desligar Yahoo/brapi/COTAHIST paralelo | **aberta** — ver "Avaliação de centralização" abaixo; a migração é do lado de lá |
+| Boris+ (`b3-agente`) | implementar `mydata_client.py` e desligar Yahoo/brapi/COTAHIST paralelo | **parcial** — `server/app/mydata_client.py` existe lá (com teste) desde antes de 29/08; falta confirmar se as fontes paralelas foram desligadas. A migração é do lado de lá |
 | BolsIA (`b3-agente`) | web-admin virar relying party do portal `id.semente.dev` | aberta — ADR-23 fase 4; execução é do repositório de lá |
 | BolsIA (`b3-agente`) | publicar `GET /observabilidade` no contrato mínimo do ADR-23 (situacao, alertas, ultimas_execucoes) | aberta — é o que o console `admin.semente.dev` vai consumir |
 | BolsIA (`b3-agente`) | trocar `MYDATA_BASE_URL` para `mydata.semente.dev` quando o cliente existir | aberta — o endereço antigo convive até o corte, decidido pelo Alex |
@@ -249,7 +255,7 @@ vem de quem decide, na sessão em que se age, e emitir chave é criar credencial
 Fica o registro de que **aquele canal errou duas vezes**. Afirmou que o Alex
 tinha autorizado o brapi como fonte de opções, e afirmou que a origem do BolsIA
 era `acamerini.app` com fallback no Railway — o endereço é
-`bolsia.semente.dev`. Afirmação, não fato.
+`boris.semente.dev`. Afirmação, não fato.
 
 O segundo erro tem consequência fora deste repositório: o `~/.claude/CLAUDE.md`
 é carregado em toda sessão de todo projeto e diz "`acamerini.app` é do BolsIA;
