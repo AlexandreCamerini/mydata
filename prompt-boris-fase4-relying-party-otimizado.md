@@ -87,6 +87,20 @@ falsificaria o que foi decidido nela.
 
 Cada repositório é editado na sessão dele: o que precisar do MyData ou do
 portal vira pergunta para o Alex, não edição direta.
+
+**Concorrência no repositório, medida em 29/08/2026 antes de escrever isto:**
+a pasta principal deste repo tem execução GSD AO VIVO agora (Fase 13 do
+milestone v1.3 "Cap comercial" — limites do plano gratuito, sem relação
+nenhuma com este trabalho), com `.planning/STATE.md` modificado e não
+commitado e uma worktree travada por um agente em uso. Não trabalhe na
+pasta principal. Abra em worktree isolada própria antes de tocar qualquer
+arquivo (o padrão já usado neste repo: `.claude/worktrees/<nome>` — várias
+ativas agora). Este repositório também impõe GSD Workflow Enforcement
+(`CLAUDE.md:394-403`): edição fora de um comando GSD é bloqueada sem
+bypass explícito do Alex. Este trabalho não pertence ao milestone v1.3 em
+andamento — decida com o Alex, antes de editar, qual é o jeito certo de
+entrar isto no GSD (fase própria fora da sequência do milestone atual, ou
+outro enquadramento) em vez de assumir.
 </contexto>
 
 <objetivo>
@@ -136,6 +150,13 @@ Três alvos, nesta ordem de dependência:
 </restricoes>
 
 <tarefa>
+Confirme que está numa worktree isolada, não na pasta principal (a Fase 13
+do milestone v1.3 executa lá ao vivo). Se estiver na pasta principal, pare
+e abra a worktree antes de qualquer outra coisa. Confirme com o Alex como
+este trabalho entra no GSD antes do primeiro Write/Edit — este repo bloqueia
+edição fora de comando GSD (CLAUDE.md:394-403), e este trabalho não é do
+milestone v1.3 em andamento.
+
 Leia o ADR-23 e os três arquivos de referência do MyData antes de desenhar.
 
 Entregue os três alvos do objetivo. Para o alvo 3, generalize
