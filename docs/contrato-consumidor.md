@@ -122,18 +122,18 @@ no repositório do consumidor.
 
 | Consumidor | Pendência | Situação |
 |---|---|---|
-| Boris+ (`b3-agente`) | origem pública para `PORTAL_ORIGENS` | **resolvida** — `https://boris.semente.dev` (medido em 29/08/2026; `bolsia.semente.dev` nunca existiu ativo). Fica vazia enquanto o uso for servidor-a-servidor |
+| Boris+ (`b3-agente`) | origem pública para `PORTAL_ORIGENS` | **resolvida** — `https://boris.semente.dev`. Correção de 30/08/2026: `bolsia.semente.dev` **continua ativo** como domínio customizado do mesmo serviço Railway (`b3agente`), convivendo com o nome novo — a afirmação anterior de que nunca existiu estava errada, medida direto no `railway status --json` do projeto. Fica vazia enquanto o uso for servidor-a-servidor |
 | BolsIA (`b3-agente`) | quais classes a chave dele deve ler | **resolvida** — `empresa` + `demonstracao_financeira` |
 | BolsIA (`b3-agente`) | volume esperado, para dimensionar quota | **resolvida** — refresh semanal de ~100 papéis; 60/min e 1.000/dia |
 | BolsIA (`b3-agente`) | emitir a chave contra o Postgres de produção | aberta — a local já existe; ver acima |
 | BolsIA (`b3-agente`) | classe de opções | **entregue** — a classe é `negociacao_b3`, não `opcoes_b3`; ver abaixo |
 | Boris+ (`b3-agente`) | implementar `mydata_client.py` e desligar Yahoo/brapi/COTAHIST paralelo | **parcial** — `server/app/mydata_client.py` existe lá (com teste) desde antes de 29/08; falta confirmar se as fontes paralelas foram desligadas. A migração é do lado de lá |
-| BolsIA (`b3-agente`) | web-admin virar relying party do portal `id.semente.dev` | aberta — ADR-23 fase 4; execução é do repositório de lá |
-| BolsIA (`b3-agente`) | publicar `GET /observabilidade` no contrato mínimo do ADR-23 (situacao, alertas, ultimas_execucoes) | aberta — é o que o console `admin.semente.dev` vai consumir |
+| Boris+ (`b3-agente`) | web-admin virar relying party do portal `id.semente.dev` | **quase pronta em 30/08/2026** — código e testes prontos numa worktree isolada do repo de lá (`.claude/worktrees/fase4-relying-party-adr23`, 3 de 4 tarefas, 1737 testes verdes). Client `boris-web-admin` registrado no portal (`client_id` prefixo `5rJs0Bja…`) e `SEMENTE_ID_CLIENT_ID`/`SEMENTE_ID_CLIENT_SECRET`/`SEMENTE_ID_EMAIL_DONO` já definidos no serviço Railway `b3agente`. Falta: aprovação humana do checkpoint da 4ª tarefa (dentro da sessão de lá) e o push/deploy do código — nenhum dos dois feito daqui, por desenho |
+| Boris+ (`b3-agente`) | publicar `GET /observabilidade` no contrato mínimo do ADR-23 (situacao, alertas, ultimas_execucoes) | **pronta, aguardando o mesmo deploy acima** — implementada na mesma worktree, com 4 chaves nuas e fail-closed sem chave de máquina |
 | BolsIA (`b3-agente`) | trocar `MYDATA_BASE_URL` para `mydata.semente.dev` quando o cliente existir | aberta — o endereço antigo convive até o corte, decidido pelo Alex |
 | Portal MCP | trocar o endereço-base para `mydata.semente.dev` | aberta — mesmo regime de convivência; a chave `c8125eee` não muda |
 | Portal MCP | publicar `GET /observabilidade` (ou health equivalente) para o console | aberta — contrato mínimo do ADR-23 |
-| Portal de identidade (novo, `~/dev/semente-id`) | criar o serviço `id.semente.dev`, federando Apple/Google, e registrar MyData como client | **resolvida em 29/08/2026** — portal no ar, MyData é relying party (`mydata.semente.dev` como endereço primário); falta só o web-admin do BolsIA (fase 4, linha acima) |
+| Portal de identidade (novo, `~/dev/semente-id`) | criar o serviço `id.semente.dev`, federando Apple/Google, e registrar clients | **resolvida em 29-30/08/2026** — portal no ar; MyData (`mydata.semente.dev`) e Boris+ (`boris-web-admin`, redirect `boris.semente.dev/api/auth/semente-id/callback`) registrados como clients. Falta o deploy do lado do Boris+ (linha acima) |
 | BolsIA (`b3-agente`) | ampliar escopo da chave para `negociacao_b3` | **resolvida em 26/08/2026** — chave `f00b4554` emitida com `negociacao_b3` e `provento_b3`; falta o lado de lá adotá-la e a `dadbd4b0` ser revogada |
 
 ## Avaliação de centralização — 2026-08-26
