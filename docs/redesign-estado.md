@@ -3,7 +3,7 @@
 Leia este arquivo antes de qualquer outra coisa. Reescreva-o ao fim de cada
 etapa concluída.
 
-**Atualizado:** 05/08/2026 — fim da fase 3. Todas as etapas construídas.
+**Atualizado:** 02/09/2026 — dois achados novos fechados, fora da auditoria original.
 
 ## Pronto
 
@@ -77,6 +77,33 @@ Nada. As seis etapas da ordem em `docs/direcao-apresentacao.md` estão feitas.
   `text-sm`, 11 em tudo o mais, e `h2` a 16 px porque nenhum componente lhe dava
   tamanho. Declarada em `@theme`, com entrelinha e `tracking` por degrau, em vez
   de reescrever 264 classes.
+
+## Achados 12 e 13, fora dos onze da auditoria
+
+**02/09/2026 — dois gaps achados numa revisão de aderência aos 66 commits
+que vieram depois do achado 8.** Drift mínimo: quase tudo se auto-corrigiu
+(`ui.tsx` e `COR_METODO` de `Api.tsx` trocaram classe Tailwind crua por
+token em `510f612`/`bd0574f`). Sobraram dois.
+
+- **12 — `Api.tsx` deixava erro de rede cru vazar.** Os dois `catch` da tela
+  (carregar `/openapi.json`, executar uma rota) jogavam
+  `(e as Error).message` direto no componente `<Erro>` — um
+  `TypeError: Failed to fetch` apareceria em inglês, cru do motor JS, onde
+  toda outra tela do portal passa por `pedir()` em `api.ts` e mostra erro em
+  português. A tela usa `fetch` cru de propósito, para exibir a resposta
+  HTTP real — isso não muda. O que muda é a falha *antes* de existir
+  resposta: `mensagemDeFalha()` intercepta só `TypeError` e devolve "Não foi
+  possível alcançar a rota — confira a conexão."; qualquer outro erro
+  mantém a mensagem original.
+- **13 — o portão de `a11y` ficou para trás.** Aberto desde 05/08 ("a
+  apresentação passa, mas passa sem estar no portão", achado 4 acima) e
+  cresceu: a aba nova `#/api` e as rotas de apresentação nunca tinham
+  entrado no script. De 6 URLs (4 abas de admin) para 21 — as 12 abas de
+  admin inteiras mais 7 rotas de apresentação (`empresa`, `ficha`,
+  `demonstracoes`, `indicadores`, `arquivos`, `negociacao`, `operador`),
+  usando `cd_cvm 9512` (Petrobras — o mesmo que os fixtures de teste já
+  usam) e `PETR4`. Rodado contra o servidor real (`scripts/servidor.py
+  subir`, build atual): **21 páginas, 0 violações.**
 
 ## O que continua faltando
 

@@ -34,6 +34,18 @@ type EspecOpenApi = {
 
 const METODOS_DOCUMENTADOS = ["get", "post", "put", "patch", "delete"];
 
+/** `fetch` rejeita com `TypeError` quando a rede falha antes de existir
+ * resposta — "Failed to fetch" em inglês, direto do navegador. O resto desta
+ * tela mostra a resposta HTTP crua de propósito (é o que a tela testa), mas
+ * uma falha de rede não é resposta nenhuma: não há razão para vazar o texto
+ * do motor JS onde toda outra tela do portal mostra erro em português. */
+function mensagemDeFalha(e: unknown): string {
+  if (e instanceof TypeError) {
+    return "Não foi possível alcançar a rota — confira a conexão.";
+  }
+  return e instanceof Error ? e.message : "Falha desconhecida ao chamar a rota.";
+}
+
 const COR_METODO: Record<string, string> = {
   get: "bg-acento-suave text-acento border-acento",
   post: "bg-ok-suave text-ok border-ok",
@@ -125,7 +137,7 @@ export function Api() {
         return r.json();
       })
       .then((d) => vivo && setSpec(d))
-      .catch((e) => vivo && setErro((e as Error).message));
+      .catch((e) => vivo && setErro(mensagemDeFalha(e)));
     return () => {
       vivo = false;
     };
@@ -231,7 +243,7 @@ function ItemOperacao({
       }
       setResposta({ status: resp.status, corpo: formatado });
     } catch (e) {
-      setErroExec((e as Error).message);
+      setErroExec(mensagemDeFalha(e));
     } finally {
       setExecutando(false);
     }
