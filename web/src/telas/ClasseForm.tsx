@@ -3,7 +3,7 @@
 // fluxo obriga a prévia: o operador vê as sentenças e as divergências antes
 // de qualquer coisa rodar.
 import { useState } from "react";
-import { api, lista, type ClassePayload } from "../api";
+import { api, lista, type ClassePayload, type Dataset } from "../api";
 import { Aviso, Botao, Caixa, Campo, Erro, Selecao } from "../ui";
 
 const TIPOS = ["texto", "inteiro", "numero", "data", "booleano"].map((t) => ({
@@ -11,7 +11,10 @@ const TIPOS = ["texto", "inteiro", "numero", "data", "booleano"].map((t) => ({
   rotulo: t,
 }));
 
-// Estado de linha do montador: tudo string, convertido só no payload.
+// Estado de linha do montador: tudo string, convertido só no payload. A
+// precedência é a exceção — fica como lista, porque quem manda em cada
+// campo é ordem, não texto (achado da "direção C": digitar um dataset que
+// não existe foi o que derrubou a B3 para o último lugar sem ninguém notar).
 type LinhaAtributo = {
   nome: string;
   tipo: string;
@@ -19,7 +22,7 @@ type LinhaAtributo = {
   obrigatorio: boolean;
   guarda_texto: boolean;
   unidade: string;
-  precedencia: string;
+  precedencia: string[];
   descricao: string;
 };
 
@@ -30,7 +33,7 @@ const LINHA_VAZIA: LinhaAtributo = {
   obrigatorio: false,
   guarda_texto: false,
   unidade: "",
-  precedencia: "",
+  precedencia: [],
   descricao: "",
 };
 
@@ -42,13 +45,119 @@ function linhasDe(p: ClassePayload): LinhaAtributo[] {
     obrigatorio: a.obrigatorio,
     guarda_texto: a.guarda_texto,
     unidade: a.unidade ?? "",
-    precedencia: a.precedencia.join(", "),
+    precedencia: a.precedencia,
     descricao: a.descricao ?? "",
   }));
 }
 
+/** Datasets que de fato declaram este campo como destino — a lista
+ * arrastável só oferece o que existe, porque foi digitar um nome que não
+ * existe que causou o erro real de dado que a auditoria achou. */
+function fontesDoAtributo(
+  datasets: Dataset[],
+  classeChave: string,
+  atributoNome: string,
+): string[] {
+  return datasets
+    .filter((d) => d.classe_chave === classeChave)
+    .filter((d) => d.colunas.some((c) => c.nome_destino === atributoNome))
+    .map((d) => d.chave);
+}
+
+/** Lista arrastável (setas, não mouse — mesmo padrão de `moverLinha`
+ * abaixo, que já é o critério de acessibilidade deste formulário: tudo
+ * operável por teclado). Uma entrada que não alimenta mais o campo (dataset
+ * removido, ou renomeado) fica visível e marcada, nunca some sozinha. */
+function ListaPrecedencia(props: {
+  rotulo: string;
+  ordem: string[];
+  candidatos: string[];
+  aoMudar: (nova: string[]) => void;
+  ajuda?: string;
+}) {
+  const disponiveis = props.candidatos.filter((c) => !props.ordem.includes(c));
+
+  function mover(i: number, delta: -1 | 1) {
+    const alvo = i + delta;
+    if (alvo < 0 || alvo >= props.ordem.length) return;
+    const nova = [...props.ordem];
+    [nova[i], nova[alvo]] = [nova[alvo], nova[i]];
+    props.aoMudar(nova);
+  }
+
+  return (
+    <div className="mb-4">
+      <span className="block text-sm font-medium mb-1">{props.rotulo}</span>
+      {props.ordem.length === 0 ? (
+        <p className="text-xs text-tinta-suave">
+          Nenhuma fonte alimenta este campo ainda.
+        </p>
+      ) : (
+        <ul className="grid gap-1 list-none p-0 m-0">
+          {props.ordem.map((chave, i) => {
+            const solta = !props.candidatos.includes(chave);
+            return (
+              <li
+                key={chave}
+                className={`flex items-center gap-2 border rounded px-2 py-1 text-sm ${
+                  solta ? "border-dashed border-borda text-tinta-suave" : "border-borda"
+                }`}
+              >
+                <span className="font-mono text-xs text-tinta-suave w-6">
+                  {i + 1}º
+                </span>
+                <span className="font-mono flex-1">{chave}</span>
+                {i === 0 && !solta && (
+                  <span className="text-xs text-ok">vence</span>
+                )}
+                {solta && (
+                  <span className="text-xs text-alerta">não alimenta mais</span>
+                )}
+                <Botao aoClicar={() => mover(i, -1)} desabilitado={i === 0}>
+                  ↑<span className="sr-only"> subir {chave}</span>
+                </Botao>
+                <Botao
+                  aoClicar={() => mover(i, 1)}
+                  desabilitado={i === props.ordem.length - 1}
+                >
+                  ↓<span className="sr-only"> descer {chave}</span>
+                </Botao>
+                <Botao
+                  variante="destrutivo"
+                  aoClicar={() => props.aoMudar(props.ordem.filter((_, j) => j !== i))}
+                >
+                  Remover
+                </Botao>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {disponiveis.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1">
+          <span className="text-xs text-tinta-suave">Adicionar:</span>
+          {disponiveis.map((chave) => (
+            <button
+              key={chave}
+              type="button"
+              onClick={() => props.aoMudar([...props.ordem, chave])}
+              className="text-xs font-mono border border-borda rounded px-2 py-0.5 hover:bg-acento-suave"
+            >
+              + {chave}
+            </button>
+          ))}
+        </div>
+      )}
+      {props.ajuda && (
+        <p className="text-xs text-tinta-suave mt-1">{props.ajuda}</p>
+      )}
+    </div>
+  );
+}
+
 export function ClasseForm(props: {
   inicial?: ClassePayload;
+  datasets: Dataset[];
   aoSalvar: () => void;
   aoFechar: () => void;
 }) {
@@ -62,7 +171,7 @@ export function ClasseForm(props: {
       props.inicial?.indices.map((g) => g.join(", ")).join("; ") ?? "",
     sla_horas: props.inicial?.sla_horas?.toString() ?? "",
     resolucao: props.inicial?.resolucao ?? "unica",
-    precedencia: props.inicial?.precedencia.join(", ") ?? "",
+    precedencia: props.inicial?.precedencia ?? [],
     descricao: props.inicial?.descricao ?? "",
   }));
   const [atributos, setAtributos] = useState<LinhaAtributo[]>(() =>
@@ -90,7 +199,7 @@ export function ClasseForm(props: {
         .filter((g) => g.length > 0),
       sla_horas: form.sla_horas.trim() ? Number(form.sla_horas) : null,
       resolucao: form.resolucao,
-      precedencia: lista(form.precedencia),
+      precedencia: form.precedencia,
       descricao: form.descricao.trim() || null,
       ativo: props.inicial?.ativo ?? true,
       atributos: atributos.map((a, i) => ({
@@ -102,7 +211,7 @@ export function ClasseForm(props: {
         unidade: a.unidade.trim() || null,
         descricao: a.descricao.trim() || null,
         ordem: i + 1,
-        precedencia: lista(a.precedencia),
+        precedencia: a.precedencia,
       })),
     };
   }
@@ -117,14 +226,14 @@ export function ClasseForm(props: {
     else if (!/^[a-z0-9_]+$/.test(form.tabela.trim()))
       p.tabela = "Use apenas letras minúsculas, números e underscore.";
     if (lista(form.chave_identidade).length === 0)
-      p.chave_identidade = "A identidade precisa de ao menos um atributo.";
+      p.chave_identidade = "A identidade precisa de ao menos um campo.";
     if (form.sla_horas.trim() && !/^\d+$/.test(form.sla_horas.trim()))
       p.sla_horas = "Horas, em número inteiro.";
     const nomes = atributos.map((a) => a.nome.trim()).filter(Boolean);
-    if (nomes.length === 0) p.atributos = "Declare ao menos um atributo.";
+    if (nomes.length === 0) p.atributos = "Declare ao menos um campo.";
     const fora = lista(form.chave_identidade).filter((c) => !nomes.includes(c));
     if (fora.length && !p.chave_identidade)
-      p.chave_identidade = `Cita atributo que não existe: ${fora.join(", ")}`;
+      p.chave_identidade = `Cita campo que não existe: ${fora.join(", ")}`;
     setErros(p);
     return Object.keys(p).length === 0;
   }
@@ -205,7 +314,7 @@ export function ClasseForm(props: {
   return (
     <section aria-labelledby="form-classe" className="grid gap-4">
       <h2 id="form-classe" className="font-medium">
-        {editando ? `Nova versão de ${form.chave}` : "Nova classe de informação"}
+        {editando ? `Nova versão de ${form.chave}` : "Nova classe"}
       </h2>
       <Aviso>
         Salvar uma classe <strong>gera DDL contra o banco</strong>: a tabela
@@ -246,7 +355,7 @@ export function ClasseForm(props: {
             valor={form.chave_identidade}
             aoMudar={(v) => setForm({ ...form, chave_identidade: v })}
             erro={erros.chave_identidade}
-            ajuda="Atributos que dizem quando duas linhas falam da mesma coisa. Separe por vírgula."
+            ajuda="Campos que dizem quando duas linhas falam da mesma coisa. Separe por vírgula."
             obrigatorio
             monoespacado
           />
@@ -272,21 +381,21 @@ export function ClasseForm(props: {
               { valor: "unica", rotulo: "única — uma fonte alimenta a classe" },
               {
                 valor: "precedencia",
-                rotulo: "precedência — fontes disputam, a vista resolve",
+                rotulo: "quem manda — fontes disputam, a vista resolve",
               },
             ]}
-            ajuda="Com precedência, a linha publicada sai de uma vista que escolhe por atributo."
+            ajuda="Com quem manda, a linha publicada sai de uma vista que escolhe por campo."
           />
-          {multiFonte && (
-            <Campo
-              rotulo="Precedência da classe"
-              valor={form.precedencia}
-              aoMudar={(v) => setForm({ ...form, precedencia: v })}
-              ajuda="Datasets em ordem de preferência, separados por vírgula. Atributo sem precedência própria herda esta."
-              monoespacado
-            />
-          )}
         </div>
+        {multiFonte && (
+          <ListaPrecedencia
+            rotulo="Quem manda, por padrão"
+            ordem={form.precedencia}
+            candidatos={form.chave ? props.datasets.filter((d) => d.classe_chave === form.chave).map((d) => d.chave) : []}
+            aoMudar={(nova) => setForm({ ...form, precedencia: nova })}
+            ajuda="Conexões em ordem de preferência. Campo sem ordem própria herda esta."
+          />
+        )}
         <Campo
           rotulo="Descrição"
           valor={form.descricao}
@@ -294,7 +403,7 @@ export function ClasseForm(props: {
           multilinha
         />
 
-        <h3 className="font-medium mt-2 mb-1">Atributos</h3>
+        <h3 className="font-medium mt-2 mb-1">Campos</h3>
         <p className="text-xs text-tinta-suave mb-3">
           A ordem aqui é a ordem das colunas na tabela.
         </p>
@@ -307,7 +416,7 @@ export function ClasseForm(props: {
               className="border border-borda rounded p-3 grid gap-x-4 md:grid-cols-[1fr_1fr_1fr_auto]"
             >
               <Campo
-                rotulo={`Atributo ${i + 1} — nome`}
+                rotulo={`Campo ${i + 1} — nome`}
                 valor={a.nome}
                 aoMudar={(v) => mudarLinha(i, { nome: v })}
                 obrigatorio
@@ -332,19 +441,19 @@ export function ClasseForm(props: {
               <div
                 className="flex md:flex-col gap-1 items-start pt-6"
                 role="group"
-                aria-label={`Mover ou remover atributo ${i + 1}`}
+                aria-label={`Mover ou remover campo ${i + 1}`}
               >
                 <Botao
                   aoClicar={() => moverLinha(i, -1)}
                   desabilitado={i === 0}
                 >
-                  ↑<span className="sr-only"> subir atributo {i + 1}</span>
+                  ↑<span className="sr-only"> subir campo {i + 1}</span>
                 </Botao>
                 <Botao
                   aoClicar={() => moverLinha(i, 1)}
                   desabilitado={i === atributos.length - 1}
                 >
-                  ↓<span className="sr-only"> descer atributo {i + 1}</span>
+                  ↓<span className="sr-only"> descer campo {i + 1}</span>
                 </Botao>
                 <Botao
                   variante="destrutivo"
@@ -365,13 +474,17 @@ export function ClasseForm(props: {
                 />
               </div>
               {multiFonte && (
-                <div className="md:col-span-2">
-                  <Campo
-                    rotulo="Precedência deste atributo"
-                    valor={a.precedencia}
-                    aoMudar={(v) => mudarLinha(i, { precedencia: v })}
-                    ajuda="Vazio herda a da classe. A melhor fonte para um atributo não é necessariamente a melhor para o resto."
-                    monoespacado
+                <div className="md:col-span-4">
+                  <ListaPrecedencia
+                    rotulo="Quem manda neste campo"
+                    ordem={a.precedencia}
+                    candidatos={
+                      a.nome.trim()
+                        ? fontesDoAtributo(props.datasets, form.chave, a.nome.trim())
+                        : []
+                    }
+                    aoMudar={(nova) => mudarLinha(i, { precedencia: nova })}
+                    ajuda="Vazio herda o padrão da classe. A melhor fonte para um campo não é necessariamente a melhor para o resto."
                   />
                 </div>
               )}
@@ -403,7 +516,7 @@ export function ClasseForm(props: {
           <Botao
             aoClicar={() => setAtributos((ls) => [...ls, { ...LINHA_VAZIA }])}
           >
-            Acrescentar atributo
+            Acrescentar campo
           </Botao>
           <Botao tipo="submit" variante="primario" carregando={ocupado}>
             Ver DDL antes de salvar

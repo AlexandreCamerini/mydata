@@ -158,10 +158,11 @@ export const api = {
       body: JSON.stringify(corpo),
     }),
 
-  execucoes: (dataset?: string, status?: string) => {
+  execucoes: (dataset?: string, status?: string, limite?: number) => {
     const p = new URLSearchParams();
     if (dataset) p.set("dataset", dataset);
     if (status) p.set("status", status);
+    if (limite) p.set("limite", String(limite));
     const qs = p.toString();
     return pedir<Resposta<Execucao[]>>(
       `/admin/api/execucoes${qs ? `?${qs}` : ""}`,

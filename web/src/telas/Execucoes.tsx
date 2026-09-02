@@ -137,12 +137,12 @@ export function Execucoes() {
             Publicações
           </h2>
           <Aviso>
-            Publicar move o ponteiro de gold. Reverter volta o ponteiro para uma
-            versão anterior — o dado não é apagado.
+            Publicar coloca a versão no ar. Reverter volta para uma versão
+            anterior — o dado não é apagado.
           </Aviso>
           {pubs.dados && (
             <Tabela
-              legenda="Versões publicadas de gold"
+              legenda="Versões publicadas"
               colunas={["Versão", "Publicada em", "Execução", "Ação"]}
             >
               {pubs.dados.dados.map((p) => (
@@ -252,7 +252,7 @@ export function Execucoes() {
         aberto={confirmando !== null}
         titulo="Reverter publicação"
         objeto={`a versão v${confirmando}`}
-        consequencia="O ponteiro de gold voltará para"
+        consequencia="A versão no ar voltará para"
         aoConfirmar={() => reverter(confirmando!)}
         aoCancelar={() => setConfirmando(null)}
       />

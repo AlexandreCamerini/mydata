@@ -21,8 +21,8 @@ export function Catalogo() {
   // pela interface precisa aparecer aqui sem ninguém editar esta lista.
   const controle = (t: string) => t.startsWith("cfg_") || t.startsWith("log_");
   const grupos = {
-    "Gold (consumo)": tabelas.filter((t) => t.startsWith("gold_")),
-    "Silver e bronze": tabelas.filter(
+    "No ar (consumo)": tabelas.filter((t) => t.startsWith("gold_")),
+    "Bastidores": tabelas.filter(
       (t) => !t.startsWith("gold_") && !controle(t),
     ),
     "Plano de controle": tabelas.filter(controle),

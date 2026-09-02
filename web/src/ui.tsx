@@ -265,6 +265,72 @@ export function Selo({ texto }: { texto: string }) {
 }
 
 // --------------------------------------------------------------------------
+/** Os cinco estados de uma conexão, sempre a mesma cor e o mesmo ponto em
+ * toda a interface — "direção A" do redesenho. Não é o mesmo vocabulário do
+ * `Selo` (que descreve frescor de dado publicado); este descreve se a
+ * conexão em si está funcionando. */
+export type EstadoConexao =
+  | "no_ar"
+  | "falhou"
+  | "atualizando"
+  | "pausada"
+  | "nunca_rodou";
+
+const CONEXAO: Record<EstadoConexao, { rotulo: string; texto: string; ponto: string }> = {
+  no_ar: { rotulo: "No ar", texto: "text-ok", ponto: "bg-ok" },
+  falhou: { rotulo: "Falhou", texto: "text-erro", ponto: "bg-erro" },
+  atualizando: { rotulo: "Atualizando", texto: "text-acento", ponto: "bg-acento" },
+  pausada: { rotulo: "Pausada", texto: "text-tinta-suave", ponto: "bg-tinta-suave" },
+  nunca_rodou: { rotulo: "Nunca rodou", texto: "text-tinta-suave", ponto: "bg-borda" },
+};
+
+/** Deriva o estado de uma conexão do status da execução mais recente e da
+ * flag `ativo` — não existe coluna própria para isto (achado do mapeamento
+ * de viabilidade: `ativo` hoje só controla se o agendamento dispara). */
+export function estadoDaConexao(
+  ativo: boolean,
+  ultimoStatus: string | undefined,
+): EstadoConexao {
+  if (!ativo) return "pausada";
+  if (!ultimoStatus) return "nunca_rodou";
+  if (ultimoStatus === "publicado") return "no_ar";
+  if (ultimoStatus === "falha" || ultimoStatus === "bloqueada") return "falhou";
+  return "atualizando";
+}
+
+export function BadgeConexao({ estado }: { estado: EstadoConexao }) {
+  const e = CONEXAO[estado];
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap ${e.texto}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${e.ponto}`} aria-hidden="true" />
+      {e.rotulo}
+    </span>
+  );
+}
+
+/** As últimas execuções em barrinhas — decorativo: o estado e a contagem já
+ * dizem o essencial em texto, isto só dá o padrão dos últimos N eventos. */
+export function Faixas({ execucoes }: { execucoes: { status: string }[] }) {
+  if (execucoes.length === 0) return null;
+  return (
+    <span className="inline-flex items-end gap-px h-3" aria-hidden="true">
+      {execucoes.map((e, i) => (
+        <span
+          key={i}
+          className={`w-0.5 h-full rounded-sm ${
+            e.status === "publicado"
+              ? "bg-ok"
+              : e.status === "falha" || e.status === "bloqueada"
+                ? "bg-erro"
+                : "bg-borda"
+          }`}
+        />
+      ))}
+    </span>
+  );
+}
+
+// --------------------------------------------------------------------------
 /** Confirmação que nomeia o objeto — "Excluir?" sozinho não é confirmação. */
 export function Confirmar(props: {
   aberto: boolean;

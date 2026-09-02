@@ -197,11 +197,11 @@ export function Gestao() {
         <dl className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 text-sm">
           {[
             ["Classes", fmt.format(g.classes.length), ""],
-            ["Linhas em silver", fmt.format(linhasTotais), ""],
-            ["Capturas em bronze", fmt.format(g.bronze.capturas), ""],
+            ["Linhas processadas", fmt.format(linhasTotais), ""],
+            ["Capturas do arquivo original", fmt.format(g.bronze.capturas), ""],
             ["Arquivos originais", bytes(g.bronze.bytes),
              "somados como a fonte os publicou"],
-            ["Bronze em disco",
+            ["Arquivo original em disco",
              g.bronze.ocupado_bytes === null ? "—" : bytes(g.bronze.ocupado_bytes),
              // Com o TOAST comprimindo (ADR-21), o arquivo publicado e o
              // espaço ocupado deixam de coincidir. Mostrar só o primeiro fazia

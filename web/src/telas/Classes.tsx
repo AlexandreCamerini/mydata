@@ -27,14 +27,16 @@ function idade(f: Frescor | undefined): string {
 export function Classes() {
   const classes = useDados(() => api.classes());
   const frescor = useDados(() => api.frescor());
-  const [aberta, setAberta] = useState<string | null>(null);
-  // null = lista; {} = classe nova; {inicial} = nova versão de uma existente.
+  // Só busca datasets quando o editor abre — a lista não precisa deles.
   const [editor, setEditor] = useState<{ inicial?: ClassePayload } | null>(null);
+  const datasets = useDados(() => api.datasets(), [Boolean(editor)]);
+  const [aberta, setAberta] = useState<string | null>(null);
 
   if (editor) {
     return (
       <ClasseForm
         inicial={editor.inicial}
+        datasets={datasets.dados?.dados ?? []}
         aoSalvar={() => classes.recarregar()}
         aoFechar={() => setEditor(null)}
       />
@@ -43,7 +45,7 @@ export function Classes() {
 
   // Só na primeira carga: o recarregar pós-salvar não pode desmontar a tela.
   if (classes.carregando && !classes.dados)
-    return <Carregando oque="classes de informação" />;
+    return <Carregando oque="o que você guarda" />;
   if (classes.erro) return <Erro mensagem={classes.erro} />;
 
   const lista = classes.dados?.dados ?? [];
@@ -51,7 +53,7 @@ export function Classes() {
     return (
       <div className="grid gap-4">
         <Vazio
-          titulo="Nenhuma classe de informação cadastrada"
+          titulo="Nada guardado ainda"
           dica="Uma classe é a coisa sobre a qual o portal guarda dado — Empresa, Cotação. É dela que a tabela nasce."
         />
         <div>
@@ -76,7 +78,7 @@ export function Classes() {
       </div>
       <Tabela
         legenda="Classes de informação, fontes que as alimentam e frescor"
-        colunas={["Classe", "Identidade", "Fontes", "Atributos", "Atualizada há", "Situação"]}
+        colunas={["Classe", "Identidade", "Fontes", "Campos", "Atualizada há", "Situação"]}
       >
         {lista.map((c) => {
           const f = porChave.get(c.chave);
@@ -110,7 +112,7 @@ export function Classes() {
                 )}
                 {c.resolucao === "precedencia" && (
                   <span className="block text-tinta-suave">
-                    resolve por precedência
+                    quem manda em cada campo
                   </span>
                 )}
               </td>
@@ -188,11 +190,11 @@ function Detalhe({
       )}
 
       <Tabela
-        legenda={`Atributos de ${classe.nome}`}
+        legenda={`Campos de ${classe.nome}`}
         colunas={
           multiplas
-            ? ["Atributo", "Tipo", "Vem de", "Precedência", "Descrição"]
-            : ["Atributo", "Tipo", "Vem de", "Descrição"]
+            ? ["Campo", "Tipo", "Vem de", "Quem manda", "Descrição"]
+            : ["Campo", "Tipo", "Vem de", "Descrição"]
         }
       >
         {classe.atributos.map((a) => (
