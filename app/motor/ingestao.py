@@ -318,6 +318,58 @@ def _com_credencial(fonte: dict, baixar):
     return _baixar
 
 
+def previa_arquivo(
+    sink: Sink, fonte_chave: str, ds_rascunho: dict, janela: str,
+    *, baixar, limite: int = 5,
+) -> dict:
+    """Baixa a fonte agora e devolve colunas + amostra crua — sem gravar
+    nada em bronze nem em silver. É o passo "Arquivo" do assistente de
+    conexão nova: ver o arquivo real antes de ligar um campo, em vez de
+    digitar contra um CSV aberto em outra janela.
+
+    `ds_rascunho` é o dataset ainda não salvo — só `chave`, `padrao_arquivo`
+    e `parametros` importam aqui, os mesmos três campos que `_urls_da_janela`
+    já usa para montar o endereço de uma carga de verdade.
+
+    Só cobre `http_csv` e `http_zip`. `http_json` não tem "primeira linha"
+    fora da própria captura paginada, e `http_token` precisa de um passo a
+    mais que a prévia não modela — para essas duas, a tela pula a etapa e o
+    mapeamento continua digitado, como é hoje.
+    """
+    fonte = repo.fonte_vigente(sink, fonte_chave)
+    if fonte is None:
+        raise ErroIngestao(f"fonte '{fonte_chave}' não está configurada")
+    if fonte["tipo_transporte"] not in ("http_csv", "http_zip"):
+        raise ErroIngestao(
+            f"prévia não cobre o transporte '{fonte['tipo_transporte']}' — "
+            f"pule esta etapa."
+        )
+
+    baixador = _com_credencial(fonte, baixar)
+    url = _urls_da_janela(fonte, ds_rascunho, janela)[0]
+    payload = baixador(url)
+
+    if fonte["tipo_transporte"] == "http_zip":
+        padrao = ds_rascunho.get("padrao_arquivo") or ""
+        if not padrao:
+            raise ErroIngestao(
+                "informe o padrão de arquivo para escolher o membro do zip."
+            )
+        membro = next(iter(parsing.membros_do_zip(payload, padrao)), None)
+        if membro is None:
+            raise ErroIngestao(f"nenhum arquivo no zip casa com '{padrao}'.")
+        nome_arquivo, payload_arquivo, _ = membro
+    else:
+        nome_arquivo, payload_arquivo = url.rsplit("/", 1)[-1].split("?")[0], payload
+
+    preambulo = int(_parametros(ds_rascunho).get("preambulo", 0))
+    lido = parsing.previa_csv(
+        payload_arquivo, fonte["encoding"], fonte["separador"],
+        preambulo=preambulo, limite=limite,
+    )
+    return {"nome_arquivo": nome_arquivo, **lido}
+
+
 def executar(
     sink: Sink, dataset_chave: str, janela: str, *, trigger: str = "manual",
     baixar=None, apenas_bronze: bool = False, publicar: bool = True,

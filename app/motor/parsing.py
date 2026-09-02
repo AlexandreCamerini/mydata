@@ -206,6 +206,33 @@ def ler_csv(
     return mapear(iter(leitor), colunas, cabecalho, contexto, extras)
 
 
+def previa_csv(
+    raw: bytes, encoding: str, separador: str,
+    preambulo: int = 0, limite: int = 5,
+) -> dict[str, Any]:
+    """Cabeçalho e as primeiras linhas, cru — sem mapeamento nenhum.
+
+    `ler_csv` acima exige `colunas` porque já sabe para onde cada campo vai;
+    aqui é o oposto, o passo que existe *antes* de qualquer campo estar
+    ligado — o que o assistente de conexão nova mostra para o operador ligar
+    contra o valor real, em vez de digitar contra um arquivo aberto em outra
+    janela.
+    """
+    texto = raw.decode(encoding, errors="strict")
+    fluxo = io.StringIO(texto)
+    for _ in range(max(0, preambulo)):
+        if not fluxo.readline():
+            break
+    leitor = csv.DictReader(fluxo, delimiter=separador)
+    colunas = [c for c in (leitor.fieldnames or []) if c]
+    amostra = []
+    for linha in leitor:
+        if len(amostra) >= limite:
+            break
+        amostra.append({k: v for k, v in linha.items() if k})
+    return {"colunas": colunas, "amostra": amostra}
+
+
 _FAIXA = re.compile(r"^(?P<campo>[^@]+)@(?P<ini>\d+)-(?P<fim>\d+)$")
 
 

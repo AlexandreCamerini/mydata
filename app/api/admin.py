@@ -5,6 +5,7 @@ configuração. Escrita exige `PORTAL_ADMIN_TOKEN`.
 """
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -332,6 +333,41 @@ async def post_fonte(entrada: FonteEntrada, request: Request) -> Any:
     except ErroConfiguracao as e:
         raise _erro_config(e) from e
     return {"dados": repo.fonte_vigente(sink, entrada.chave), "id": novo}
+
+
+class PreviaArquivoEntrada(BaseModel):
+    # Chave e padrão de arquivo do dataset ainda não salvo — o assistente os
+    # já pediu no passo 1, antes de chegar aqui.
+    chave: str
+    janela: str
+    padrao_arquivo: str | None = None
+    parametros: dict[str, str] = Field(default_factory=dict)
+
+
+@router.post("/fontes/{fonte_chave}/previa-arquivo")
+async def post_previa_arquivo(
+    fonte_chave: str, entrada: PreviaArquivoEntrada, request: Request,
+) -> Any:
+    """Baixa a fonte agora e devolve colunas + amostra — passo "Arquivo" do
+    assistente de conexão nova. Não grava nada; é só leitura."""
+    from ..motor import download
+
+    ds_rascunho = {
+        "chave": entrada.chave,
+        "padrao_arquivo": entrada.padrao_arquivo or "",
+        "parametros": json.dumps(entrada.parametros),
+    }
+    try:
+        r = ingestao.previa_arquivo(
+            obter_sink(request), fonte_chave, ds_rascunho, entrada.janela,
+            baixar=download.baixar,
+        )
+    except ingestao.ErroIngestao as e:
+        raise HTTPException(
+            status_code=422,
+            detail={"codigo": "previa_falhou", "mensagem": str(e)},
+        ) from e
+    return {"dados": r}
 
 
 @router.get("/credenciais")

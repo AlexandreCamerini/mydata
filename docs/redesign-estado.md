@@ -3,7 +3,8 @@
 Leia este arquivo antes de qualquer outra coisa. Reescreva-o ao fim de cada
 etapa concluída.
 
-**Atualizado:** 02/09/2026 — dois achados novos fechados, fora da auditoria original.
+**Atualizado:** 02/09/2026 — retomado o redesenho Airbyte/Digibee que tinha
+ficado só no artefato: vocabulário, direção A, direção C e direção B.
 
 ## Pronto
 
@@ -77,6 +78,42 @@ Nada. As seis etapas da ordem em `docs/direcao-apresentacao.md` estão feitas.
   `text-sm`, 11 em tudo o mais, e `h2` a 16 px porque nenhum componente lhe dava
   tamanho. Declarada em `@theme`, com entrelinha e `tracking` por degrau, em vez
   de reescrever 264 classes.
+
+## O redesenho Airbyte/Digibee, retomado
+
+**02/09/2026 — o artefato "segunda rodada" (vocabulário + três direções
+inspiradas em Airbyte/Digibee) nunca tinha virado código.** Achado ao
+comparar o branch com um artefato que o Alex mandou depois — grep no
+histórico inteiro não achava "Airbyte", "Digibee" nem "Conexões" em lugar
+nenhum. Mapeamento de viabilidade contra o backend real corrigiu a ordem que
+o próprio artefato sugeria: vocabulário não é grátis (`atributo`, `janela`,
+`precedencia`, `bronze/silver/gold` são nome de campo no JSON de `/v1` e
+`/admin/api`, não só rótulo de tela), então virou tradução só na
+apresentação, sem tocar contrato. As quatro peças:
+
+- **Vocabulário** — "Classes"→"O que você guarda", "Mapeamentos"→"Conexões",
+  "atributo"→"campo", "precedência"→"quem manda".
+- **Direção A (cards de conexão)** — `Datasets.tsx` virou grade de cards com
+  os 5 estados fixos (No ar/Falhou/Atualizando/Pausada/Nunca rodou), linhas e
+  idade — tudo sobre `GET /execucoes?dataset=X&limite=6`, que já existia.
+- **Direção C (precedência arrastável)** — em `ClasseForm.tsx`, texto livre
+  virou lista com setas, restrita às conexões que de fato alimentam o campo.
+  É a correção do defeito real que a auditoria já tinha citado (fonte
+  inexistente digitada por engano).
+- **Direção B (assistente de conexão nova)** — a única que exigia backend
+  novo. `previa_arquivo()` em `app/motor/ingestao.py` baixa a fonte agora
+  (reaproveitando `_urls_da_janela`/`_com_credencial`/`membros_do_zip`, sem
+  duplicar o pipeline de carga real) e `parsing.previa_csv()` lê cabeçalho +
+  amostra sem mapeamento — o que faltava para mostrar o arquivo real antes
+  de ligar um campo. Cobre `http_csv` e `http_zip`; `http_json`/`http_token`
+  a tela pula a etapa e volta ao mapeamento digitado. Testado contra o
+  servidor real da CVM (`dados.cvm.gov.br`, DFP 2023) — colunas e amostra
+  batendo com dado de produção.
+
+Verificado: 513 testes Python (7 novos, incluindo o endpoint HTTP), `tsc`
+limpo, 38 testes de front, `npm run a11y` — 21 páginas + o passo mais
+arriscado do assistente (inputs crus de ligação de campo) verificado à parte
+com `axe-core` injetado — 0 violação em tudo.
 
 ## Achados 12 e 13, fora dos onze da auditoria
 

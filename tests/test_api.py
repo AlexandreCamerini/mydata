@@ -185,6 +185,54 @@ def test_admin_valida_campo_calculado_sem_gravar(cliente):
     assert "coluna_fantasma" in corpo["mensagem"]
 
 
+def test_admin_previa_arquivo_sem_gravar(cliente, zip_dfp_2023):
+    """O passo "Arquivo" do assistente: baixa agora, devolve colunas +
+    amostra, e não sobra rastro nenhum em execuções nem em bronze."""
+    import app.motor.download as download
+
+    antes = cliente.get("/admin/api/execucoes").json()["dados"]
+
+    def falso(url, cabecalhos=None):
+        assert "dfp_cia_aberta_2023.zip" in url
+        return zip_dfp_2023
+
+    original, download.baixar = download.baixar, falso
+    try:
+        r = cliente.post(
+            "/admin/api/fontes/cvm/previa-arquivo",
+            json={
+                "chave": "cvm_dfp",
+                "janela": "2023",
+                "padrao_arquivo": (
+                    r"^(?P<tipo_doc>dfp|itr)_cia_aberta_"
+                    r"(?P<grupo>BPA|BPP|DRE|DFC_MI|DFC_MD|DVA|DRA|DMPL)_"
+                    r"(?P<escopo>con|ind)_(?P<ano>\d{4})\.csv$"
+                ),
+                "parametros": {"tipo": "dfp"},
+            },
+        )
+    finally:
+        download.baixar = original
+
+    assert r.status_code == 200
+    corpo = r.json()["dados"]
+    assert corpo["nome_arquivo"] == "dfp_cia_aberta_BPA_con_2023.csv"
+    assert "CNPJ_CIA" in corpo["colunas"]
+    assert len(corpo["amostra"]) > 0
+
+    depois = cliente.get("/admin/api/execucoes").json()["dados"]
+    assert len(depois) == len(antes), "prévia não pode virar linha em execuções"
+
+
+def test_admin_previa_recusa_transporte_sem_suporte(cliente):
+    r = cliente.post(
+        "/admin/api/fontes/b3/previa-arquivo",
+        json={"chave": "b3_listadas", "janela": "2024"},
+    )
+    assert r.status_code == 422
+    assert r.json()["erro"]["codigo"] == "previa_falhou"
+
+
 def test_admin_emite_chave_uma_vez(cliente):
     r = cliente.post("/admin/api/chaves", json={"consumidor": "novo"})
     assert r.status_code == 200

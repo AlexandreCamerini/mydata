@@ -157,6 +157,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify(corpo),
     }),
+  // Passo "Arquivo" do assistente: baixa agora, sem gravar nada.
+  previaArquivo: (fonteChave: string, corpo: unknown) =>
+    pedir<Resposta<PreviaArquivo>>(
+      `/admin/api/fontes/${fonteChave}/previa-arquivo`,
+      { method: "POST", body: JSON.stringify(corpo) },
+    ),
 
   execucoes: (dataset?: string, status?: string, limite?: number) => {
     const p = new URLSearchParams();
@@ -593,6 +599,12 @@ export type Regra = {
   tolerancia: number;
   descricao: string | null;
   ativo: boolean;
+};
+
+export type PreviaArquivo = {
+  nome_arquivo: string;
+  colunas: string[];
+  amostra: Record<string, string>[];
 };
 
 export type Dataset = {

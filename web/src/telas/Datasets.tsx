@@ -19,6 +19,7 @@ import {
   estadoDaConexao,
   useDados,
 } from "../ui";
+import { AssistenteConexao } from "./AssistenteConexao";
 import { DatasetForm } from "./DatasetForm";
 
 function contagem(n: number): string {
@@ -78,11 +79,21 @@ export function Datasets() {
   const classes = useDados(() => api.classes());
   const historico = useHistoricoPorConexao(dados?.dados ?? []);
   const [aberto, setAberto] = useState<string | null>(null);
-  // null = lista; {} = conexão nova; {inicial} = nova versão.
-  const [editor, setEditor] = useState<{ inicial?: DatasetPayload } | null>(
-    null,
-  );
+  // null = lista; "novo" = assistente de conexão nova; {inicial} = nova
+  // versão de uma conexão existente, direto no formulário — já se sabe a
+  // fonte, o assistente não teria o que perguntar de novo.
+  const [editor, setEditor] = useState<
+    "novo" | { inicial: DatasetPayload } | null
+  >(null);
 
+  if (editor === "novo") {
+    return (
+      <AssistenteConexao
+        aoSalvar={recarregar}
+        aoFechar={() => setEditor(null)}
+      />
+    );
+  }
   if (editor) {
     return (
       <DatasetForm
@@ -107,7 +118,7 @@ export function Datasets() {
           dica="Cadastre uma fonte primeiro, depois a conexão arquivo → tabela."
         />
         <div>
-          <Botao variante="primario" aoClicar={() => setEditor({})}>
+          <Botao variante="primario" aoClicar={() => setEditor("novo")}>
             Nova conexão
           </Botao>
         </div>
@@ -119,7 +130,7 @@ export function Datasets() {
   return (
     <div className="grid gap-4">
       <div>
-        <Botao variante="primario" aoClicar={() => setEditor({})}>
+        <Botao variante="primario" aoClicar={() => setEditor("novo")}>
           Nova conexão
         </Botao>
       </div>
