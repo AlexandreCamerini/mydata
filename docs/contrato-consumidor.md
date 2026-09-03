@@ -66,6 +66,7 @@ implica código novo, aqui nem lá.
 
 | Consumidor | Prefixo | Escopo | Quota | Emitida em |
 |---|---|---|---|---|
+| MCP serviço | prefixo: ver `python -m app.cli chaves --consumidor "MCP serviço"` | `empresa`, `demonstracao_financeira`, `negociacao_b3`, `provento_b3` + `fonte:b3` | 120/min · 20.000/dia | 2026-09-03, **produção** — chave do serviço `mcp` (`https://mcp.semente.dev`), no mesmo projeto Railway deste hub |
 | BolsIA (`b3-agente`) | `f00b4554` | `empresa`, `demonstracao_financeira`, `negociacao_b3`, `provento_b3` + `fonte:b3` | 60/min · 2.000/dia | 2026-08-26, **produção** — substitui a `dadbd4b0`; revogar a antiga depois da troca |
 | Portal MCP | `c8125eee` | `empresa`, `demonstracao_financeira`, `negociacao_b3`, `provento_b3` + `fonte:b3` | 120/min · 5.000/dia | 2026-08-26, **produção** — substitui a `ebb05192` (escopo `leitura` total, nascida da tela de Chaves) e a `492d21fa` (revogada em 26/08) |
 | BolsIA (`b3-agente`) | `dadbd4b0` | `empresa`, `demonstracao_financeira` | 60/min · 1.000/dia | 2026-08-04, produção — **a caminho de revogação**: sem `negociacao_b3`, era por ela que candle vinha negado |
@@ -78,6 +79,17 @@ Foi exatamente o sintoma de 26/08 ("não existem candles para WEGE3/VALE3"):
 o dado estava lá, o consentimento não. O CLI ganhou `--fonte b3` para as
 próximas emissões; nas duas chaves acima o escopo foi corrigido no registro,
 sem trocar o segredo.
+
+**O `MCP serviço` é consumidor, não intermediário de chave.** Ele serve onze
+tools de opções e setups em `https://mcp.semente.dev` (endpoint MCP em
+`/mcp`), e lê este hub com a chave **dele**, não com a de quem o chamou — o
+log daqui diz "MCP serviço", e quem pediu fica registrado do lado de lá. É o
+que a restrição de uso pessoal do ADR-18 exige: só cliente identificado recebe
+dado real. O consumo dele por cliente está em `GET /observabilidade` naquele
+endereço, autenticado por bearer — chave de máquina do próprio serviço MCP ou
+token do `id.semente.dev` de sujeito autorizado. A quota de 20.000/dia dá
+folga sobre o teto que ele mesmo impõe aos clientes (2.000/dia cada, 10.000
+somados), para que o teto de lá corte antes desta quota.
 
 O prefixo é o que identifica a chave nos logs e o que se usa para revogá-la.
 A chave completa apareceu uma vez, no terminal de quem a emitiu; no banco fica
