@@ -296,9 +296,32 @@ def aplicar(
             # reapresentação rebaixando `is_latest`. Quem não retroage só
             # reescreve o que esta carga trouxe, e aí o custo do UPDATE para
             # de crescer com o histórico.
+            #
+            # A igualdade precisa ser null-safe — chave natural pode ter
+            # coluna nula (`prazo_termo` fora de termo) — mas `a = b OR (a IS
+            # NULL AND b IS NULL)` não é sargável: Postgres não decompõe OR
+            # dentro de AND em condição de hash/merge join, e cai em nested
+            # loop reavaliando a condição linha a linha do lado de fora contra
+            # o lado de dentro inteiro. Sobre `fato_negociacao` (734 mil
+            # linhas) isso mediu Nested Loop de custo ~627M e foi a causa
+            # raiz de uma execução de 22h36min em produção — 9 linhas/s
+            # efetivas escondendo um produto cartesiano parcial, não volume.
+            # `IS NOT DISTINCT FROM` é null-safe e mais direto, mas não muda
+            # o plano: testado localmente (Postgres 16), o planner também não
+            # o decompõe em hash/merge join aqui, e o custo estimado piora
+            # (~260M). `COALESCE(col, sentinela) = COALESCE(col, sentinela)`
+            # é uma igualdade comum — hashable e mergeable — que preserva a
+            # semântica null-safe sem depender de suporte especial do
+            # planner: testado no mesmo cenário, vira Merge Join de custo
+            # ~372K, ~1.700x mais barato. `chr(1)` é o sentinela: caractere
+            # de controle que não ocorre em código de negociação, data ISO
+            # ou nenhuma outra coluna de chave natural do catálogo — nenhuma
+            # é do tipo `numero`, então o cast para texto é exato (inteiro,
+            # texto, data-como-texto e booleano têm representação textual
+            # unívoca; ponto flutuante não, e por isso não entra em chave).
             condicao = [
-                f"(alvo.{c} = origem.{c} OR "
-                f"(alvo.{c} IS NULL AND origem.{c} IS NULL))"
+                f"COALESCE(alvo.{c}::text, chr(1)) = "
+                f"COALESCE(origem.{c}::text, chr(1))"
                 for c in chaves
             ]
             parametros_janela: list = []
