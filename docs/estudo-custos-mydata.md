@@ -1,0 +1,68 @@
+Estudo de redução de custos e otimização de processos — projeto mydata
+
+Limitação metodológica, declarada de antemão: este estudo foi feito sem acesso a números reais de produção — sem fatura Railway, sem tamanho/crescimento do volume Postgres, sem contagem de execuções por dataset, sem decomposição de tempo por fase. Toda estimativa de impacto abaixo é qualitativa, derivada de leitura de código (padrão algorítmico, ausência de índice, ausência de escopo). Trate como priorização de investigação, não como orçamento. A lista final indica exatamente o que coletar para a próxima rodada virar números.
+
+Achados, por impacto
+
+1. Captura paginada por iteração (B3) grava bronze só ao final do laço inteiro — falha parcial descarta tudo já baixado
+Onde: app/motor/paginacao.py (capturar), app/motor/ingestao.py:401-435.
+Problema: para datasets com iteracao (uma chamada HTTP por item — ex. uma empresa por vez na B3), todas as respostas ficam em memória e só há uma chamada a gravar_bronze() no fim do laço completo. Se o item N falhar após as 3 tentativas de retry, a exceção propaga, a execução inteira vira "falha" e os N-1 itens já baixados com sucesso são descartados — nada persiste em bronze. A próxima tentativa (manual ou cron) rebaixa a lista inteira do zero. Existe ainda um modo silencioso: quando a captura não declara caminho_total_paginas (branch pagina_unica), um item que responde algo não-JSON não derruba a execução, mas também não gera alerta — o texto cru entra em bronze e é descartado em silêncio na leitura (except ValueError: continue). Não há comparação entre "itens que a iteração deveria produzir" e "itens que efetivamente geraram registro".
+Ação sugerida: gravar em bronze por item (ou em lotes pequenos) em vez de uma vez ao final da iteração inteira, para que a falha no item N não jogue fora os N-1 já capturados. Instrumentar log_fase com "itens esperados vs. itens com registro extraído" para o caso silencioso virar alerta.
+Dado que falta para quantificar: nº médio de itens por execução dos datasets com iteracao (contar iteracao.sql no seed da B3); taxa histórica de execuções com status="falha" nesses datasets (log_execucao, filtrando por dataset_chave); duração média da fase "baixar" em execuções falhas vs. bem-sucedidas (log_fase), para estimar o tempo de rede jogado fora por reprocessamento.
+
+2. publicacao.py:publicar roda UPDATE de rótulo em todas as tabelas publicáveis a cada carga, não só na tocada
+Onde: app/motor/publicacao.py:123-144.
+Problema: toda publicação — mesmo a de um dataset pequeno e isolado — executa UPDATE {tabela} SET publicado_em_versao = ? WHERE publicado_em_versao IS NULL contra cada tabela retornada por tabelas_publicaveis(), e recria todas as views versionadas de gold, independentemente de quais classes a carga corrente tocou. Em Postgres (sink de produção), esse UPDATE precisa avaliar o predicado mesmo nas tabelas intocadas — scan pago a cada publicação de qualquer outro dataset. Índice de suporte em publicado_em_versao só existe para fato_conta (migracoes.py:711-714); as demais tabelas publicáveis rodam o UPDATE sem índice. O mesmo padrão se repete em descartar_nao_publicado (linhas 147-164): quando uma carga é bloqueada por qualidade, a função faz SELECT count(*) antes e depois do DELETE em cada tabela publicável, não só na do dataset bloqueado — dois full scans desperdiçados por tabela alheia, a cada bloqueio.
+Ação sugerida: escopar publicar() e descartar_nao_publicado() para operar só sobre a(s) tabela(s) efetivamente tocadas na execução corrente (já disponível via ds["tabela_destino"]); manter uma rotina administrativa separada, mais rara, para "publicar/reparar tudo pendente". Replicar o índice de fato_conta nas demais tabelas publicáveis.
+Dado que falta para quantificar: nº de classes ativas / tabelas publicáveis em produção e tamanho de cada uma (pg_total_relation_size); EXPLAIN ANALYZE do UPDATE de rótulo contra a maior tabela publicável quando ela não é a tocada pela carga; frequência de chamadas a publicar() por dia (uma por dataset carregado com sucesso) e de bloqueios por qualidade (status="bloqueada" em log_execucao).
+
+3. Campo calculado de janela sempre recomputado sobre a tabela inteira, mesmo em carga incremental
+Onde: app/motor/calculados.py:279-319.
+Problema: campo classe "janela" (ex. is_latest) sempre lê FROM {tabela} sem filtro para alimentar a window function — decisão deliberada e bem justificada no próprio código (recomputar só o ano ingerido deixaria o flag errado em anos vizinhos quando chega uma reapresentação da CVM). O ponto não é a correção, é que a leitura cresce com o histórico acumulado sem teto: comentário do próprio módulo estima um pregão em ~14 mil linhas e um ano em ~3,5 milhões, e a função de janela roda sobre a série inteira toda vez que qualquer dataset daquela tabela é carregado — mesmo quando a escrita final já está corretamente escopada via retroage=False + _carga_no_fim.
+Ação sugerida: manter a correção como está (não mexer na semântica); avaliar escopar também a leitura à partição de chaves naturais afetadas (cd_cvm, tipo_doc) quando _carga_no_fim() já autoriza a escrita escopada, restringindo o full-table scan ao caso de retroação real. Alternativa de menor esforço: só investir aqui quando a duração da fase "calculados" virar gargalo mensurável — hoje essa duração não é medida isoladamente.
+Dado que falta para quantificar: duração da fase "calculados" isolada por execução (log_fase/custo.py não decompõem tempo por fase hoje — instrumentar isso é pré-requisito); tamanho atual de fato_conta/dim_empresa em produção; nº de cargas incrementais por dia versus cargas retroativas.
+
+4. recomputar_tudo é sequencial, sem paralelismo e sem checkpoint de progresso
+Onde: app/motor/ingestao.py:614-626.
+Problema: é a rotina oficial de correção após mudança de modelo/schema — itera todo dataset × toda janela já capturada em bronze, sequencialmente, reparseando o payload do zero e reexecutando o ciclo inteiro (silver, calculados — incluindo o full-table scan do achado 3 —, qualidade, publicação — incluindo o achado 2) para cada combinação. É O(todo o histórico acumulado) a cada chamada. Não há checkpoint: se o processo cair no meio (timeout do Railway, falha de rede, OOM), a próxima chamada recomeça do zero, não retoma de onde parou — mesmo que 90% já tivesse sido refeito. Confirmado que hoje só é acionada via CLI manual (app/cli.py:199), não faz parte de rotina automática/cron, o que reduz a urgência frente ao caminho quente, mas não o custo de cada acionamento real.
+Ação sugerida: persistir a última janela recomputada com sucesso por dataset, para permitir retomada; paralelizar por dataset (datasets são independentes entre si; janelas dentro do mesmo dataset seguem sequenciais por causa do campo de janela). Se algum dia entrar em rotina automatizada, rodar fora do serviço web/cron principal para não competir por recursos com a API em produção.
+Dado que falta para quantificar: tempo de execução completo de recomputar_tudo medido uma vez contra uma cópia do banco de produção (piso: o local de 3,5 GB); nº de vezes que a rotina foi de fato disparada nos últimos 6 meses (trigger="replay" em log_execucao, ou correlação com deploys que alteraram seed_fontes.py/calculados); nº total de combinações dataset×janela existentes hoje em bronze.
+
+5. bronze_captura sem política de retenção, protegida por trigger de imutabilidade
+Onde: app/migracoes.py:206-214 (trg_bronze_imutavel); app/motor/custo.py (relatório de crescimento).
+Problema: bronze_captura acumula todo payload bruto baixado (BLOB) sem nenhuma purga, e um trigger bloqueia DELETE/UPDATE por design (auditabilidade/reprocessamento). O próprio custo.py já projeta crescimento (bytes_bronze, crescimento_gb_dia, projecao_12m_gb) e o railway.ts já configura alertas de uso em 80/95/100% dos 50 GB do volume Postgres — ou seja, o limite já está no radar da equipe, mas não existe hoje nenhum mecanismo de contenção no código, só o trigger que impede a exclusão direta.
+Ação sugerida: definir política de retenção (ex.: purgar captura antiga já superada por reapresentação da CVM, ou mover payload histórico para storage frio fora do Postgres) e construir uma via controlada de purga (função privilegiada, não DELETE direto) que respeite a intenção do trigger para os datasets onde o bruto não precisa ser reproduzível para sempre.
+Dado que falta para quantificar: uso atual e crescimento mensal (GB/mês) do volume Postgres de produção — já parcialmente medido internamente via /admin/api/carga; falta cruzar com o preço por GB do plano Railway vigente para converter em R$/mês.
+
+6. Dedup de bronze por sha256 sem índice composto
+Onde: app/motor/ingestao.py:86-92 (gravar_bronze) vs app/migracoes.py:201 (ix_bronze_janela, que cobre só dataset_chave, janela).
+Problema: a query SELECT id FROM bronze_captura WHERE dataset_chave = ? AND sha256 = ? não tem índice cobrindo sha256; em Postgres o otimizador usa o prefixo dataset_chave do índice existente, mas sha256 vira filtro residual não indexado dentro desse range. Como bronze_captura não tem retenção (achado 5), o custo dessa query cresce linearmente com o histórico acumulado por dataset_chave, sem teto, a cada download.
+Ação sugerida: criar índice composto (dataset_chave, sha256) — avaliar até UNIQUE INDEX, que também vira constraint de integridade.
+Dado que falta para quantificar: nº de linhas em bronze_captura por dataset_chave em produção; tempo de execução da query de dedup via EXPLAIN ANALYZE no Postgres de produção.
+
+7. custo.py agrega bronze_captura inteira a cada execução de carga
+Onde: app/motor/custo.py:169-171 (bronze_total).
+Problema: SELECT sum(tamanho_bytes) FROM bronze_captura sem filtro roda a cada carga só para compor o relatório de custo daquela execução — agregação sobre todas as capturas de todos os datasets desde sempre. Sem retenção (achado 5), esse agregado cresce sem limite e é recalculado em toda carga, inclusive as pequenas.
+Ação sugerida: cachear bronze_total por período curto (ex. 1x/hora) em vez de recalcular por execução; ou manter contador incremental atualizado no próprio INSERT de gravar_bronze.
+Dado que falta para quantificar: nº de linhas em bronze_captura e frequência de execuções de carga por dia, para estimar quantas vezes esse SUM roda sobre a tabela inteira por período.
+
+8. Disparo manual de execução sem trava contra concorrência no mesmo dataset+janela
+Onde: app/api/admin.py:483 (POST /admin/execucoes).
+Problema: o endpoint chama ingestao.executar sem checar se já existe uma execução em andamento para o mesmo dataset_chave+janela — um operador clicando duas vezes, ou um clique manual coincidindo com o cron agendado, não é bloqueado. A staging (CREATE TEMP TABLE, escopada por conexão) evita colisão de nome, e o upsert final por chave natural evita duplicar linha de dado, mas não há proteção contra: download completo duplicado; duas passadas concorrentes de calc.aplicar reescrevendo a mesma tabela para campo de janela; e uma corrida clássica (TOCTOU) em publicacao.publicar(), que lê versao_atual() (MAX) e só depois insere a nova linha, sem transação isolando leitura e escrita. Não confirmado como incidente em produção — é risco identificado no código.
+Ação sugerida: checar log_execucao por status "em andamento" para o mesmo dataset_chave+janela antes de aceitar novo disparo (manual ou cron), ou usar advisory lock do Postgres.
+Dado que falta para quantificar: self-join em log_execucao procurando pares do mesmo dataset_chave+janela com iniciado_em/terminado_em sobrepostos nos últimos 6 meses — se zero, risco é teórico; se não, há corrida real.
+
+Achados descartados por impacto baixo frente ao custo de leitura: ausência de circuit-breaker fino no laço de iteração da B3 (o retry por item já é limitado e correto — 3 tentativas com backoff —, o problema é só a falta de corte precoce entre itens); download sem cache HTTP condicional (ETag/Last-Modified) fora do caso de iteracao já coberto no achado 1; count(*) redundantes isolados em ingestao.py; releitura de json.loads em parâmetros de dataset; serviço web sempre ativo no Railway (estrutural da plataforma — Railway não tem scale-to-zero para serviço web regular, e a consolidação front+API+admin em um serviço só já é a otimização disponível nesse modelo).
+
+O que coletar em produção para a próxima rodada virar número
+
+- Fatura Railway do período, detalhada por serviço (mydata web, mydata-cron, volume Postgres).
+- Tamanho atual e crescimento mensal do volume Postgres (já parcialmente exposto por custo.py/relatorio_carga — cruzar com preço por GB do plano).
+- SELECT dataset_chave, count(*), count(DISTINCT janela) FROM bronze_captura GROUP BY dataset_chave.
+- Taxa de dedup: proporção de capturas com sha256 já existente sobre o total, últimos 3-6 meses.
+- Instrumentação de duração por fase (log_fase hoje não decompõe tempo por fase de execução) — pré-requisito para quantificar os achados 2, 3 e 4.
+- Nº de itens por dataset com iteracao (B3) e taxa de execuções com status="falha" nesses datasets.
+- EXPLAIN ANALYZE em produção das três queries-chave: dedup de bronze, UPDATE de rótulo de publicação, UPDATE/leitura de campo de janela.
+- Self-join em log_execucao para detectar sobreposição real de execuções concorrentes.
+- Frequência real de uso de recomputar_tudo nos últimos 6 meses (trigger="replay" ou correlação com deploys de schema).
+- Requests/dia e CPU/memória média do serviço web, via painel de billing do Railway.
