@@ -48,7 +48,12 @@ export default defineRailway(() => {
     // "corrigir" nenhum deles fora daqui. `mydata.acamerini.app` convive
     // até o Alex decidir o corte; `PORTAL_URL_PUBLICA` já aponta para
     // `mydata.semente.dev`, que é o endereço primário a partir de agora.
-    domains: ["mydata.acamerini.app", "mydata.semente.dev", "semente.dev"],
+    // `semente.dev` (ápice) saiu daqui em 2026-09-27: não está registrado no
+    // painel do serviço (a API lista só os dois abaixo) e IaC não registra
+    // domínio — com ele, `railway config plan` nem compila. Se o ápice for
+    // apontado para o mydata um dia: registrar no painel, `railway config
+    // pull`, e ele volta para esta lista.
+    domains: ["mydata.acamerini.app", "mydata.semente.dev"],
     env: {
       BRAPI_TOKEN: preserve(),
       DATABASE_URL: preserve(),
