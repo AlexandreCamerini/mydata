@@ -27,7 +27,9 @@ integrado está em [contrato-consumidor.md](contrato-consumidor.md).
 
 - `.railway/railway.ts` — a configuração de deploy como código (IaC), no
   formato que substituiu o `railway.json` deprecado (corte da plataforma em
-  2026-12-01). Declara os dois serviços (`mydata` e `mydata-cron`), start
+  2026-12-01). Desde 2026-09-27 exporta `partial = "mydata"`: o projeto
+  Railway também hospeda `mcp` e `semente-id`, governados pelos arquivos dos
+  repos deles; sem partial, um `apply` daqui apagaria os dois. Declara os dois serviços (`mydata` e `mydata-cron`), start
   command, healthcheck em `/health` e política de restart; o boot roda
   `python -m app.cli migrar --seed` antes de servir, e o seed é idempotente
   por digest. `railway config plan` mostra o desvio contra a produção sem

@@ -17,3 +17,9 @@ web/tsconfig.tsbuildinfo
 
 # artefatos que já entraram por engano uma vez
 web/dist/axe.min.js
+
+# configuração local do Claude Code / auditoria de design — carrega token;
+# nunca versionar (achado de 2026-09-26)
+.mcp.json
+.dwic/
+.DS_Store

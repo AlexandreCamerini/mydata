@@ -11,6 +11,17 @@
 // gerido pelo painel.
 import { defineRailway, github, postgres, preserve, project, service, volume } from "railway/iac";
 
+// PARTIAL nomeado desde 2026-09-27. Este projeto Railway hospeda também os
+// serviços `mcp` (repo ~/dev/MCP) e `semente-id` (repo ~/dev/semente-id),
+// criados depois deste arquivo e ausentes dele. Sem partial, este arquivo é
+// "o projeto inteiro" e um `railway config apply` proporia DESTRUIR os dois
+// (num arquivo de projeto, recurso omitido é recurso apagado). Com o nome,
+// este repo só governa o que declara: mydata, mydata-cron, Postgres e o
+// volume. Os outros dois repos exportam os partials `mcp` e `semente-id`.
+// O primeiro `apply` depois desta linha registra a posse — rodar `plan`
+// antes e conferir que não há "destroy" de serviço alheio.
+export const partial = "mydata";
+
 export default defineRailway(() => {
   const repo = github("AlexandreCamerini/mydata", { checkSuites: false });
 
