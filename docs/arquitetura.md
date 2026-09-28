@@ -1292,6 +1292,45 @@ motor saber — e é exatamente o desacoplamento que se buscava.
 
 ---
 
+### ADR-25 — console central, Bloco A: pacote isolado dentro do admin (ADR-23 Fase 3)
+
+**Contexto.** O pedido de uma console central para os 5 sistemas do
+portfólio (MCP, mydata, Boris+, semente-id, portal) enumerava duas opções —
+evoluir o `/console` do MCP ou um serviço próprio. O ADR-23 já havia
+decidido isto na Fase 3: "não nasce serviço novo" — o admin do mydata se
+estende. `docs/spec-console-central.md` (Fable 5.1, 2026-09-26) formaliza
+essa execução com válvula objetiva de extração, e este ADR registra o
+Bloco A dela: coletor, tabelas próprias e credenciais de leitura por
+origem.
+
+**Decisão.** Pacote isolado `app/console/` dentro do repositório `mydata`,
+roteado em `/admin/api/console/*`, com tabelas próprias `console_coleta`,
+`console_metrica_diaria` e `console_deploy` (migração `0021_console`).
+Guardião de import automatizado: `app/console/` nunca importa nada de
+`app/motor` — mesma disciplina que o Boris+ já aplica ao próprio MCP.
+Coletor com agendador interno (`asyncio.Task` no lifespan do
+`app/api/main.py`), ativo só com `CONSOLE_COLETOR=1` — sem a variável, o
+mydata sobe exatamente como sobe hoje. Cinco origens somente-leitura: os
+quatro envelopes ADR-23 (MCP, o próprio mydata — por função interna, nunca
+HTTP para si mesmo —, Boris+, portal) e os deploys do Railway via GraphQL
+público, sempre `query`, nunca `mutation`. Válvula de extração para C:
+p95 de `/admin/api/console/*` > 2 s sustentado, ou o pacote console
+derrubar `/v1` uma vez.
+
+**Alternativas rejeitadas.** Ver a tabela de três opções em
+`docs/spec-console-central.md` §1 — evoluir o `/console` do MCP contraria a
+DECISÃO 13 dele (console pedagógico das próprias tools, sem persistência) e
+o próprio ADR-23; um serviço novo reabre uma decisão do dono sem evidência
+nova de carga.
+
+**Consequências.** Um deploy do mydata a cada mudança no console; console e
+`/v1` compartilham processo, sem isolamento de falha entre os dois — por
+isso a válvula de extração é mensurável, não uma promessa. Nenhuma
+dependência nova (`requests`, já principal do projeto); nenhuma credencial
+de escrita em serviço monitorado — todas as `CONSOLE_*` são de leitura.
+
+---
+
 ## 14. Questões em aberto
 
 1. ~~**Origem do mapa ticker → `cd_cvm`**~~ — **fechada em 06/08/2026**, e o

@@ -652,6 +652,52 @@ MIGRACOES: list[Migracao] = [
                )""",
         ],
     ),
+    Migracao(
+        # Bloco A da console central (ADR-25, ADR-23 Fase 3). Três tabelas
+        # próprias do pacote `app/console/`, fora do motor — mesma lógica do
+        # `setup_mcp` (ADR-24): dado que só a console lê e escreve, sem
+        # `cfg_classe`.
+        #
+        # `console_coleta` é bruta (uma linha por tentativa, sucesso ou
+        # falha) e sustenta a leitura de "indisponível desde <hora>" sem
+        # nenhuma outra tabela. `console_metrica_diaria` é o agregado diário
+        # que nenhuma origem guarda hoje. `console_deploy` espelha
+        # `list-deployments` do Railway com histórico próprio.
+        #
+        # `commit_sha`, não `commit`: a spec (§2) usa `commit`, mas a palavra
+        # é reservada em Postgres e DuckDB (controle de transação) — usá-la
+        # como nome de coluna sem aspas quebra o DDL nos dois dialetos.
+        nome="0021_console",
+        sql=[
+            "CREATE SEQUENCE IF NOT EXISTS seq_console_coleta START 1",
+            """CREATE TABLE IF NOT EXISTS console_coleta (
+                 id         {INT}  PRIMARY KEY,
+                 origem     {TEXTO} NOT NULL,
+                 quando     {TSTZ}  NOT NULL,
+                 ok         {BOOL}  NOT NULL,
+                 duracao_ms {INT},
+                 erro       {TEXTO}
+               )""",
+            """CREATE INDEX IF NOT EXISTS ix_console_coleta_origem_quando
+                 ON console_coleta (origem, quando)""",
+            """CREATE TABLE IF NOT EXISTS console_metrica_diaria (
+                 dia     {TEXTO} NOT NULL,
+                 sistema {TEXTO} NOT NULL,
+                 metrica {TEXTO} NOT NULL,
+                 valor   {TEXTO},
+                 fonte   {TEXTO},
+                 PRIMARY KEY (dia, sistema, metrica)
+               )""",
+            """CREATE TABLE IF NOT EXISTS console_deploy (
+                 sistema    {TEXTO} NOT NULL,
+                 ambiente   {TEXTO} NOT NULL,
+                 deploy_id  {TEXTO} PRIMARY KEY,
+                 commit_sha {TEXTO},
+                 quando     {TSTZ},
+                 status     {TEXTO}
+               )""",
+        ],
+    ),
 ]
 
 # Tabelas silver que participam do ciclo de publicação. A partir da Etapa 3

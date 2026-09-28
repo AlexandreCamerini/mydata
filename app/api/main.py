@@ -27,6 +27,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
 from .. import bootstrap, repositorio as repo
+from ..console import api as console_api
+from ..console import coletor as console_coletor
 from ..motor import (
     contrato, correlacao, custo, ingestao, observabilidade, publicacao,
 )
@@ -46,7 +48,12 @@ async def ciclo(app: FastAPI):
     if os.getenv("PORTAL_MIGRAR_NO_BOOT", "1") == "1":
         bootstrap.preparar(sink)
     app.state.sink = sink
+    # Agendador interno da console (Bloco A, ADR-25) — só com
+    # CONSOLE_COLETOR=1. Sem a variável, `iniciar` não cria nenhuma tarefa e
+    # o mydata sobe exatamente como sobe hoje (critério de aceite do dono).
+    console_coletor.iniciar(app)
     yield
+    await console_coletor.parar(app)
     sink.fechar()
 
 
@@ -1453,6 +1460,9 @@ async def desativar_setup(
 # /admin — plano de controle
 # --------------------------------------------------------------------------
 app.include_router(admin.router)
+# Console central, Bloco A (ADR-25) — pacote isolado, tabelas próprias
+# `console_*`, mesma sessão do dono (`exigir_admin`, reaproveitado por import).
+app.include_router(console_api.router)
 
 # ---------------------------------------------------------------------------
 # Acesso à apresentação. Ela é do dono, não pública: com PORTAL_ADMIN_TOKEN
