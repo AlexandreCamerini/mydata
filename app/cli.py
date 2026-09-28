@@ -309,6 +309,31 @@ def cmd_revogar(args) -> int:
         sink.fechar()
 
 
+def cmd_escopo(args) -> int:
+    """Acrescenta um escopo a uma chave ativa pelo prefixo, sem reemitir.
+
+    Antes disto, dar `setups` à chave do MCP serviço obrigava a revogar e
+    emitir outra — e trocar o segredo num serviço em produção por causa de um
+    token de escopo é risco sem ganho. Só acrescenta; tirar continua sendo
+    revogar (ver `auth.acrescentar_escopo`).
+    """
+    from .api import auth
+
+    sink = criar_sink()
+    try:
+        r = auth.acrescentar_escopo(sink, args.prefixo, args.adicionar)
+        if r is None:
+            print(f"nada feito: {args.prefixo} não existe ou está revogada.")
+            return 1
+        if r is False:
+            print(f"{args.prefixo} já tinha o escopo {args.adicionar!r}.")
+            return 0
+        print(f"{args.prefixo} ganhou o escopo {args.adicionar!r}.")
+        return 0
+    finally:
+        sink.fechar()
+
+
 def cmd_status(args) -> int:
     sink = criar_sink()
     print(f"publicação em gold: v{publicacao.versao_atual(sink)}")
@@ -379,6 +404,12 @@ def main(argv: list[str] | None = None) -> int:
     rv = sub.add_parser("revogar", help="revoga uma chave de API pelo prefixo")
     rv.add_argument("prefixo", help="o identificador público da chave")
     rv.set_defaults(func=cmd_revogar)
+
+    es = sub.add_parser("escopo", help="acrescenta um escopo a uma chave ativa")
+    es.add_argument("prefixo", help="o identificador público da chave")
+    es.add_argument("--adicionar", required=True, metavar="ESCOPO",
+                    help="um token, ex.: setups, fonte:b3, classe:empresa")
+    es.set_defaults(func=cmd_escopo)
 
     s = sub.add_parser("status", help="mostra publicação e últimas execuções")
     s.add_argument("--limite", type=int, default=10)

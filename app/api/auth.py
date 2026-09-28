@@ -114,6 +114,34 @@ def revogar(sink: Sink, prefixo: str) -> bool:
     return True
 
 
+def acrescentar_escopo(sink: Sink, prefixo: str, escopo: str) -> bool | None:
+    """Acrescenta um token de escopo (ex.: `setups`) a uma chave ativa, sem
+    trocar o segredo.
+
+    `None` = chave não existe ou está revogada; `False` = já tinha o escopo
+    (nada mudou); `True` = gravado. Só ACRESCENTA: tirar escopo é revogar e
+    reemitir, porque uma chave que perde acesso precisa deixar rastro, e a
+    revogação é esse rastro.
+    """
+    escopo = escopo.strip()
+    if not escopo or "," in escopo:
+        raise ValueError(f"escopo inválido: {escopo!r} (um token, sem vírgula).")
+    linha = sink.um(
+        "SELECT escopos FROM cfg_chave_api WHERE prefixo = ? AND revogada_em IS NULL",
+        (prefixo,),
+    )
+    if linha is None:
+        return None
+    atuais = [e.strip() for e in (linha["escopos"] or "").split(",") if e.strip()]
+    if escopo in atuais:
+        return False
+    sink.executar(
+        "UPDATE cfg_chave_api SET escopos = ? WHERE prefixo = ?",
+        (",".join(atuais + [escopo]), prefixo),
+    )
+    return True
+
+
 def verificar(sink: Sink, chave: str | None) -> dict | None:
     """Devolve a chave se válida e não revogada; None caso contrário."""
     if not chave or not chave.startswith("pd_"):
