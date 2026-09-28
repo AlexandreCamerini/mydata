@@ -10,6 +10,7 @@ import base64
 import json
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 # Renomeado para não colidir com fastapi.Path, usado abaixo para documentar
 # parâmetro de rota (cd_cvm, ticker etc.) — os dois se chamam "Path" e fazem
 # coisas completamente diferentes.
@@ -161,6 +162,20 @@ async def exigir_chave(
             detail={"codigo": "quota_excedida",
                     "mensagem": f"Quota por {quota['janela']} esgotada."},
             headers={"Retry-After": "60" if quota["janela"] == "minuto" else "3600"},
+        )
+    return chave
+
+
+async def exigir_chave_setups(chave: dict = Depends(exigir_chave)) -> dict:
+    """`exigir_chave` mais o escopo `setups` — toda rota de `/v1/setups`,
+    leitura incluída, porque setup é estado privado do consumidor, não classe
+    pública (ver `auth.pode_setups`)."""
+    if not auth.pode_setups(chave):
+        raise HTTPException(
+            status_code=403,
+            detail={"codigo": "escopo_insuficiente",
+                    "mensagem": f"A chave de '{chave.get('consumidor')}' não tem "
+                                f"escopo 'setups'."},
         )
     return chave
 
@@ -1263,6 +1278,175 @@ async def meta_fases(
 ) -> Any:
     """Onde a carga gastou o tempo — não só que ela demorou."""
     return {"dados": observabilidade.linha_do_tempo(obter_sink(request), execucao_id)}
+
+
+# --------------------------------------------------------------------------
+# /v1/setups — estado do MCP (vigias de candle), não classe do motor
+# --------------------------------------------------------------------------
+# `registro` é o JSON inteiro do MCP (`~/dev/MCP/servers/mydata/armazem.py`),
+# opaco para este arquivo: valida-se só o mínimo que a identidade exige
+# (`setup.name`). O resto — o que cada campo de controle significa — é
+# assunto do MCP, nunca deste servidor. Ver ADR-24 em docs/arquitetura.md.
+class SetupEntrada(BaseModel):
+    registro: dict[str, Any]
+
+
+class SetupPatchEntrada(BaseModel):
+    campo: str
+    valor: Any = None
+
+
+def _setup_linha(sink: Sink, consumidor: str, nome: str) -> dict | None:
+    return sink.um(
+        "SELECT registro, status FROM setup_mcp WHERE consumidor = ? AND nome = ?",
+        (consumidor, nome),
+    )
+
+
+def _setup_ou_404(sink: Sink, consumidor: str, nome: str) -> dict:
+    linha = _setup_linha(sink, consumidor, nome)
+    if linha is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "codigo": "setup_inexistente",
+                "mensagem": f"Não há setup '{nome}' para este consumidor.",
+            },
+        )
+    return json.loads(linha["registro"])
+
+
+@app.get("/v1/setups", tags=["setups"])
+async def listar_setups(
+    request: Request,
+    incluir_inativos: bool = Query(
+        False, description="Inclui setups com status inativo"),
+    chave: dict = Depends(exigir_chave_setups),
+) -> Any:
+    """Os setups (vigias de candle) deste consumidor — nunca o de outro:
+    isolamento é por `consumidor` da própria chave, não por filtro opcional."""
+    sink = obter_sink(request)
+    filtro = "" if incluir_inativos else "AND status = 'ativo'"
+    linhas = sink.consultar(
+        f"SELECT registro FROM setup_mcp WHERE consumidor = ? {filtro} "
+        f"ORDER BY criado_em",
+        (chave["consumidor"],),
+    )
+    return {"dados": [json.loads(l["registro"]) for l in linhas]}
+
+
+@app.get("/v1/setups/{nome}", tags=["setups"])
+async def obter_setup(
+    request: Request,
+    nome: str = Path(..., description="setup.name — a identidade do setup"),
+    chave: dict = Depends(exigir_chave_setups),
+) -> Any:
+    sink = obter_sink(request)
+    return {"dados": _setup_ou_404(sink, chave["consumidor"], nome)}
+
+
+@app.post("/v1/setups", status_code=201, tags=["setups"])
+async def criar_setup(
+    entrada: SetupEntrada,
+    request: Request,
+    chave: dict = Depends(exigir_chave_setups),
+) -> Any:
+    """Espelha `ArmazemArquivo.salvar`: nome repetido é erro, não substituição
+    silenciosa — desativar e recriar deixa rastro."""
+    setup = entrada.registro.get("setup")
+    nome = setup.get("name") if isinstance(setup, dict) else None
+    if not isinstance(nome, str) or not nome.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "codigo": "entrada_invalida",
+                "mensagem": "registro.setup.name precisa ser string não vazia.",
+            },
+        )
+
+    registro = dict(entrada.registro)
+    registro.setdefault("status", "ativo")
+
+    sink = obter_sink(request)
+    consumidor = chave["consumidor"]
+    if _setup_linha(sink, consumidor, nome) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "codigo": "setup_existente",
+                "mensagem": f"Já existe um setup '{nome}' para este consumidor.",
+            },
+        )
+
+    agora = datetime.now(timezone.utc)
+    sink.executar(
+        """INSERT INTO setup_mcp
+           (consumidor, nome, registro, status, criado_em, atualizado_em)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (consumidor, nome, json.dumps(registro, ensure_ascii=False),
+         registro["status"], agora, agora),
+    )
+    return {"dados": registro}
+
+
+@app.patch("/v1/setups/{nome}", tags=["setups"])
+async def anotar_setup(
+    entrada: SetupPatchEntrada,
+    request: Request,
+    nome: str = Path(..., description="setup.name — a identidade do setup"),
+    chave: dict = Depends(exigir_chave_setups),
+) -> Any:
+    """Espelha `ArmazemArquivo.anotar`: grava um campo de controle (ex.:
+    `ultimo_pregao_notificado`) fora de `setup` — o setup em si é imutável
+    depois de ativado, o que mantém o backtest da criação comparável com o
+    comportamento monitorado."""
+    if entrada.campo in ("setup", "status"):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "codigo": "campo_reservado",
+                "mensagem": f"'{entrada.campo}' não é campo de controle: "
+                            f"'setup' não muda depois de criado, e 'status' "
+                            f"só muda por /desativar.",
+            },
+        )
+
+    sink = obter_sink(request)
+    consumidor = chave["consumidor"]
+    registro = _setup_ou_404(sink, consumidor, nome)
+    registro[entrada.campo] = entrada.valor
+    sink.executar(
+        "UPDATE setup_mcp SET registro = ?, atualizado_em = ? "
+        "WHERE consumidor = ? AND nome = ?",
+        (json.dumps(registro, ensure_ascii=False), datetime.now(timezone.utc),
+         consumidor, nome),
+    )
+    return {"dados": registro}
+
+
+@app.post("/v1/setups/{nome}/desativar", tags=["setups"])
+async def desativar_setup(
+    request: Request,
+    nome: str = Path(..., description="setup.name — a identidade do setup"),
+    chave: dict = Depends(exigir_chave_setups),
+) -> Any:
+    """Espelha `ArmazemArquivo.desativar`: devolve bool, nunca 404 — nome
+    inexistente e setup já inativo são o mesmo "nada para fazer"."""
+    sink = obter_sink(request)
+    consumidor = chave["consumidor"]
+    linha = _setup_linha(sink, consumidor, nome)
+    if linha is None or linha["status"] != "ativo":
+        return {"dados": {"desativado": False}}
+
+    registro = json.loads(linha["registro"])
+    registro["status"] = "inativo"
+    sink.executar(
+        "UPDATE setup_mcp SET registro = ?, status = 'inativo', atualizado_em = ? "
+        "WHERE consumidor = ? AND nome = ?",
+        (json.dumps(registro, ensure_ascii=False), datetime.now(timezone.utc),
+         consumidor, nome),
+    )
+    return {"dados": {"desativado": True}}
 
 
 # --------------------------------------------------------------------------

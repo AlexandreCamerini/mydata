@@ -619,6 +619,39 @@ MIGRACOES: list[Migracao] = [
             )""",
         ],
     ),
+    Migracao(
+        # O MCP (`~/dev/MCP/servers/mydata/armazem.py`) guarda setups — vigias
+        # de candle — num JSON local hoje, e já declara o Postgres do MyData
+        # como alvo, através de `/v1/setups`. O registro dele tem a forma
+        # `{"setup": {"name", ...}, "status": "ativo"|"inativo", ...campos de
+        # controle}`, e `setup.name` é a identidade que `salvar` recusa
+        # duplicar.
+        #
+        # Tabela própria, fora do motor — não `cfg_classe`. A regra de "a
+        # tabela nasce da classe" (ADR-11) vale para dado de domínio
+        # republicável entre chaves; setup é o oposto: estado privado de UM
+        # consumidor, cujos campos só o MCP interpreta. Modelar isso em
+        # `cfg_atributo` obrigaria o motor a conhecer a forma de um setup que
+        # ele nunca lê — ver ADR-24.
+        #
+        # `registro` é o JSON inteiro, opaco para o MyData: ele só guarda, não
+        # interpreta. `status` repete `registro.status` numa coluna própria
+        # só para filtrar por SQL sem depender de função JSON específica de
+        # dialeto — DuckDB e Postgres nunca precisam concordar em como ler
+        # dentro do texto.
+        nome="0020_setup_mcp",
+        sql=[
+            """CREATE TABLE IF NOT EXISTS setup_mcp (
+                 consumidor    {TEXTO} NOT NULL,
+                 nome          {TEXTO} NOT NULL,
+                 registro      {TEXTO} NOT NULL,
+                 status        {TEXTO} NOT NULL DEFAULT 'ativo',
+                 criado_em     {TSTZ}  NOT NULL DEFAULT {AGORA},
+                 atualizado_em {TSTZ}  NOT NULL DEFAULT {AGORA},
+                 PRIMARY KEY (consumidor, nome)
+               )""",
+        ],
+    ),
 ]
 
 # Tabelas silver que participam do ciclo de publicação. A partir da Etapa 3

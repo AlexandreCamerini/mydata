@@ -1260,6 +1260,38 @@ e o TTL exato das sessões, que se decide na construção da Fase 1.
 
 ---
 
+### ADR-24 — setups do MCP em tabela própria
+
+**Contexto.** O MCP guarda setups (vigias de candle) num JSON local e já
+declara o Postgres do MyData como alvo, através de `/v1/setups`. A regra do
+ADR-11 é que a tabela nasce de `cfg_classe`, nunca de `CREATE TABLE` em
+migração. Setup não se encaixa: os campos de um setup só o MCP interpreta,
+e são dado de UM consumidor — não informação republicável entre chaves,
+como empresa ou cotação.
+
+**Decisão.** Tabela própria, fora do motor: `setup_mcp (consumidor, nome,
+registro, status, criado_em, atualizado_em)`, chave primária
+`(consumidor, nome)`. `registro` guarda o JSON inteiro do MCP como texto
+opaco — o MyData armazena, nunca interpreta. Isolamento é por `consumidor`
+da chave autenticada, nunca por parâmetro do consumidor. Escopo próprio,
+`setups`, exigido em toda rota inclusive leitura — diferente do resto do
+modelo, aqui `leitura` sozinho não abre o acesso, porque isto é estado
+privado, não classe pública.
+
+**Alternativas rejeitadas.**
+
+| Alternativa | Por que não venceu |
+|---|---|
+| Classe do motor (`cfg_classe`/`cfg_atributo`) | Obrigaria a modelar em `cfg_atributo` campos que só o MCP lê, e o motor passaria a conhecer a forma de um setup sem nunca precisar dela |
+| MCP conectando direto no Postgres do MyData | Viola a porta única que `fonte.py` do MCP já documenta — todo acesso é por `/v1`, nunca por banco compartilhado |
+
+**Consequências.** Uma migração (`0020_setup_mcp`) e nenhuma linha em
+`cfg_*`. A tabela funciona nos dois dialetos como as demais, sem DDL
+gerado. Custo: qualquer mudança na forma do setup é decisão do MCP, sem o
+motor saber — e é exatamente o desacoplamento que se buscava.
+
+---
+
 ## 14. Questões em aberto
 
 1. ~~**Origem do mapa ticker → `cd_cvm`**~~ — **fechada em 06/08/2026**, e o

@@ -44,6 +44,41 @@ implica código novo, aqui nem lá.
   documento, publicação. Onde a classe tem mais de uma fonte disputando um
   atributo, também `proveniencia.por_atributo`.
 
+## Setups (`/v1/setups`)
+
+Onde o MCP (`~/dev/MCP/servers/mydata/armazem.py`) passa a guardar os setups
+— vigias de candle — em produção, em vez do JSON local de hoje. `registro` é
+o JSON dele inteiro, opaco para o MyData: o hub guarda, não interpreta o que
+só o MCP lê. Tabela própria fora do motor, não classe de `cfg_classe` — ver
+[ADR-24](arquitetura.md#adr-24--setups-do-mcp-em-tabela-própria).
+
+**Escopo `setups`, novo token ao lado de `fonte:b3`.** Exigido em TODA rota
+abaixo, inclusive leitura — diferente do resto do modelo de escopo, aqui
+`leitura` sozinho **não** dá acesso: setup é estado privado de um consumidor,
+não classe pública. Sem o escopo, 403 `escopo_insuficiente`.
+
+**Isolamento por consumidor.** A identidade de um setup é `(consumidor da
+chave, setup.name)` — dois consumidores autenticados nunca veem, listam ou
+colidem com o setup um do outro. O consumidor nunca vem do corpo da
+requisição, só da chave.
+
+| Rota | O que faz |
+|---|---|
+| `GET /v1/setups?incluir_inativos=false` | Lista os setups do consumidor, por `criado_em` |
+| `GET /v1/setups/{nome}` | Um setup; 404 `setup_inexistente` se não houver |
+| `POST /v1/setups` `{"registro": {...}}` | Cria; exige `registro.setup.name` string não vazia; `status` ausente vira `"ativo"`; nome repetido para o mesmo consumidor é 409 `setup_existente` |
+| `PATCH /v1/setups/{nome}` `{"campo", "valor"}` | Grava um campo de controle fora de `setup` (ex.: `ultimo_pregao_notificado`); recusa `campo` igual a `"setup"` ou `"status"` com 400 `campo_reservado` |
+| `POST /v1/setups/{nome}/desativar` | `status` vira `"inativo"`; devolve `{"desativado": bool}` — `false` para nome inexistente ou já inativo, nunca 404 |
+
+**Pendência:** a chave do `MCP serviço` (linha acima, na tabela de
+consumidores integrados) precisa ganhar o escopo `setups` antes de ele trocar
+o arquivo local pelo endpoint — ação do Alex. Hoje nem o CLI (`chave`/`chaves`,
+que só emite e lista) nem o admin sabem *acrescentar* escopo a uma chave já
+emitida: o caminho é revogar a atual e emitir outra com `setups` incluído no
+escopo, ou um `UPDATE cfg_chave_api.escopos` direto. Dar ao CLI um jeito de
+adicionar escopo sem trocar o segredo é melhoria de tooling, não deste
+contrato.
+
 ## Compromissos de quem publica
 
 1. **Contrato só cresce.** Campo novo em resposta é aditivo. Remover ou
@@ -146,6 +181,7 @@ no repositório do consumidor.
 | Portal MCP | trocar o endereço-base para `mydata.semente.dev` | **resolvida em 30/08/2026** — default de fallback trocado em `fonte.py`, `gravar_fixtures.py` e `scripts/ligar-mydata.sh` (`c1acfc1`), deployado em `b-mcp.semente.dev` no mesmo dia, `/health` verificado pós-deploy. `MYDATA_URL` continua sendo a variável que manda em runtime — o commit só troca o valor usado quando ela não está definida. A chave `c8125eee` não mudou |
 | Portal MCP | publicar `GET /observabilidade` (ou health equivalente) para o console | **resolvida em 30/08/2026** — `GET /observabilidade` no ar em `b-mcp.semente.dev` (`1112ccb`), formato `{situacao, alertas, ultimas_execucoes, proximas}`; as duas últimas saem vazias de propósito (portal interativo, sem cron, não fabrica execução). Autenticação por bearer contra `id.semente.dev/userinfo` — mecanismo diferente da chave estática do Boris+ (linha acima): qualquer bearer válido do portfólio autentica, sem chave própria pra configurar. Verificado pós-deploy: 401 sem `Authorization: Bearer` |
 | Portal de identidade (novo, `~/dev/semente-id`) | criar o serviço `id.semente.dev`, federando Apple/Google, e registrar clients | **resolvida em 29-30/08/2026** — portal no ar; MyData (`mydata.semente.dev`) e Boris+ (`boris-web-admin`, redirect `boris.semente.dev/api/auth/semente-id/callback`) registrados como clients. Falta o deploy do lado do Boris+ (linha acima) |
+| MCP serviço | dar o escopo `setups` à chave de produção, para o MCP trocar `setups.json` local por `/v1/setups` | aberta — endpoints no ar (ver seção "Setups"); nem o CLI nem o admin acrescentam escopo a chave existente hoje, então é revogar + reemitir com `setups` no escopo (ou `UPDATE` direto), decisão do Alex |
 | BolsIA (`b3-agente`) | ampliar escopo da chave para `negociacao_b3` | **resolvida em 26/08/2026** — chave `f00b4554` emitida com `negociacao_b3` e `provento_b3`; falta o lado de lá adotá-la e a `dadbd4b0` ser revogada |
 | Boris+ (`b3-agente`) | `/v1/opcoes/{ticker}/vencimentos` sem sinal de qual pregão gerou a resposta | **resolvida em 27/09/2026** — investigado em 14/09/2026 (relato: vencimento de sexta 11/09 aparecendo como vigente na segunda 14/09). **Não era bug de agendamento**: cron do COTAHIST roda 1×/dia às 03:00 BRT e sempre traz o pregão de D-1 por design (`docs/deploy-railway.md` § decisão de 26/08/2026); a série de sexta some sozinha assim que o pregão de segunda for carregado (terça ~03:00 BRT), porque ela deixa de negociar. O gap era a rota não devolver `dt_pregao`, então o consumidor não conseguia saber, só pela resposta, se estava vendo a cadeia de hoje ou a do último pregão carregado. A rota passou a publicar `pregao` (raiz, o pregão efetivamente usado) e `dt_pregao` (por item, mesmo valor) — aditivo, contrato anterior intacto. A mitigação anterior continua válida como regra de frescor: antes de tratar um vencimento como vigente, confira `GET /v1/meta/frescor` (campo `ultima_publicacao.janela` da classe `negociacao_b3`) |
 

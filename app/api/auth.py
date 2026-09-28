@@ -174,6 +174,19 @@ def pode_ver_fonte(chave: dict, fonte: str) -> bool:
     return fonte in fontes_permitidas(chave)
 
 
+def pode_setups(chave: dict) -> bool:
+    """Se a chave pode operar `/v1/setups` — leitura incluída.
+
+    Diferente de `pode_ler`/`pode_ver_fonte`, `leitura` sozinho NÃO libera
+    este escopo. Setup é estado privado de um consumidor (vigia de candle do
+    MCP), não classe de informação pública do motor — abrir por trás de
+    `leitura` daria a qualquer chave ampla acesso ao estado de todo mundo.
+    Precisa do token explícito `setups`, ao lado de `fonte:b3`.
+    """
+    escopos = {e.strip() for e in (chave.get("escopos") or "").split(",") if e.strip()}
+    return "setups" in escopos
+
+
 def pode_ler(chave: dict, classe: str | None) -> bool:
     permitidas = classes_permitidas(chave)
     if permitidas is None or classe is None:
