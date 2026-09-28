@@ -737,6 +737,11 @@ async def vencimentos(
     pregão e a lista agregava o histórico inteiro, oferecendo vencimento já
     liquidado como se ainda existisse. Com trinta pregões carregados, PETR4
     listava seis vencimentos vencidos antes do primeiro válido.
+
+    A resposta publica `pregao` (raiz) e `dt_pregao` (por item) para o
+    consumidor saber de que dia é a lista sem inferir pelo relógio; antes de
+    tratar um vencimento como vigente, confira também `GET /v1/meta/frescor`
+    (`ultima_publicacao.janela` da classe `negociacao_b3`).
     """
     sink = obter_sink(request)
     exigir_vista(sink, "gold_opcoes", _chave)
@@ -748,7 +753,7 @@ async def vencimentos(
         )
         pregao = ultimo["dia"] if ultimo else None
         if pregao is None:
-            return {"dados": []}
+            return {"dados": [], "pregao": None}
     onde = ["ticker_objeto = ?", "dt_pregao = ?"]
     params: list[Any] = [alvo, pregao]
     # `com_sigma` é o que separa vencimento útil de vencimento morto. O que
@@ -756,16 +761,17 @@ async def vencimentos(
     # Black-Scholes sem tempo, então a cadeia inteira sai sem volatilidade e
     # sem grega. Devolver só a contagem de contratos fazia esse vencimento
     # parecer igual aos outros até o consumidor abri-lo.
-    return {"dados": sink.consultar(
-        f"SELECT dt_vencimento, count(*) AS contratos, "
+    dados = sink.consultar(
+        f"SELECT dt_pregao, dt_vencimento, count(*) AS contratos, "
         f"       sum(CASE WHEN volatilidade_implicita IS NOT NULL THEN 1 ELSE 0 END)"
         f"         AS com_sigma, "
         f"       max(CASE WHEN prazo_anos > 0 THEN 0 ELSE 1 END) AS vence_no_pregao, "
         f"       min(strike) AS menor_strike, max(strike) AS maior_strike "
         f"FROM gold_opcoes WHERE {' AND '.join(onde)} "
-        f"GROUP BY dt_vencimento ORDER BY dt_vencimento",
+        f"GROUP BY dt_pregao, dt_vencimento ORDER BY dt_vencimento",
         params,
-    )}
+    )
+    return {"dados": dados, "pregao": pregao}
 
 
 @app.get("/v1/meta/datasets", tags=["catálogo"])

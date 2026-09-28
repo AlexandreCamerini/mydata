@@ -107,15 +107,21 @@ def test_sem_pregao_vale_o_ultimo_daquele_papel(cliente_b3):
 
 
 def test_vencimentos_resume_a_cadeia(cliente_b3):
-    dados = cliente_b3.get("/v1/opcoes/ABCB4/vencimentos").json()["dados"]
+    corpo = cliente_b3.get("/v1/opcoes/ABCB4/vencimentos").json()
+    # `pregao` (raiz) e `dt_pregao` (por item) dizem de que dia é a lista —
+    # sem isso o consumidor não distingue a cadeia de hoje da do último
+    # pregão carregado (pendência do Boris+ em docs/contrato-consumidor.md).
+    assert corpo["pregao"] == "2026-07-31"
+    dados = corpo["dados"]
     assert dados == [{
-        "dt_vencimento": "2026-08-21", "contratos": 1,
+        "dt_pregao": "2026-07-31", "dt_vencimento": "2026-08-21", "contratos": 1,
         # `com_sigma` separa vencimento útil de vencimento morto: sem ele, um
         # vencimento cuja cadeia inteira saiu sem volatilidade parecia igual
         # aos outros até o consumidor abri-lo.
         "com_sigma": 1, "vence_no_pregao": 0,
         "menor_strike": pytest.approx(24.40), "maior_strike": pytest.approx(24.40),
     }]
+    assert all(item["dt_pregao"] == corpo["pregao"] for item in dados)
 
 
 def test_vencimento_do_proprio_pregao_se_anuncia(cliente_b3):
@@ -138,6 +144,13 @@ def test_vencimento_do_proprio_pregao_se_anuncia(cliente_b3):
     dados = cliente_b3.get("/v1/opcoes/ABCB4/vencimentos").json()["dados"]
     assert dados and dados[0]["vence_no_pregao"] == 1
     assert dados[0]["com_sigma"] == 0
+
+
+def test_vencimentos_sem_pregao_para_o_papel_devolve_pregao_nulo(cliente_b3):
+    """Papel sem nenhum pregão carregado: `dados` vazio e `pregao` nulo, não
+    um valor inventado — não há pregão resolvido para publicar."""
+    corpo = cliente_b3.get("/v1/opcoes/PETR4/vencimentos").json()
+    assert corpo == {"dados": [], "pregao": None}
 
 
 # --------------------------------------------------------------------------
@@ -221,13 +234,19 @@ def test_vencimentos_seguem_o_mesmo_pregao_da_cadeia(cliente_b3):
         "VALUES (0,'x','b3_cotahist','2026-07-30','ABCBG100','070','078','000',"
         " 'ABCB4','2026-07-30', 10.0, 0, 1)"
     )
-    dados = cliente_b3.get("/v1/opcoes/ABCB4/vencimentos").json()["dados"]
-    assert [d["dt_vencimento"] for d in dados] == ["2026-08-21"]
+    corpo = cliente_b3.get("/v1/opcoes/ABCB4/vencimentos").json()
+    # Sem parâmetro, publica o último pregão do papel — o mesmo que a cadeia
+    # usaria por padrão, não o mais recente da base.
+    assert corpo["pregao"] == "2026-07-31"
+    assert [d["dt_vencimento"] for d in corpo["dados"]] == ["2026-08-21"]
     # E pedindo o pregão antigo, ele aparece — o dado não sumiu, mudou o corte.
-    antigo = cliente_b3.get(
-        "/v1/opcoes/ABCB4/vencimentos?pregao=2026-07-30").json()["dados"]
+    corpo_antigo = cliente_b3.get(
+        "/v1/opcoes/ABCB4/vencimentos?pregao=2026-07-30").json()
+    assert corpo_antigo["pregao"] == "2026-07-30"
+    antigo = corpo_antigo["dados"]
     assert [d["dt_vencimento"] for d in antigo] == ["2026-07-30"]
     assert antigo[0]["vence_no_pregao"] == 1
+    assert antigo[0]["dt_pregao"] == "2026-07-30"
 
 
 def test_cadeia_traz_estilo_de_exercicio(cliente_b3):
