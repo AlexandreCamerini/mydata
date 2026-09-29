@@ -815,3 +815,24 @@ def test_coletar_tudo_loga_uma_linha_por_origem_sem_segredo(
     for segredo in (CLIENT_SECRET, "tok-ultra-secreto", "chave-boris-secreta",
                     "Bearer", "Authorization", "https://"):
         assert segredo not in texto, segredo
+
+
+def test_log_do_coletor_sai_mesmo_com_raiz_em_warning(monkeypatch):
+    """Em produção o uvicorn não configura o raiz (WARNING); o `iniciar`
+    garante um handler INFO só no logger da console."""
+    import logging
+    from app.console import coletor
+
+    alvo = logging.getLogger("portal.console")
+    antes = (list(alvo.handlers), alvo.level, alvo.propagate)
+    try:
+        alvo.handlers.clear()
+        coletor._garantir_saida_do_log()
+        assert alvo.isEnabledFor(logging.INFO)
+        assert len(alvo.handlers) == 1 and alvo.propagate is False
+        coletor._garantir_saida_do_log()
+        assert len(alvo.handlers) == 1, "não duplica handler"
+    finally:
+        alvo.handlers[:] = antes[0]
+        alvo.setLevel(antes[1])
+        alvo.propagate = antes[2]

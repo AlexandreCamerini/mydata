@@ -27,6 +27,21 @@ from . import origens as origens_mod
 
 log = logging.getLogger("portal.console")
 
+
+def _garantir_saida_do_log() -> None:
+    """O processo web (uvicorn) não configura o logging raiz — só o CLI chama
+    `basicConfig` — e o nível raiz padrão é WARNING, então o `log.info` por
+    ciclo sumia em produção. Um handler próprio, só neste logger e só se
+    ninguém configurou um antes, faz a linha sair no stdout do container sem
+    mexer no logging do resto do app."""
+    if log.handlers:
+        return
+    saida = logging.StreamHandler()
+    saida.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    log.addHandler(saida)
+    log.setLevel(logging.INFO)
+    log.propagate = False
+
 INTERVALO_ENVELOPES_S = 5 * 60
 INTERVALO_RAILWAY_S = 15 * 60
 
@@ -160,6 +175,7 @@ def iniciar(app) -> None:
     if not ligado():
         app.state.console_tarefas = []
         return
+    _garantir_saida_do_log()
     sink = app.state.sink
     envelopes = [
         origens_mod.OrigemMCP(), origens_mod.OrigemMydata(),
