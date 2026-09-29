@@ -7,14 +7,16 @@ construtor de cada origem (mesmo espírito do `baixar=` de
 """
 from __future__ import annotations
 
+import logging
 import pathlib
+import re
 from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app import bootstrap
-from app.console import coletor, origens
+from app.console import credencial, coletor, origens
 from app.sinks import SinkDuckDB
 
 TOKEN = "token-console-de-teste-com-tamanho-razoavel"
@@ -35,19 +37,30 @@ class _RespostaFake:
 
 
 class _TransporteFake:
-    """Roteia por substring da URL, como `baixador()` em conftest.py."""
+    """Roteia por substring da URL, como `baixador()` em conftest.py.
 
-    def __init__(self, *, respostas_get=None, respostas_post=None, excecoes_get=None):
+    `sequencias_get` consome uma lista de respostas por chave (na ordem);
+    `respostas_form` consome, na ordem, as respostas do endpoint de token
+    (uma exceção na lista é levantada em vez de devolvida)."""
+
+    def __init__(self, *, respostas_get=None, respostas_post=None,
+                 excecoes_get=None, sequencias_get=None, respostas_form=None):
         self.chamadas: list[tuple] = []
+        self.chamadas_form: list[dict] = []
         self._get = respostas_get or {}
         self._post = respostas_post or {}
         self._excecoes_get = excecoes_get or {}
+        self._sequencias_get = {k: list(v) for k, v in (sequencias_get or {}).items()}
+        self._form = list(respostas_form or [])
 
     def get(self, url, *, headers=None, timeout=5.0):
         self.chamadas.append(("get", url, headers, None))
         for chave, excecao in self._excecoes_get.items():
             if chave in url:
                 raise excecao
+        for chave, fila in self._sequencias_get.items():
+            if chave in url:
+                return fila.pop(0)
         for chave, resposta in self._get.items():
             if chave in url:
                 return resposta
@@ -59,6 +72,53 @@ class _TransporteFake:
             if chave in url:
                 return resposta
         raise AssertionError(f"URL POST não prevista pelo fake: {url}")
+
+    def post_form(self, url, *, data, auth, timeout=5.0):
+        self.chamadas.append(("post_form", url, auth, data))
+        self.chamadas_form.append(
+            {"url": url, "data": data, "auth": auth, "timeout": timeout},
+        )
+        if not self._form:
+            raise AssertionError(f"POST de token não previsto pelo fake: {url}")
+        item = self._form.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+
+def _token(access_token: str, expires_in=3600):
+    corpo = {"access_token": access_token}
+    if expires_in is not None:
+        corpo["expires_in"] = expires_in
+    return _RespostaFake(200, corpo)
+
+
+ENVELOPE_OK = {"situacao": "ok", "alertas": [], "ultimas_execucoes": [], "proximas": []}
+CLIENT_ID = "console-client"
+CLIENT_SECRET = "segredo-super-secreto-do-client"
+
+
+@pytest.fixture(autouse=True)
+def _ambiente_limpo(monkeypatch):
+    """Nenhum teste herda credencial do ambiente real nem token em cache."""
+    for var in ("CONSOLE_CLIENT_ID", "CONSOLE_CLIENT_SECRET",
+                "CONSOLE_ID_TOKEN_URL", "CONSOLE_PORTAL_RECURSO"):
+        monkeypatch.delenv(var, raising=False)
+    credencial.limpar_cache()
+    yield
+    credencial.limpar_cache()
+
+
+@pytest.fixture()
+def com_client(monkeypatch):
+    monkeypatch.setenv("CONSOLE_CLIENT_ID", CLIENT_ID)
+    monkeypatch.setenv("CONSOLE_CLIENT_SECRET", CLIENT_SECRET)
+
+
+@pytest.fixture()
+def mcp_com_client(monkeypatch, com_client):
+    monkeypatch.setenv("CONSOLE_MCP_URL", "https://mcp.exemplo.dev/")
+    monkeypatch.delenv("CONSOLE_MCP_BEARER", raising=False)
 
 
 # --------------------------------------------------------------------------
@@ -73,31 +133,48 @@ def test_guardiao_console_nao_importa_app_motor():
 
 
 # --------------------------------------------------------------------------
-# (b) guardião de escrita: o único POST do pacote é o GraphQL do Railway, e
-# a operação enviada é sempre `query`, nunca `mutation`.
+# (b) guardião de escrita: os únicos POSTs permitidos do pacote são (i) o
+# GraphQL do Railway (`query`, nunca `mutation`) e (ii) o endpoint de token
+# com `grant_type=client_credentials`.
 # --------------------------------------------------------------------------
 def _ocorrencias(texto: str, padrao: str) -> list[str]:
     return [linha.strip() for linha in texto.splitlines() if padrao in linha]
 
 
-def test_guardiao_pacote_so_tem_um_post_e_nenhum_verbo_de_escrita_http():
-    """Só dois pontos do pacote emitem `POST` de verdade — o transporte real
-    (`requests.post`, dentro de `_TransporteRequests`) e o único chamador
-    dele (`self.transporte.post`, dentro de `OrigemRailway._chamar`) — e os
-    dois são o mesmo GraphQL do Railway. `@router.post("/coletar")` é rota
-    de entrada do próprio admin, não escrita contra origem externa, e fica
-    fora desta contagem.
-    """
-    fontes = [c.read_text(encoding="utf-8") for c in PACOTE.glob("*.py")]
+def test_guardiao_pacote_so_posta_railway_query_e_token_client_credentials():
+    """Três pontos do pacote emitem `POST` de verdade: no transporte real
+    (`requests.post` com `json=` para o Railway e com `data=` para o token) e
+    nos dois únicos chamadores dele (`OrigemRailway._chamar` e
+    `credencial._pedir_token`). `@router.post("/coletar")` é rota de entrada
+    do próprio admin, não escrita contra origem externa, e fica fora."""
+    arquivos = {c.name: c.read_text(encoding="utf-8") for c in PACOTE.glob("*.py")}
+    fontes = list(arquivos.values())
 
+    # (i) Railway: um chamador, e é o GraphQL.
     chamadas_transporte_post = [l for f in fontes for l in _ocorrencias(f, ".transporte.post(")]
     assert len(chamadas_transporte_post) == 1, chamadas_transporte_post
+    assert ".transporte.post(" in arquivos["origens.py"]
 
-    chamadas_requests_post = [l for f in fontes for l in _ocorrencias(f, "requests.post(")]
-    assert len(chamadas_requests_post) == 1, chamadas_requests_post
+    # (ii) token: um chamador, só em credencial.py, e só client_credentials.
+    chamadas_form = [l for f in fontes for l in _ocorrencias(f, "transporte.post_form(")]
+    assert len(chamadas_form) == 1, chamadas_form
+    assert "transporte.post_form(" in arquivos["credencial.py"]
+    assert '"grant_type": "client_credentials"' in arquivos["credencial.py"]
+    outros_grants = [
+        l for f in fontes for l in _ocorrencias(f, "grant_type")
+        if "client_credentials" not in l
+    ]
+    assert outros_grants == [], outros_grants
+
+    # O transporte real tem exatamente dois `requests.post(`: um por rota
+    # permitida, cada um identificado pelo seu corpo.
+    posts_reais = [l for f in fontes for l in _ocorrencias(f, "requests.post(")]
+    assert len(posts_reais) == 2, posts_reais
+    assert sum("json=json" in l for l in posts_reais) == 1, posts_reais
+    assert sum("data=data" in l and "auth=auth" in l for l in posts_reais) == 1, posts_reais
 
     for verbo in ("put(", "patch(", "delete("):
-        for alvo in ("requests.", ".transporte."):
+        for alvo in ("requests.", ".transporte.", "transporte."):
             achados = [l for f in fontes for l in _ocorrencias(f, alvo + verbo)]
             assert achados == [], f"achou '{alvo}{verbo}' em app/console/: {achados}"
 
@@ -292,3 +369,449 @@ def test_com_sessao_indisponivel_desde_e_so_de_quem_falhou(cliente_console, monk
     assert por_origem["mydata"]["indisponivel_desde"] is None
     # As três origens sem nenhuma coleta ainda não aparecem como falha.
     assert por_origem["boris"]["indisponivel_desde"] is None
+
+
+# --------------------------------------------------------------------------
+# Token de máquina (client_credentials) — transporte fake, zero rede.
+# --------------------------------------------------------------------------
+def test_token_e_pedido_com_basic_e_form_certos(sink, mcp_com_client):
+    transporte = _TransporteFake(
+        respostas_form=[_token("tok-1")],
+        respostas_get={"mcp.exemplo.dev": _RespostaFake(200, ENVELOPE_OK)},
+    )
+
+    resultado = origens.OrigemMCP(transporte=transporte).coletar(sink)
+
+    assert resultado.ok is True
+    (pedido,) = transporte.chamadas_form
+    assert pedido["url"] == "https://id.semente.dev/token"
+    assert pedido["auth"] == (CLIENT_ID, CLIENT_SECRET)  # o transporte faz o Basic
+    assert pedido["timeout"] == 5.0
+    # Guardião (ii): só client_credentials, e exatamente um `resource`.
+    assert pedido["data"] == {
+        "grant_type": "client_credentials",
+        "resource": "https://mcp.exemplo.dev/mcp",
+    }
+    # O segredo não vai em URL nem no corpo do form.
+    assert CLIENT_SECRET not in pedido["url"]
+    assert CLIENT_SECRET not in str(pedido["data"])
+    # O GET leva o token recebido como Bearer.
+    (_, url, headers, _) = [c for c in transporte.chamadas if c[0] == "get"][0]
+    assert url == "https://mcp.exemplo.dev/observabilidade"
+    assert headers == {"Authorization": "Bearer tok-1"}
+
+
+def test_url_do_endpoint_de_token_vem_do_ambiente(sink, mcp_com_client, monkeypatch):
+    monkeypatch.setenv("CONSOLE_ID_TOKEN_URL", "https://id.exemplo.dev/oauth/token")
+    transporte = _TransporteFake(
+        respostas_form=[_token("tok-1")],
+        respostas_get={"mcp.exemplo.dev": _RespostaFake(200, ENVELOPE_OK)},
+    )
+    origens.OrigemMCP(transporte=transporte).coletar(sink)
+    assert transporte.chamadas_form[0]["url"] == "https://id.exemplo.dev/oauth/token"
+
+
+def test_resource_do_mcp_e_a_url_publica_mais_mcp(sink, mcp_com_client):
+    transporte = _TransporteFake(
+        respostas_form=[_token("tok-1")],
+        respostas_get={"mcp.exemplo.dev": _RespostaFake(200, ENVELOPE_OK)},
+    )
+    origens.OrigemMCP(transporte=transporte).coletar(sink)
+    assert transporte.chamadas_form[0]["data"]["resource"] == "https://mcp.exemplo.dev/mcp"
+
+
+def test_cache_reaproveita_o_token_entre_duas_coletas(sink, mcp_com_client):
+    transporte = _TransporteFake(
+        respostas_form=[_token("tok-1", 3600)],
+        respostas_get={"mcp.exemplo.dev": _RespostaFake(200, ENVELOPE_OK)},
+    )
+    origem = origens.OrigemMCP(transporte=transporte)
+
+    assert origem.coletar(sink).ok is True
+    assert origem.coletar(sink).ok is True
+
+    assert len(transporte.chamadas_form) == 1
+    gets = [c for c in transporte.chamadas if c[0] == "get"]
+    assert len(gets) == 2
+    assert all(g[2] == {"Authorization": "Bearer tok-1"} for g in gets)
+
+
+def test_token_e_renovado_quando_faltam_menos_de_60s(sink, mcp_com_client, monkeypatch):
+    agora = [1000.0]
+    monkeypatch.setattr(credencial, "_relogio", lambda: agora[0])
+    transporte = _TransporteFake(
+        respostas_form=[_token("tok-1", 120), _token("tok-2", 120)],
+        respostas_get={"mcp.exemplo.dev": _RespostaFake(200, ENVELOPE_OK)},
+    )
+    origem = origens.OrigemMCP(transporte=transporte)
+
+    origem.coletar(sink)                # t=0: pede tok-1 (vence em t=120)
+    agora[0] = 1000.0 + 59              # faltam 61 s: ainda vale
+    origem.coletar(sink)
+    assert len(transporte.chamadas_form) == 1
+
+    agora[0] = 1000.0 + 61              # faltam 59 s: renova
+    origem.coletar(sink)
+    assert len(transporte.chamadas_form) == 2
+
+    gets = [c for c in transporte.chamadas if c[0] == "get"]
+    assert [g[2]["Authorization"] for g in gets] == [
+        "Bearer tok-1", "Bearer tok-1", "Bearer tok-2",
+    ]
+
+
+@pytest.mark.parametrize("expires_in", [None, "abc", 0, -5, True])
+def test_expires_in_ausente_ou_ilegivel_nao_cacheia(sink, mcp_com_client, expires_in):
+    transporte = _TransporteFake(
+        respostas_form=[_token("tok-1", expires_in), _token("tok-2", expires_in)],
+        respostas_get={"mcp.exemplo.dev": _RespostaFake(200, ENVELOPE_OK)},
+    )
+    origem = origens.OrigemMCP(transporte=transporte)
+    origem.coletar(sink)
+    origem.coletar(sink)
+    assert len(transporte.chamadas_form) == 2
+
+
+def test_cache_e_por_recurso(sink, com_client, monkeypatch):
+    monkeypatch.setenv("CONSOLE_MCP_URL", "https://mcp.exemplo.dev")
+    monkeypatch.delenv("CONSOLE_MCP_BEARER", raising=False)
+    monkeypatch.setenv("CONSOLE_PORTAL_URL", "https://portal.exemplo.dev")
+    transporte = _TransporteFake(
+        respostas_form=[_token("tok-mcp"), _token("tok-portal")],
+        respostas_get={
+            "mcp.exemplo.dev": _RespostaFake(200, ENVELOPE_OK),
+            "portal.exemplo.dev": _RespostaFake(200, ENVELOPE_OK),
+        },
+    )
+    origens.OrigemMCP(transporte=transporte).coletar(sink)
+    origens.OrigemPortal(transporte=transporte).coletar(sink)
+
+    assert [p["data"]["resource"] for p in transporte.chamadas_form] == [
+        "https://mcp.exemplo.dev/mcp", "https://portal.exemplo.dev",
+    ]
+    gets = {c[1]: c[2]["Authorization"] for c in transporte.chamadas if c[0] == "get"}
+    assert gets["https://mcp.exemplo.dev/observabilidade"] == "Bearer tok-mcp"
+    assert gets["https://portal.exemplo.dev/observabilidade"] == "Bearer tok-portal"
+
+
+def test_401_no_envelope_invalida_e_renova_uma_vez(sink, mcp_com_client):
+    transporte = _TransporteFake(
+        respostas_form=[_token("tok-velho"), _token("tok-novo")],
+        sequencias_get={"mcp.exemplo.dev": [
+            _RespostaFake(401, None), _RespostaFake(200, ENVELOPE_OK),
+        ]},
+    )
+    resultado = origens.OrigemMCP(transporte=transporte).coletar(sink)
+
+    assert resultado.ok is True
+    assert len(transporte.chamadas_form) == 2
+    gets = [c for c in transporte.chamadas if c[0] == "get"]
+    assert [g[2]["Authorization"] for g in gets] == ["Bearer tok-velho", "Bearer tok-novo"]
+
+    # O token novo ficou em cache: a próxima coleta não pede outro.
+    transporte._sequencias_get["mcp.exemplo.dev"] = [_RespostaFake(200, ENVELOPE_OK)]
+    origens.OrigemMCP(transporte=transporte).coletar(sink)
+    assert len(transporte.chamadas_form) == 2
+
+
+def test_401_persistente_para_depois_de_uma_renovacao(sink, mcp_com_client):
+    transporte = _TransporteFake(
+        respostas_form=[_token("tok-1"), _token("tok-2")],
+        sequencias_get={"mcp.exemplo.dev": [
+            _RespostaFake(401, None), _RespostaFake(401, None),
+        ]},
+    )
+    resultado = origens.OrigemMCP(transporte=transporte).coletar(sink)
+
+    assert resultado.ok is False
+    assert resultado.erro == "http_401"
+    assert len(transporte.chamadas_form) == 2
+    assert len([c for c in transporte.chamadas if c[0] == "get"]) == 2
+
+
+def test_portal_usa_token_com_recurso_padrao_e_renova_no_401(sink, com_client, monkeypatch):
+    monkeypatch.setenv("CONSOLE_PORTAL_URL", "https://b-mcp.exemplo.dev/")
+    transporte = _TransporteFake(
+        respostas_form=[_token("tok-a"), _token("tok-b")],
+        sequencias_get={"b-mcp.exemplo.dev": [
+            _RespostaFake(401, None), _RespostaFake(200, ENVELOPE_OK),
+        ]},
+    )
+    resultado = origens.OrigemPortal(transporte=transporte).coletar(sink)
+
+    assert resultado.ok is True
+    assert [p["data"]["resource"] for p in transporte.chamadas_form] == [
+        "https://b-mcp.exemplo.dev", "https://b-mcp.exemplo.dev",
+    ]
+    gets = [c for c in transporte.chamadas if c[0] == "get"]
+    assert [g[2]["Authorization"] for g in gets] == ["Bearer tok-a", "Bearer tok-b"]
+
+
+def test_portal_respeita_recurso_configurado(sink, com_client, monkeypatch):
+    monkeypatch.setenv("CONSOLE_PORTAL_URL", "https://b-mcp.exemplo.dev")
+    monkeypatch.setenv("CONSOLE_PORTAL_RECURSO", "https://outro.exemplo.dev/api")
+    transporte = _TransporteFake(
+        respostas_form=[_token("tok-a")],
+        respostas_get={"b-mcp.exemplo.dev": _RespostaFake(200, ENVELOPE_OK)},
+    )
+    origens.OrigemPortal(transporte=transporte).coletar(sink)
+    assert transporte.chamadas_form[0]["data"]["resource"] == "https://outro.exemplo.dev/api"
+
+
+def test_portal_sem_client_chama_sem_authorization(sink, monkeypatch):
+    monkeypatch.setenv("CONSOLE_PORTAL_URL", "https://b-mcp.exemplo.dev")
+    transporte = _TransporteFake(
+        respostas_get={"b-mcp.exemplo.dev": _RespostaFake(200, ENVELOPE_OK)},
+    )
+    resultado = origens.OrigemPortal(transporte=transporte).coletar(sink)
+
+    assert resultado.ok is True
+    assert transporte.chamadas_form == []
+    (_, _url, headers, _) = transporte.chamadas[0]
+    assert headers is None
+
+
+def test_mcp_com_bearer_estatico_funciona_sem_client(sink, monkeypatch):
+    monkeypatch.setenv("CONSOLE_MCP_URL", "https://mcp.exemplo.dev")
+    monkeypatch.setenv("CONSOLE_MCP_BEARER", "tok-estatico")
+    transporte = _TransporteFake(
+        respostas_get={"mcp.exemplo.dev": _RespostaFake(200, ENVELOPE_OK)},
+    )
+    resultado = origens.OrigemMCP(transporte=transporte).coletar(sink)
+
+    assert resultado.ok is True
+    assert transporte.chamadas_form == []
+    assert transporte.chamadas[0][2] == {"Authorization": "Bearer tok-estatico"}
+
+
+def test_mcp_bearer_estatico_tem_precedencia_sobre_o_client(sink, mcp_com_client, monkeypatch):
+    monkeypatch.setenv("CONSOLE_MCP_BEARER", "tok-estatico")
+    transporte = _TransporteFake(
+        respostas_get={"mcp.exemplo.dev": _RespostaFake(200, ENVELOPE_OK)},
+    )
+    assert origens.OrigemMCP(transporte=transporte).coletar(sink).ok is True
+    assert transporte.chamadas_form == []
+
+
+def test_mcp_com_url_mas_sem_bearer_e_sem_client_e_nao_configurada(sink, monkeypatch):
+    monkeypatch.setenv("CONSOLE_MCP_URL", "https://mcp.exemplo.dev")
+    monkeypatch.delenv("CONSOLE_MCP_BEARER", raising=False)
+    transporte = _TransporteFake()
+    resultado = origens.OrigemMCP(transporte=transporte).coletar(sink)
+    assert resultado.erro == "nao_configurada"
+    assert transporte.chamadas == []
+
+
+def test_mcp_com_client_mas_sem_url_e_nao_configurada(sink, com_client, monkeypatch):
+    monkeypatch.delenv("CONSOLE_MCP_URL", raising=False)
+    transporte = _TransporteFake()
+    resultado = origens.OrigemMCP(transporte=transporte).coletar(sink)
+    assert resultado.erro == "nao_configurada"
+    assert transporte.chamadas == []
+
+
+@pytest.mark.parametrize("resposta, codigo", [
+    (_RespostaFake(401, {"error": "invalid_client"}), "token_http_401"),
+    (_RespostaFake(503, None), "token_http_503"),
+    (TimeoutError("timeout simulado"), "token_rede"),
+    (_RespostaFake(200, {"expires_in": 60}), "token_invalido"),
+    (_RespostaFake(200, {"access_token": "", "expires_in": 60}), "token_invalido"),
+    (_RespostaFake(200, ["nao", "e", "objeto"]), "token_invalido"),
+])
+def test_falha_do_endpoint_de_token_vira_ok_false_com_codigo(
+    sink, mcp_com_client, resposta, codigo,
+):
+    transporte = _TransporteFake(respostas_form=[resposta])
+    resultado = origens.OrigemMCP(transporte=transporte).coletar(sink)
+
+    assert resultado.ok is False
+    assert resultado.erro == codigo
+    # Sem retentativa do token e sem GET no envelope.
+    assert len(transporte.chamadas_form) == 1
+    assert [c for c in transporte.chamadas if c[0] == "get"] == []
+    assert CLIENT_SECRET not in (resultado.erro or "")
+
+
+def test_json_ilegivel_no_token_e_token_invalido(sink, mcp_com_client):
+    class _Quebrada:
+        status_code = 200
+
+        def json(self):
+            raise ValueError("não é JSON")
+
+    transporte = _TransporteFake(respostas_form=[_Quebrada()])
+    resultado = origens.OrigemMCP(transporte=transporte).coletar(sink)
+    assert resultado.erro == "token_invalido"
+
+
+def test_falha_de_token_nao_derruba_as_outras_origens(sink, com_client, monkeypatch):
+    monkeypatch.setenv("CONSOLE_MCP_URL", "https://mcp.exemplo.dev")
+    monkeypatch.delenv("CONSOLE_MCP_BEARER", raising=False)
+    monkeypatch.setenv("CONSOLE_BORIS_URL", "https://boris.exemplo.dev")
+    monkeypatch.setenv("CONSOLE_BORIS_OBS_CHAVE", "chave-boris")
+    transporte = _TransporteFake(
+        respostas_form=[_RespostaFake(401, {"error": "invalid_client"})],
+        respostas_get={"boris.exemplo.dev": _RespostaFake(200, ENVELOPE_OK)},
+    )
+    lista = [
+        origens.OrigemMCP(transporte=transporte),
+        origens.OrigemMydata(),
+        origens.OrigemBoris(transporte=transporte),
+    ]
+    coletor.coletar_tudo(
+        sink, lista, agora=lambda: datetime(2026, 9, 28, 12, 0, tzinfo=timezone.utc),
+    )
+
+    linhas = {l["origem"]: l for l in sink.consultar(
+        "SELECT origem, ok, erro FROM console_coleta")}
+    assert linhas["mcp"]["ok"] is False
+    assert linhas["mcp"]["erro"] == "token_http_401"
+    assert linhas["mydata"]["ok"] is True
+    assert linhas["boris"]["ok"] is True
+
+
+def test_client_incompleto_nao_conta_como_configurado(monkeypatch):
+    monkeypatch.setenv("CONSOLE_CLIENT_ID", CLIENT_ID)
+    monkeypatch.delenv("CONSOLE_CLIENT_SECRET", raising=False)
+    assert credencial.client_configurado() is False
+    assert credencial.token_para("https://x.exemplo.dev", _TransporteFake()) is None
+
+
+def test_invalidar_forca_novo_pedido(com_client):
+    transporte = _TransporteFake(respostas_form=[_token("tok-1"), _token("tok-2")])
+    assert credencial.token_para("r", transporte) == "tok-1"
+    assert credencial.token_para("r", transporte) == "tok-1"
+    credencial.invalidar("r")
+    assert credencial.token_para("r", transporte) == "tok-2"
+
+
+# --------------------------------------------------------------------------
+# "Não configurada" não é indisponibilidade; /situacao expõe `configurada`.
+# --------------------------------------------------------------------------
+def _gravar(sink, origem, quando, ok, erro):
+    id_ = sink.proximo_id("console_coleta")
+    sink.executar(
+        "INSERT INTO console_coleta (id, origem, quando, ok, duracao_ms, erro) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (id_, origem, quando, ok, 0, erro),
+    )
+
+
+def test_situacao_nao_configurada_nao_e_indisponivel(cliente_console):
+    from app.api.main import app
+
+    sink = app.state.sink
+    momento = datetime(2026, 9, 28, 9, 0, tzinfo=timezone.utc)
+    # boris: nunca configurado, várias linhas nao_configurada.
+    for minuto in range(3):
+        _gravar(sink, "boris", momento.replace(minute=minuto), False, "nao_configurada")
+    # mcp: falha real.
+    _gravar(sink, "mcp", momento, False, "http_500")
+    # railway: falhou e depois foi desconfigurado.
+    _gravar(sink, "railway", momento, False, "http_500")
+    _gravar(sink, "railway", momento.replace(minute=30), False, "nao_configurada")
+    # portal: ok, depois desconfigurado, depois ok de novo.
+    _gravar(sink, "portal", momento, True, None)
+    _gravar(sink, "portal", momento.replace(minute=10), False, "nao_configurada")
+
+    cliente_console.post("/entrar", data={"token": TOKEN}, follow_redirects=False)
+    r = cliente_console.get("/admin/api/console/situacao")
+    assert r.status_code == 200
+    por_origem = {d["origem"]: d for d in r.json()["dados"]}
+
+    assert por_origem["boris"]["indisponivel_desde"] is None
+    assert por_origem["boris"]["configurada"] is False
+    assert por_origem["railway"]["indisponivel_desde"] is None
+    assert por_origem["railway"]["configurada"] is False
+    assert por_origem["portal"]["indisponivel_desde"] is None
+    assert por_origem["portal"]["configurada"] is False
+
+    assert por_origem["mcp"]["indisponivel_desde"] is not None
+    assert por_origem["mcp"]["configurada"] is True
+    # Origem que nunca coletou é "configurada" (não há evidência em contrário).
+    assert por_origem["mydata"]["configurada"] is True
+    assert por_origem["mydata"]["indisponivel_desde"] is None
+
+
+def test_nao_configurada_no_meio_nao_interrompe_a_janela_de_falha(cliente_console):
+    """As linhas `nao_configurada` são ignoradas: nem quebram uma sequência de
+    falhas (sucesso) nem entram nela (falha)."""
+    from app.api.main import app
+
+    sink = app.state.sink
+    t = datetime(2026, 9, 28, 9, 0, tzinfo=timezone.utc)
+    _gravar(sink, "mcp", t.replace(minute=0), True, None)
+    _gravar(sink, "mcp", t.replace(minute=5), False, "http_500")
+    _gravar(sink, "mcp", t.replace(minute=10), False, "nao_configurada")
+    _gravar(sink, "mcp", t.replace(minute=15), False, "http_500")
+
+    cliente_console.post("/entrar", data={"token": TOKEN}, follow_redirects=False)
+    por_origem = {d["origem"]: d for d in
+                  cliente_console.get("/admin/api/console/situacao").json()["dados"]}
+    assert por_origem["mcp"]["configurada"] is True
+    desde = por_origem["mcp"]["indisponivel_desde"]
+    # Início da janela = a falha das 09:05 (a das 09:15 é posterior a ela).
+    assert datetime.fromisoformat(desde) == t.replace(minute=5)
+
+
+# --------------------------------------------------------------------------
+# Log por origem por ciclo.
+# --------------------------------------------------------------------------
+_FORMATO_LOG = re.compile(
+    r"^console coleta origem=(?P<origem>\w+) ok=(?P<ok>True|False) "
+    r"duracao_ms=(?P<ms>\d+) erro=(?P<erro>\S.*)$"
+)
+
+
+def test_coletar_tudo_loga_uma_linha_por_origem_sem_segredo(
+    sink, com_client, monkeypatch, caplog,
+):
+    monkeypatch.setenv("CONSOLE_MCP_URL", "https://mcp.exemplo.dev")
+    monkeypatch.delenv("CONSOLE_MCP_BEARER", raising=False)
+    monkeypatch.setenv("CONSOLE_BORIS_URL", "https://boris.exemplo.dev")
+    monkeypatch.setenv("CONSOLE_BORIS_OBS_CHAVE", "chave-boris-secreta")
+    monkeypatch.delenv("CONSOLE_PORTAL_URL", raising=False)
+    monkeypatch.delenv("CONSOLE_RAILWAY_TOKEN", raising=False)
+    transporte = _TransporteFake(
+        respostas_form=[_token("tok-ultra-secreto")],
+        sequencias_get={
+            "mcp.exemplo.dev": [_RespostaFake(500, None), _RespostaFake(500, None)],
+        },
+        excecoes_get={
+            "boris.exemplo.dev": TimeoutError(
+                "falha com chave-boris-secreta e segredo " + CLIENT_SECRET
+            ),
+        },
+    )
+    lista = [
+        origens.OrigemMCP(transporte=transporte),
+        origens.OrigemMydata(),
+        origens.OrigemBoris(transporte=transporte),
+        origens.OrigemPortal(transporte=transporte),
+        origens.OrigemRailway(transporte=transporte),
+    ]
+    with caplog.at_level(logging.INFO, logger="portal.console"):
+        coletor.coletar_tudo(
+            sink, lista, agora=lambda: datetime(2026, 9, 28, 12, 0, tzinfo=timezone.utc),
+        )
+
+    registros = [r for r in caplog.records if r.name == "portal.console"]
+    assert len(registros) == 5
+    assert all(r.levelno == logging.INFO for r in registros)
+
+    por_origem = {}
+    for r in registros:
+        m = _FORMATO_LOG.match(r.getMessage())
+        assert m, r.getMessage()
+        por_origem[m["origem"]] = m
+    assert list(por_origem) == ["mcp", "mydata", "boris", "portal", "railway"]
+    assert por_origem["mcp"]["ok"] == "False" and por_origem["mcp"]["erro"] == "http_500"
+    assert por_origem["mydata"]["ok"] == "True" and por_origem["mydata"]["erro"] == "-"
+    assert por_origem["boris"]["ok"] == "False"
+    assert por_origem["portal"]["erro"] == "nao_configurada"
+    assert por_origem["railway"]["erro"] == "nao_configurada"
+
+    texto = caplog.text
+    for segredo in (CLIENT_SECRET, "tok-ultra-secreto", "chave-boris-secreta",
+                    "Bearer", "Authorization", "https://"):
+        assert segredo not in texto, segredo

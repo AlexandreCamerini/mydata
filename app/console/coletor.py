@@ -16,12 +16,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import os
+import re
 from collections.abc import Callable
 from datetime import datetime, timezone
 
 from ..sinks import Sink
 from . import origens as origens_mod
+
+log = logging.getLogger("portal.console")
 
 INTERVALO_ENVELOPES_S = 5 * 60
 INTERVALO_RAILWAY_S = 15 * 60
@@ -29,6 +33,39 @@ INTERVALO_RAILWAY_S = 15 * 60
 
 def _agora_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+# Variáveis cujo valor é segredo. O `erro` de uma origem vem de texto de
+# exceção e nunca deveria carregá-las, mas o log é o último lugar onde um
+# vazamento se aceita — então o valor é mascarado se aparecer.
+_SEGREDOS = (
+    "CONSOLE_CLIENT_SECRET", "CONSOLE_MCP_BEARER", "CONSOLE_BORIS_OBS_CHAVE",
+    "CONSOLE_RAILWAY_TOKEN",
+)
+_ERRO_MAX = 200
+
+
+def _erro_para_log(erro: str | None) -> str:
+    """`erro` numa linha só, sem valores de segredo e com tamanho limitado;
+    `-` quando não há erro."""
+    if not erro:
+        return "-"
+    texto = erro
+    for var in _SEGREDOS:
+        valor = os.getenv(var)
+        if valor and valor.strip():
+            texto = texto.replace(valor, "***")
+    texto = re.sub(r"\s+", " ", texto).strip()
+    return texto[:_ERRO_MAX] or "-"
+
+
+def _logar_coleta(origem: str, resultado) -> None:
+    # Só nome, sucesso, duração e erro — nunca URL, token nem header.
+    log.info(
+        "console coleta origem=%s ok=%s duracao_ms=%d erro=%s",
+        origem, bool(resultado.ok), int(resultado.duracao_ms),
+        _erro_para_log(resultado.erro),
+    )
 
 
 def coletar_tudo(
@@ -52,6 +89,7 @@ def coletar_tudo(
 
         momento = agora()
         _gravar_coleta(sink, origem.nome, momento, resultado)
+        _logar_coleta(origem.nome, resultado)
         if not resultado.ok:
             continue
 

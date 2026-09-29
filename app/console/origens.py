@@ -8,7 +8,8 @@ erro de coleta, é ausência de configuração — registra `nao_configurada` se
 chamar rede.
 
 Timeout e retentativa (§6 da spec): 5 s / 1 retentativa imediata para os
-quatro envelopes ADR-23; 10 s / 1 retentativa imediata para o Railway. O
+quatro envelopes ADR-23; 10 s / 1 retentativa imediata para o Railway; 5 s /
+sem retentativa para o endpoint de token (`credencial.py`). O
 mydata não tem timeout — é chamada de função interna, nunca HTTP para si
 mesmo.
 """
@@ -22,6 +23,7 @@ from typing import Any, Protocol
 import requests
 
 from ..sinks import Sink
+from . import credencial
 
 TIMEOUT_ENVELOPE = 5.0
 TIMEOUT_RAILWAY = 10.0
@@ -56,6 +58,9 @@ class Transporte(Protocol):
     def post(self, url: str, *, json: Any = None, headers: dict | None = None,
               timeout: float = TIMEOUT_RAILWAY) -> Any: ...
 
+    def post_form(self, url: str, *, data: dict, auth: tuple[str, str],
+                  timeout: float = credencial.TIMEOUT_TOKEN) -> Any: ...
+
 
 class _TransporteRequests:
     """Implementação real, usada em produção. `requests` é dependência
@@ -68,6 +73,10 @@ class _TransporteRequests:
     def post(self, url: str, *, json: Any = None, headers: dict | None = None,
               timeout: float = TIMEOUT_RAILWAY):
         return requests.post(url, json=json, headers=headers, timeout=timeout)
+
+    def post_form(self, url: str, *, data: dict, auth: tuple[str, str],
+                  timeout: float = credencial.TIMEOUT_TOKEN):
+        return requests.post(url, data=data, auth=auth, timeout=timeout)
 
 
 def transporte_padrao() -> Transporte:
@@ -141,6 +150,34 @@ def _get_com_retentativa(
     return None, ultimo_erro
 
 
+def _get_com_token(
+    transporte: Transporte, url: str, recurso: str, *, timeout: float,
+) -> tuple[Any | None, str | None]:
+    """Mesmo contrato de `_get_com_retentativa` (duas tentativas), com o
+    Bearer vindo do token de máquina de `recurso`. Resposta 401 invalida o
+    token e a tentativa seguinte pede um novo — UMA vez; persistindo, o erro
+    é `http_401`. Falha do endpoint de token devolve o código
+    `token_*` sem retentativa."""
+    ultimo_erro = None
+    for _ in range(2):
+        try:
+            token = credencial.token_para(recurso, transporte)
+        except credencial.ErroCredencial as e:
+            return None, e.codigo
+        headers = {"Authorization": f"Bearer {token}"} if token else None
+        try:
+            resp = transporte.get(url, headers=headers, timeout=timeout)
+        except Exception as e:
+            ultimo_erro = f"{type(e).__name__}: {e}"
+            continue
+        if resp.status_code == 200:
+            return resp, None
+        if resp.status_code == 401:
+            credencial.invalidar(recurso)
+        ultimo_erro = f"http_{resp.status_code}"
+    return None, ultimo_erro
+
+
 # --------------------------------------------------------------------------
 # Envelope ADR-23: MCP, Boris+, portal MCP — mesmo formato, credencial e URL
 # diferentes.
@@ -154,15 +191,24 @@ class OrigemMCP:
     def coletar(self, sink: Sink) -> Resultado:
         base = os.getenv("CONSOLE_MCP_URL")
         bearer = os.getenv("CONSOLE_MCP_BEARER")
-        if not base or not bearer:
+        # Credencial: `CONSOLE_MCP_BEARER` (compatibilidade) ou o token de
+        # máquina. Sem nenhuma das duas, é ausência de configuração.
+        if not base or not (bearer or credencial.client_configurado()):
             return nao_configurada()
-        url = f"{base.rstrip('/')}/observabilidade"
+        base = base.rstrip("/")
+        url = f"{base}/observabilidade"
         inicio = time.monotonic()
-        resp, erro = _get_com_retentativa(
-            self.transporte, url,
-            headers={"Authorization": f"Bearer {bearer}"},
-            timeout=TIMEOUT_ENVELOPE,
-        )
+        if bearer:
+            resp, erro = _get_com_retentativa(
+                self.transporte, url,
+                headers={"Authorization": f"Bearer {bearer}"},
+                timeout=TIMEOUT_ENVELOPE,
+            )
+        else:
+            # O MCP exige `aud` = <URL pública>/mcp.
+            resp, erro = _get_com_token(
+                self.transporte, url, f"{base}/mcp", timeout=TIMEOUT_ENVELOPE,
+            )
         duracao_ms = int((time.monotonic() - inicio) * 1000)
         if resp is None:
             return Resultado(ok=False, duracao_ms=duracao_ms, erro=erro)
@@ -211,18 +257,20 @@ class OrigemPortal:
         base = os.getenv("CONSOLE_PORTAL_URL")
         if not base:
             return nao_configurada()
-        # NOTA (decisão fora da spec): a lista de variáveis do bloco A não
-        # inclui uma credencial de bearer para o portal — só a URL. O portal
-        # real valida bearer via `/userinfo` do semente.id (spec §1); sem uma
-        # `CONSOLE_PORTAL_*` de credencial, esta origem chama sem
-        # `Authorization` e deixa o portal responder o que responder (inclusive
-        # 401, registrado como falha comum). Ver relatório de entrega, item
-        # "decisões fora da spec".
-        url = f"{base.rstrip('/')}/observabilidade"
+        base = base.rstrip("/")
+        url = f"{base}/observabilidade"
         inicio = time.monotonic()
-        resp, erro = _get_com_retentativa(
-            self.transporte, url, headers=None, timeout=TIMEOUT_ENVELOPE,
-        )
+        if credencial.client_configurado():
+            recurso = (os.getenv("CONSOLE_PORTAL_RECURSO") or "").strip() or base
+            resp, erro = _get_com_token(
+                self.transporte, url, recurso, timeout=TIMEOUT_ENVELOPE,
+            )
+        else:
+            # Sem client configurado, mantém o comportamento anterior:
+            # chama sem `Authorization` e registra o que o portal responder.
+            resp, erro = _get_com_retentativa(
+                self.transporte, url, headers=None, timeout=TIMEOUT_ENVELOPE,
+            )
         duracao_ms = int((time.monotonic() - inicio) * 1000)
         if resp is None:
             return Resultado(ok=False, duracao_ms=duracao_ms, erro=erro)

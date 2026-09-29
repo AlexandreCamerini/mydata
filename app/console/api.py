@@ -33,6 +33,9 @@ router = APIRouter(
 # da lista mesmo quando uma origem nunca gravou nenhuma linha ainda).
 ORIGENS_CONHECIDAS = ("mcp", "mydata", "boris", "portal", "railway")
 
+# `Resultado.erro` de uma origem sem variável configurada (`origens.py`).
+NAO_CONFIGURADA = "nao_configurada"
+
 
 def _sink(request: Request) -> Sink:
     return request.app.state.sink
@@ -46,16 +49,28 @@ def _ultima_coleta(sink: Sink, origem: str) -> dict | None:
     )
 
 
+def _configurada(ultima: dict | None) -> bool:
+    """`False` só quando a última coleta da origem foi `nao_configurada`."""
+    return not (ultima and ultima["erro"] == NAO_CONFIGURADA)
+
+
 def _indisponivel_desde(sink: Sink, origem: str) -> Any:
     """A hora da primeira falha sem sucesso posterior (§1/§3a) — ou `None`
     quando a última tentativa foi `ok=true`, ou quando a origem nunca
-    coletou nada ainda."""
+    coletou nada ainda.
+
+    Linhas `nao_configurada` não são falha nem sucesso: são ignoradas na
+    varredura. Se a última coleta foi `nao_configurada`, a origem está
+    desligada por configuração, não indisponível — `None`."""
     linhas = sink.consultar(
-        "SELECT quando, ok FROM console_coleta WHERE origem = ? "
+        "SELECT quando, ok, erro FROM console_coleta WHERE origem = ? "
         "ORDER BY quando DESC, id DESC LIMIT 2000",
         (origem,),
     )
-    if not linhas or linhas[0]["ok"]:
+    if not linhas or linhas[0]["erro"] == NAO_CONFIGURADA:
+        return None
+    linhas = [l for l in linhas if l["erro"] != NAO_CONFIGURADA]
+    if linhas[0]["ok"]:
         return None
     desde = linhas[0]["quando"]
     for linha in linhas[1:]:
@@ -68,9 +83,10 @@ def _indisponivel_desde(sink: Sink, origem: str) -> Any:
 @router.get("/situacao")
 @latencia.medir
 async def get_situacao(request: Request) -> Any:
-    """Por origem: última coleta, `ok`, e `indisponivel_desde` — o que
+    """Por origem: última coleta, `ok`, `indisponivel_desde` — o que
     sustenta o rótulo "indisponível desde <hora>" sem afetar as demais
-    quatro origens (§1, §9)."""
+    quatro origens (§1, §9) — e `configurada` (`false` quando a última
+    coleta foi `nao_configurada`: desligada, não indisponível)."""
     sink = _sink(request)
     dados = []
     for origem in ORIGENS_CONHECIDAS:
@@ -82,6 +98,7 @@ async def get_situacao(request: Request) -> Any:
             "duracao_ms": ultima["duracao_ms"] if ultima else None,
             "erro": ultima["erro"] if ultima else None,
             "indisponivel_desde": _indisponivel_desde(sink, origem),
+            "configurada": _configurada(ultima),
         })
     return {"dados": dados}
 

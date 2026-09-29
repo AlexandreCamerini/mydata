@@ -1329,6 +1329,24 @@ isso a válvula de extração é mensurável, não uma promessa. Nenhuma
 dependência nova (`requests`, já principal do projeto); nenhuma credencial
 de escrita em serviço monitorado — todas as `CONSOLE_*` são de leitura.
 
+**Emenda (2026-09-28) — token de máquina e "não configurada".** As origens
+MCP e portal deixam de depender de bearer estático: a console é cliente do
+semente.id (`app/console/credencial.py`) e troca `CONSOLE_CLIENT_ID` /
+`CONSOLE_CLIENT_SECRET` por access token via `client_credentials`, com
+`resource` (RFC 8707) igual ao `aud` exigido — `<URL do MCP>/mcp` no MCP,
+`CONSOLE_PORTAL_RECURSO` (padrão: a URL base) no portal. Token em cache
+por recurso, renovado a menos de 60 s do vencimento, invalidado e
+repedido uma única vez se o recurso responder 401; `CONSOLE_MCP_BEARER`
+segue valendo quando definido. O endpoint de token passa a ser o segundo
+POST do pacote, ao lado do GraphQL `query` do Railway — ambos leitura, e o
+guardião de `tests/test_console.py` admite exatamente esses dois. Falha
+de token vira `Resultado(ok=False, erro="token_*")` sem afetar as demais
+origens; segredo e token nunca vão a URL, log ou mensagem de erro. Além
+disso, `nao_configurada` deixa de contar como indisponibilidade
+(`indisponivel_desde` ignora essas linhas; `/situacao` ganha
+`configurada`) e o coletor loga uma linha por origem por ciclo no logger
+`portal.console`.
+
 ---
 
 ## 14. Questões em aberto
