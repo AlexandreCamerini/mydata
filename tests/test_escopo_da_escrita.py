@@ -180,7 +180,9 @@ def test_o_update_recortado_toca_menos_linhas(dois_pregoes, monkeypatch):
     monkeypatch.setattr(dois_pregoes, "executar", espiar)
     calc.aplicar(dois_pregoes, ds, campos, capturas=capturas)
 
-    sql, params = executados[-1]
+    # O último UPDATE — no Postgres ele vem cercado de SET/RESET de
+    # enable_nestloop (tests/test_plano_calcular.py).
+    sql, params = [e for e in executados if e[0].lstrip().startswith("UPDATE")][-1]
     assert "captura_id IN" in sql, "o recorte não chegou ao UPDATE"
     assert params == capturas
 

@@ -81,6 +81,9 @@ def test_reset_acontece_mesmo_se_o_update_falhar():
 
 def test_duckdb_nao_recebe_nada_disso(sink):
     """Nos testes em DuckDB a sequência não muda: nem ANALYZE nem SET."""
+    if sink.dialeto != "duckdb":
+        import pytest
+        pytest.skip("só faz sentido no DuckDB")
     gravado = []
     original = sink.executar
 
