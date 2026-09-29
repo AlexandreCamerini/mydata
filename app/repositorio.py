@@ -8,11 +8,18 @@ exatamente a configuração sob a qual rodou.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any
+from datetime import datetime, timedelta, timezone
+from typing import Any, Iterator
 
 from .sinks import Sink
+
+log = logging.getLogger("portal.repositorio")
 
 
 class ErroConfiguracao(ValueError):
@@ -649,6 +656,137 @@ def atualizar_execucao(sink: Sink, exec_id: int, **campos: Any) -> None:
         f"UPDATE log_execucao SET {sets} WHERE id = ?",
         (*campos.values(), exec_id),
     )
+
+
+# Estados em que a execução acabou. `capturado` NÃO está aqui de propósito:
+# uma carga `apenas_bronze` termina nele, mas com `terminado_em` preenchido —
+# por isso "não terminal" é `terminado_em IS NULL` além do status.
+ESTADOS_TERMINAIS = ("publicado", "bloqueada", "falha")
+_NAO_TERMINAL = (
+    "terminado_em IS NULL AND status NOT IN ("
+    + ",".join(f"'{e}'" for e in ESTADOS_TERMINAIS) + ")"
+)
+
+
+def _agora_utc(agora: datetime | None) -> datetime:
+    return (agora or datetime.now(timezone.utc)).astimezone(timezone.utc)
+
+
+def abandonar_execucoes(
+    sink: Sink, horas: float, agora: datetime | None = None,
+) -> list[int]:
+    """Reaper: execução não terminal iniciada há mais de `horas` vira `falha`.
+
+    O processo que a tocava morreu (deploy, OOM, timeout do cron) e não há
+    quem a feche: sem isto ela fica em `recomputando` para sempre, e o
+    agendador — que não dispara dataset com execução em curso — o trava junto.
+
+    Idempotente: a linha já sai do conjunto "não terminal". Devolve os ids
+    fechados. O corte entra como parâmetro com fuso, sem aritmética de
+    interval, para o mesmo SQL valer em DuckDB e Postgres.
+    """
+    agora = _agora_utc(agora)
+    corte = agora - timedelta(hours=horas)
+    ids = [
+        r["id"] for r in sink.consultar(
+            f"SELECT id FROM log_execucao WHERE {_NAO_TERMINAL} "
+            f"AND iniciado_em < ? ORDER BY id",
+            (corte,),
+        )
+    ]
+    for exec_id in ids:
+        # Repete o filtro: entre o SELECT e o UPDATE o dono legítimo pode ter
+        # terminado, e fechar como `falha` uma execução `publicada` seria pior.
+        sink.executar(
+            f"UPDATE log_execucao SET status = 'falha', erro = ?, "
+            f"terminado_em = ? WHERE id = ? AND {_NAO_TERMINAL}",
+            ("abandonada (reaper)", agora, exec_id),
+        )
+    return ids
+
+
+def execucao_em_andamento(
+    sink: Sink, dataset_chave: str, horas: float, agora: datetime | None = None,
+) -> dict | None:
+    """A execução não terminal mais recente do dataset que ainda pode estar
+    viva (iniciada há menos de `horas`), ou `None`. Complemento exato do
+    reaper: o que ele ainda não fechou é o que bloqueia um novo disparo."""
+    corte = _agora_utc(agora) - timedelta(hours=horas)
+    return sink.um(
+        f"SELECT id, janela, status, iniciado_em FROM log_execucao "
+        f"WHERE dataset_chave = ? AND {_NAO_TERMINAL} AND iniciado_em >= ? "
+        f"ORDER BY id DESC LIMIT 1",
+        (dataset_chave, corte),
+    )
+
+
+def janelas_publicadas(sink: Sink, dataset_chave: str) -> list[str]:
+    return [
+        r["janela"] for r in sink.consultar(
+            "SELECT DISTINCT janela FROM log_execucao "
+            "WHERE dataset_chave = ? AND status = 'publicado'",
+            (dataset_chave,),
+        )
+    ]
+
+
+# --------------------------------------------------------------------------
+# Trava por dataset+janela
+# --------------------------------------------------------------------------
+# Duas cargas da mesma janela escrevem nas mesmas linhas e se enroscam
+# (`DeadlockDetected` em `cvm_itr`/2026, 04/08). No Postgres a trava é advisory
+# lock de **sessão** (some sozinha se o processo morrer, ao contrário de uma
+# linha de status). Como ela é reentrante na mesma conexão, também há um
+# registro em processo — que é a checagem equivalente no DuckDB, onde só existe
+# um processo, e o que protege dois usos do mesmo sink.
+_TRAVAS_EM_PROCESSO: set[tuple[str, str]] = set()
+_TRAVAS_LOCK = threading.Lock()
+
+
+def chave_trava(dataset_chave: str, janela: str) -> int:
+    """Chave `bigint` estável entre processos. `hash()` muda a cada processo."""
+    digest = hashlib.blake2b(
+        f"mydata:execucao:{dataset_chave}:{janela}".encode(), digest_size=8
+    ).digest()
+    return int.from_bytes(digest, "big", signed=True)
+
+
+@contextmanager
+def trava_execucao(sink: Sink, dataset_chave: str, janela: str) -> Iterator[bool]:
+    """`with trava_execucao(...) as obtida:` — `False` se outra carga da mesma
+    janela está rodando; nesse caso nada foi travado nem precisa ser solto."""
+    id_local = (dataset_chave, janela)
+    with _TRAVAS_LOCK:
+        ocupada = id_local in _TRAVAS_EM_PROCESSO
+        if not ocupada:
+            _TRAVAS_EM_PROCESSO.add(id_local)
+    if ocupada:
+        yield False
+        return
+    no_banco = False
+    try:
+        if sink.dialeto == "postgres":
+            no_banco = bool((sink.um(
+                "SELECT pg_try_advisory_lock(CAST(? AS bigint)) AS ok",
+                (chave_trava(dataset_chave, janela),),
+            ) or {}).get("ok"))
+            if not no_banco:
+                yield False
+                return
+        yield True
+    finally:
+        try:
+            if no_banco:
+                sink.um(
+                    "SELECT pg_advisory_unlock(CAST(? AS bigint)) AS ok",
+                    (chave_trava(dataset_chave, janela),),
+                )
+        except Exception as e:  # noqa: BLE001 — soltar não pode mascarar a causa
+            log.warning("não consegui soltar a trava de %s/%s: %s",
+                        dataset_chave, janela, e)
+        finally:
+            with _TRAVAS_LOCK:
+                _TRAVAS_EM_PROCESSO.discard(id_local)
 
 
 def execucoes(sink: Sink, limite: int = 50, dataset_chave: str | None = None,

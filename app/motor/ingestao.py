@@ -374,7 +374,50 @@ def executar(
     sink: Sink, dataset_chave: str, janela: str, *, trigger: str = "manual",
     baixar=None, apenas_bronze: bool = False, publicar: bool = True,
 ) -> Resultado:
-    """Roda o ciclo completo para um dataset numa janela."""
+    """Roda o ciclo completo para um dataset numa janela.
+
+    Uma carga por dataset+janela de cada vez: se outra já está com a janela,
+    devolve `ja_em_execucao` sem abrir execução nem tocar em bronze ou silver.
+    Não é falha — quem chama decide o que fazer (o cron registra como pulado).
+    """
+    with repo.trava_execucao(sink, dataset_chave, janela) as obtida:
+        if not obtida:
+            log.info("%s/%s já está em execução; nada a fazer",
+                     dataset_chave, janela)
+            return Resultado(0, dataset_chave, janela, "ja_em_execucao")
+        return _executar(
+            sink, dataset_chave, janela, trigger=trigger, baixar=baixar,
+            apenas_bronze=apenas_bronze, publicar=publicar,
+        )
+
+
+def janela_recuperavel(sink: Sink, dataset_chave: str) -> bool:
+    """A janela diária pode ser recuperada depois, dia a dia?
+
+    Só quando pedir outro dia devolve outro arquivo e reingerir um dia velho
+    é seguro. Duas coisas dizem que não, e as duas vêm da configuração: o
+    endereço não muda com a janela (API por companhia, arquivo único), ou a
+    carga é fotografia (`nao_retroceder`) — recuperar o cadastro de anteontem
+    baixaria megabytes para não mudar nada.
+    """
+    ds = repo.dataset_vigente(sink, dataset_chave)
+    if ds is None or str(ds.get("politica_versao") or "").startswith("nao_retroceder"):
+        return False
+    fonte = repo.fonte_vigente(sink, ds["fonte_chave"])
+    if fonte is None:
+        return False
+    try:
+        return (_urls_da_janela(fonte, ds, "2001-01-01")
+                != _urls_da_janela(fonte, ds, "2001-01-02"))
+    except ErroIngestao:
+        return False
+
+
+def _executar(
+    sink: Sink, dataset_chave: str, janela: str, *, trigger: str = "manual",
+    baixar=None, apenas_bronze: bool = False, publicar: bool = True,
+) -> Resultado:
+    """O ciclo em si; quem chama já detém a trava da janela."""
     ds = repo.dataset_vigente(sink, dataset_chave)
     if ds is None:
         raise ErroIngestao(f"dataset '{dataset_chave}' não está configurado")
@@ -588,16 +631,22 @@ def recomputar(
     ds = repo.dataset_vigente(sink, dataset_chave)
     if ds is None:
         raise ErroIngestao(f"dataset '{dataset_chave}' não está configurado")
-    capturas = [c["id"] for c in capturas_da_janela(sink, dataset_chave, janela)]
-    if capturas:
-        marcadores = ",".join("?" for _ in capturas)
-        sink.executar(
-            f"DELETE FROM {ds['tabela_destino']} WHERE captura_id IN ({marcadores})",
-            capturas,
+    # A trava vem antes do DELETE: apagar o silver e depois descobrir que a
+    # janela é de outra carga deixaria a tabela vazia até alguém notar.
+    with repo.trava_execucao(sink, dataset_chave, janela) as obtida:
+        if not obtida:
+            return Resultado(0, dataset_chave, janela, "ja_em_execucao")
+        capturas = [c["id"] for c in capturas_da_janela(sink, dataset_chave, janela)]
+        if capturas:
+            marcadores = ",".join("?" for _ in capturas)
+            sink.executar(
+                f"DELETE FROM {ds['tabela_destino']} WHERE captura_id IN ({marcadores})",
+                capturas,
+            )
+        return _executar(
+            sink, dataset_chave, janela, trigger="replay", baixar=None,
+            publicar=publicar,
         )
-    return executar(
-        sink, dataset_chave, janela, trigger="replay", baixar=None, publicar=publicar
-    )
 
 
 def janelas_capturadas(sink: Sink, dataset_chave: str) -> list[str]:

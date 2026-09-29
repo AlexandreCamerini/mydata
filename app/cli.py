@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -92,50 +94,151 @@ def cmd_ingerir(args) -> int:
     return 0 if res.status in ("publicado", "bloqueada") else 1
 
 
-def cmd_agendados(args) -> int:
-    """Roda tudo que o agendamento manda — o comando que o cron chama."""
-    sink = criar_sink()
-    bootstrap.preparar(sink)
-    saida, falhas = [], 0
+def _positivo(bruto: str | None, padrao: float, nome: str) -> float:
+    """Lê um número positivo do ambiente; qualquer outra coisa volta ao padrão.
+
+    Valor ruim não pode passar: `PORTAL_EXECUCAO_ABANDONADA_HORAS=0` faria o
+    reaper matar toda execução em curso, e teto zero desligaria a ingestão.
+    """
+    if bruto is None or not bruto.strip():
+        return padrao
+    try:
+        valor = float(bruto)
+    except ValueError:
+        valor = float("nan")
+    if not math.isfinite(valor) or valor <= 0:
+        log.warning("%s=%r inválido; usando o padrão %s", nome, bruto, padrao)
+        return padrao
+    return valor
+
+
+def rodar_agendados(
+    sink, *, chave: str | None = None, forcar: bool = False,
+    agora: datetime | None = None, baixar=None,
+    horas_abandono: float | None = None, teto_janelas: int | None = None,
+) -> tuple[list[dict], int]:
+    """O corpo de `agendados`, com relógio e baixador injetáveis.
+
+    Devolve (relatório da rodada, nº de falhas). O relatório é uma linha por
+    janela tentada, mais as linhas de reaper, adiamento e pulo.
+    """
+    baixar = baixar or download.baixar
+    horas = horas_abandono or _positivo(
+        os.getenv("PORTAL_EXECUCAO_ABANDONADA_HORAS"), 72.0,
+        "PORTAL_EXECUCAO_ABANDONADA_HORAS",
+    )
+    teto = max(1, int(teto_janelas or _positivo(
+        os.getenv("PORTAL_MAX_JANELAS_POR_DISPARO"), 1,
+        "PORTAL_MAX_JANELAS_POR_DISPARO",
+    )))
+    saida: list[dict] = []
+    falhas = 0
+
+    # Primeiro o reaper: execução morta há dias não pode segurar o dataset.
+    abandonadas = repo.abandonar_execucoes(sink, horas, agora)
+    if abandonadas:
+        log.warning("reaper fechou %d execução(ões) abandonada(s): %s",
+                    len(abandonadas), abandonadas)
+        saida.append({"agendamento": "(reaper)", "status": "reaper",
+                      "abandonadas": len(abandonadas), "execucoes": abandonadas})
+
     for ag in repo.listar_agendamentos(sink):
         if not ag["ativo"]:
             continue
-        if args.chave and ag["chave"] != args.chave:
+        if chave and ag["chave"] != chave:
             continue
+        dataset = ag["dataset_chave"]
+        tz = ag.get("timezone")
         # A janela sai da ocorrência devida, não do relógio: o Railway acorda
         # o processo na frequência dele, e um agendamento de 23:59 pendente
         # da noite anterior pediria, pelo relógio, o pregão de hoje.
-        devida = agenda.ocorrencia_devida(ag["cron"], ag.get("timezone"))
-        janela = janela_corrente(ag["janela_padrao"], ag.get("timezone"), devida)
+        devida = agenda.ocorrencia_devida(ag["cron"], tz, agora)
+        janela = janela_corrente(ag["janela_padrao"], tz, devida)
+
+        # Dataset com carga em curso não é disparado de novo. A trava por
+        # janela protege a mesma janela; esta protege o dataset inteiro — uma
+        # carga de 22 h não pode ganhar uma vizinha em cima a cada manhã.
+        ativa = repo.execucao_em_andamento(sink, dataset, horas, agora)
+        if ativa:
+            saida.append({
+                "agendamento": ag["chave"], "janela": janela, "status": "pulado",
+                "motivo": f"ja_em_execucao: execução {ativa['id']} "
+                          f"({ativa['janela']}, {ativa['status']}) desde "
+                          f"{ativa['iniciado_em']:%Y-%m-%d %H:%M}",
+            })
+            continue
 
         # O Railway acorda o processo; é aqui que se decide o que fazer.
         # Sem esta checagem um gatilho diário reingeriria tudo todo dia, e o
         # cron do painel viraria a única frequência do sistema.
-        ultima = sink.um(
-            "SELECT max(terminado_em) AS q FROM log_execucao "
-            "WHERE dataset_chave = ? AND status = 'publicado'",
-            (ag["dataset_chave"],),
-        )
-        vencido, motivo = agenda.esta_vencido(
-            ag["cron"], (ultima or {}).get("q"), timezone_nome=ag.get("timezone")
-        )
-        if not vencido and not args.forcar:
-            saida.append({"agendamento": ag["chave"], "janela": janela,
-                          "status": "nao_vencido", "motivo": motivo})
-            continue
-
-        try:
-            res = ingestao.executar(
-                sink, ag["dataset_chave"], janela,
-                trigger="cron", baixar=download.baixar,
+        janelas = [janela]
+        if (ag["janela_padrao"] in agenda.PADROES_DIARIOS
+                and ingestao.janela_recuperavel(sink, dataset)):
+            # Janela de dia: vencido é "há janela sem publicar", não "o horário
+            # passou". Comparar horários perdia pregão quando a publicação
+            # demorava mais que o ciclo (ver `agenda.janelas_pendentes`).
+            pendentes = agenda.janelas_pendentes(
+                ag["cron"], tz, repo.janelas_publicadas(sink, dataset),
+                agora or datetime.now(timezone.utc),
+                lambda oc, p=ag["janela_padrao"], z=tz: janela_corrente(p, z, oc),
             )
-            saida.append({"agendamento": ag["chave"], "janela": janela,
+            if not pendentes and not forcar:
+                saida.append({"agendamento": ag["chave"], "janela": janela,
+                              "status": "nao_vencido",
+                              "motivo": "todas as janelas até a devida já foram publicadas"})
+                continue
+            if pendentes:
+                janelas = pendentes[:teto]
+                if len(pendentes) > teto:
+                    saida.append({
+                        "agendamento": ag["chave"], "status": "adiado",
+                        "janelas": pendentes[teto:],
+                        "motivo": f"teto de {teto} janela(s) por disparo",
+                    })
+        else:
+            ultima = sink.um(
+                "SELECT max(terminado_em) AS q FROM log_execucao "
+                "WHERE dataset_chave = ? AND status = 'publicado'",
+                (dataset,),
+            )
+            vencido, motivo = agenda.esta_vencido(
+                ag["cron"], (ultima or {}).get("q"), agora=agora, timezone_nome=tz
+            )
+            if not vencido and not forcar:
+                saida.append({"agendamento": ag["chave"], "janela": janela,
+                              "status": "nao_vencido", "motivo": motivo})
+                continue
+
+        # Em ordem crescente. Uma falha não interrompe as seguintes (feriado é
+        # 404; se parasse a fila, travaria tudo para sempre); outra carga
+        # com a janela, sim: publicar as de depois deixaria essa abaixo da
+        # marca d'água, perdida se o dono dela falhar.
+        for j in janelas:
+            try:
+                res = ingestao.executar(
+                    sink, dataset, j, trigger="cron", baixar=baixar,
+                )
+            except Exception as e:  # noqa: BLE001 — um dataset ruim não para os outros
+                falhas += 1
+                saida.append({"agendamento": ag["chave"], "janela": j,
+                              "status": "falha", "erro": str(e)})
+                log.error("agendamento %s falhou em %s: %s", ag["chave"], j, e)
+                continue
+            if res.status == "ja_em_execucao":
+                saida.append({"agendamento": ag["chave"], "janela": j,
+                              "status": "pulado",
+                              "motivo": "ja_em_execucao: outra carga tem esta janela"})
+                break
+            saida.append({"agendamento": ag["chave"], "janela": j,
                           "status": res.status, "linhas": res.linhas_silver})
-        except Exception as e:  # noqa: BLE001 — um dataset ruim não para os outros
-            falhas += 1
-            saida.append({"agendamento": ag["chave"], "janela": janela,
-                          "status": "falha", "erro": str(e)})
-            log.error("agendamento %s falhou: %s", ag["chave"], e)
+    return saida, falhas
+
+
+def cmd_agendados(args) -> int:
+    """Roda tudo que o agendamento manda — o comando que o cron chama."""
+    sink = criar_sink()
+    bootstrap.preparar(sink)
+    saida, falhas = rodar_agendados(sink, chave=args.chave, forcar=args.forcar)
     _notificar_alertas(sink, saida, falhas)
     print(json.dumps(saida, ensure_ascii=False, indent=2))
     sink.fechar()

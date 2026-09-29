@@ -12,7 +12,9 @@ oferece.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone, tzinfo
+from typing import Callable, Iterable
 from zoneinfo import ZoneInfo
 
 log = logging.getLogger("portal.agenda")
@@ -166,3 +168,57 @@ def esta_vencido(cron: str, ultima_execucao: datetime | None,
     if ultima_execucao < devida:
         return True, f"devido em {devida:%Y-%m-%d %H:%M}, última em {ultima_execucao:%Y-%m-%d %H:%M}"
     return False, f"já rodou depois de {devida:%Y-%m-%d %H:%M}"
+
+
+# Padrões de janela que nomeiam **um dia**. Só para eles faz sentido falar em
+# "janela faltante": ano_corrente/ano_anterior não têm lacuna a preencher.
+PADROES_DIARIOS = ("hoje", "dia_anterior")
+_DATA_ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_MAX_OCORRENCIAS = 5000   # trava contra cron de minuto com marca muito antiga
+
+
+def janelas_pendentes(
+    cron: str, timezone_nome: str | None, publicadas: Iterable[str],
+    agora: datetime, janela_de: Callable[[datetime], str],
+) -> list[str]:
+    """As janelas diárias que já deviam ter sido publicadas e não foram, em
+    ordem crescente. `janela_de(ocorrência)` diz que janela cada ocorrência do
+    cron pede — quem conhece o padrão (`hoje`, `dia_anterior`) é o chamador.
+
+    Substitui a pergunta «o cron devia ter disparado depois da última
+    execução?» (`esta_vencido`) para janela de dia. Aquela compara **horários**,
+    e uma publicação que demora mais que o ciclo faz o término de uma janela
+    velha passar da ocorrência do dia seguinte: o agendador conclui «já rodou»
+    e a janela nova nunca é pedida. Comparar **janelas** não tem esse defeito.
+
+    O piso é a maior janela já publicada: só o que vem depois dela é lacuna.
+    Vale de propósito. Um feriado (404, execução `falha`) abaixo dessa marca
+    deixa de ser tentado assim que uma janela posterior publica — sem o piso
+    ele seria reencenado para sempre. O preço: pregão que ficou para trás da
+    marca (a marca andou antes dele) não volta sozinho; `ingerir <dataset>
+    <janela>` resolve. Sem nenhuma janela publicada não há piso e só a
+    corrente é devolvida — backfill de anos por engano é pior que nenhum.
+
+    Só entram janelas que são data ISO e não passam da corrente; uma janela
+    «2026» ou uma data futura carregada à mão não pode virar o piso.
+    """
+    tz = zona(timezone_nome)
+    devida = ultima_ocorrencia(cron, agora.astimezone(tz))
+    if devida is None:
+        return []
+    corrente = janela_de(devida)
+    piso = max((j for j in publicadas if _DATA_ISO.match(j) and j <= corrente),
+               default=None)
+    if piso is None:
+        return [corrente]
+    pendentes: set[str] = set()
+    ocorrencia: datetime | None = devida
+    for _ in range(_MAX_OCORRENCIAS):
+        if ocorrencia is None:
+            break
+        janela = janela_de(ocorrencia)
+        if janela <= piso:
+            break
+        pendentes.add(janela)
+        ocorrencia = ultima_ocorrencia(cron, ocorrencia - timedelta(minutes=1))
+    return sorted(pendentes)
