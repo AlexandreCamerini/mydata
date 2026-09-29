@@ -22,6 +22,9 @@ livre seria RCE com formulário.
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 import logging
 import re
 
@@ -219,6 +222,26 @@ def _aplicar_numericos(
     return nomes
 
 
+@contextmanager
+def _sem_laco_aninhado(sink: Sink) -> Iterator[None]:
+    """Proíbe laço aninhado durante o UPDATE de campo de janela (Postgres).
+
+    O `origem` é uma window function sobre a tabela inteira; num laço
+    aninhado ela é reavaliada por linha do alvo. Junção por hash ou
+    ordenação lê a tabela uma vez. A defesa vale mesmo quando a estatística
+    envelhece entre o ANALYZE e o UPDATE. A conexão é autocommit, então o
+    ajuste é de sessão e volta ao padrão no `finally`.
+    """
+    if sink.dialeto != "postgres":
+        yield
+        return
+    sink.executar("SET enable_nestloop = off")
+    try:
+        yield
+    finally:
+        sink.executar("RESET enable_nestloop")
+
+
 def aplicar(
     sink: Sink, ds: dict, campos: list[dict], capturas: list[int] | None = None
 ) -> list[str]:
@@ -232,6 +255,14 @@ def aplicar(
     aplicados: list[str] = []
     numericos: list[dict] = []
     filtro, parametros = _recorte(capturas)
+
+    # Estatística fresca antes de qualquer UPDATE (medido em produção,
+    # 2026-09-29): com o último ANALYZE anterior às cargas, o planner estima
+    # UMA linha para `captura_id = <nova>` e escolhe laço aninhado — a janela
+    # de 910 mil linhas era recalculada para cada uma das ~16 mil linhas da
+    # carga (16 h no `log_retorno`; 11 s no clone analisado). Custa segundos.
+    if sink.dialeto == "postgres":
+        sink.executar(f"ANALYZE {tabela}")
 
     for campo in sorted(campos, key=lambda c: (c["ordem"], c["id"])):
         if campo["materializacao"] != "coluna":
@@ -330,16 +361,17 @@ def aplicar(
                 marcadores = ",".join("?" for _ in capturas)
                 condicao.append(f"alvo.captura_id IN ({marcadores})")
                 parametros_janela = list(capturas)
-            sink.executar(
-                f"""UPDATE {tabela} AS alvo
-                    SET {campo['nome']} = origem.valor_calculado
-                    FROM (
-                      SELECT {', '.join(chaves)}, {expressao} AS valor_calculado
-                      FROM {tabela}
-                    ) AS origem
-                    WHERE """ + " AND ".join(condicao),
-                parametros_janela,
-            )
+            with _sem_laco_aninhado(sink):
+                sink.executar(
+                    f"""UPDATE {tabela} AS alvo
+                        SET {campo['nome']} = origem.valor_calculado
+                        FROM (
+                          SELECT {', '.join(chaves)}, {expressao} AS valor_calculado
+                          FROM {tabela}
+                        ) AS origem
+                        WHERE """ + " AND ".join(condicao),
+                    parametros_janela,
+                )
         aplicados.append(campo["nome"])
         log.info("campo calculado aplicado: %s (%s)", campo["nome"], campo["classe"])
 
