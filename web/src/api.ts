@@ -217,9 +217,60 @@ export const api = {
       body: JSON.stringify(m),
     }),
 
+  // Console central (ADR-25). Cada rota é independente de propósito: a tela
+  // degrada por seção, então nenhuma delas é agrupada numa chamada só.
+  consoleSituacao: () =>
+    pedir<Resposta<ConsoleSituacao[]>>("/admin/api/console/situacao"),
+  consoleMetricas: (dias = 7) =>
+    pedir<Resposta<ConsoleMetrica[]>>(`/admin/api/console/metricas?dias=${dias}`),
+  consoleDeploys: () =>
+    pedir<Resposta<ConsoleDeploy[]>>("/admin/api/console/deploys"),
+  consoleLatencia: () =>
+    pedir<Resposta<ConsoleLatencia>>("/admin/api/console/latencia"),
+  consoleColetar: () =>
+    pedir<Resposta<{ disparado: boolean }>>("/admin/api/console/coletar", {
+      method: "POST",
+    }),
+
   catalogo: () => pedir<Resposta<string[]>>("/admin/api/catalogo"),
   tabela: (nome: string) =>
     pedir<Resposta<TabelaDetalhe>>(`/admin/api/catalogo/${nome}?limite=10`),
+};
+
+// --------------------------------------------------------------------------
+// Console central: espelho de app/console/api.py. `ok` pode chegar como
+// booleano ou 0/1 conforme o banco; a lógica de leitura trata os dois.
+export type ConsoleSituacao = {
+  origem: string;
+  ultima_coleta: string | null;
+  ok: boolean | number | null;
+  duracao_ms: number | null;
+  erro: string | null;
+  indisponivel_desde: string | null;
+  configurada: boolean;
+};
+
+export type ConsoleMetrica = {
+  dia: string;
+  sistema: string;
+  metrica: string;
+  valor: string;
+  fonte: string;
+};
+
+export type ConsoleDeploy = {
+  sistema: string;
+  ambiente: string | null;
+  deploy_id: string | null;
+  commit_sha: string | null;
+  quando: string | null;
+  status: string | null;
+};
+
+export type ConsoleLatencia = {
+  p50_ms: number | null;
+  p95_ms: number | null;
+  contagem: number;
 };
 
 // --------------------------------------------------------------------------

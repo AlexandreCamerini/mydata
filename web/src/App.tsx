@@ -12,6 +12,7 @@ import { Chaves } from "./telas/Chaves";
 import { Catalogo } from "./telas/Catalogo";
 import { Acesso } from "./telas/Acesso";
 import { Api } from "./telas/Api";
+import { Console } from "./telas/Console";
 
 // Roteamento por hash: funciona servido estaticamente em /admin sem
 // configuração de servidor e sem dependência de biblioteca de rotas.
@@ -24,6 +25,8 @@ import { Api } from "./telas/Api";
 const TELAS = [
   { id: "gestao", titulo: "Gestão", grupo: "Visão geral", componente: Gestao,
     resumo: "O que o hub tem, quem consome e o que está para vencer o SLA" },
+  { id: "console", titulo: "Console", grupo: "Visão geral", componente: Console,
+    resumo: "Saúde, métricas e deploys dos cinco sistemas, coletados de fora" },
   { id: "classes", titulo: "O que você guarda", grupo: "Modelo de dado", componente: Classes,
     resumo: "Empresa, Demonstração financeira — a informação que o portal guarda, e quem a alimenta" },
   { id: "fontes", titulo: "Fontes", grupo: "Modelo de dado", componente: Fontes,
