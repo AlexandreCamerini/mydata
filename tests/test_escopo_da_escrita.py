@@ -182,7 +182,9 @@ def test_o_update_recortado_toca_menos_linhas(dois_pregoes, monkeypatch):
 
     sql, params = executados[-1]
     assert "captura_id IN" in sql, "o recorte não chegou ao UPDATE"
-    assert params == capturas
+    # A condição da escrita fecha a lista: os parâmetros da leitura escopada
+    # (tests/test_leitura_escopada.py) vêm antes, no FROM.
+    assert params[-len(capturas):] == capturas
 
 
 # --------------------------------------------------------------------------
