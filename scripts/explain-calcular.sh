@@ -13,8 +13,8 @@
 #      dentro de uma transação que é DESFEITA no fim;
 #   5. grava planos e tempos em $SAIDA (padrão: ${TMPDIR}/mydata-explain/).
 #
-# Produção: só `pg_dump`. Nada é escrito lá. O dump fica fora do repo
-# (${TMPDIR}/mydata-explain) e é apagado, com o clone, por --limpar.
+# Produção: só `pg_dump`, rodado dentro do container na versão da produção.
+# O dump fica no container (fora do repo) e some com ele em --limpar.
 #
 # Uso:
 #   bash scripts/explain-calcular.sh              # tudo
@@ -28,17 +28,18 @@ AMB="${RAILWAY_AMBIENTE:-production}"
 CONT="mydata-clone-explain"
 VOL="mydata-clone-explain-vol"
 PORTA=55432
+# Mesma versão da produção (Postgres 18): pg_dump recusa servidor mais novo que ele.
+IMAGEM="${IMAGEM:-postgres:18}"
 CLONE_DSN="postgresql://postgres:clone@localhost:$PORTA/mydata"
 BASE="${TMPDIR:-/tmp}/mydata-explain"
 SAIDA="${SAIDA:-$BASE/explain-$(date +%Y%m%d-%H%M)}"
-DUMP="${DUMP:-$BASE/mydata-prod.dump}"
 
 SEM_DUMP=0
 for a in "$@"; do
   case "$a" in
     --sem-dump) SEM_DUMP=1 ;;
     --limpar) docker rm -f "$CONT" >/dev/null 2>&1 || true; docker volume rm "$VOL" >/dev/null 2>&1 || true
-              rm -f "$DUMP"; echo "clone e dump removidos"; exit 0 ;;
+              echo "clone e dump (dentro do volume) removidos"; exit 0 ;;
     -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     *) echo "argumento desconhecido: $a" >&2; exit 2 ;;
   esac
@@ -50,31 +51,43 @@ die(){ printf '  \033[31m[X]\033[0m %s\n' "$*" >&2; exit 1; }
 
 cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.."
 [[ -f app/motor/calculados.py ]] || die "rode a partir de ~/dev/mydata"
-for c in docker railway pg_dump pg_restore; do command -v $c >/dev/null || die "$c não encontrado"; done
+for c in docker railway psql; do command -v $c >/dev/null || die "$c não encontrado"; done
 [[ -x .venv/bin/python ]] || die ".venv do mydata não encontrado"
-mkdir -p "$SAIDA" "$(dirname "$DUMP")"
+mkdir -p "$SAIDA"
 
 say "1/5 · Postgres descartável em Docker"
-if ! docker ps --format '{{.Names}}' | grep -qx "$CONT"; then
-  docker run -d --name "$CONT" -p "$PORTA:5432" -v "$VOL:/var/lib/postgresql/data" \
-    -e POSTGRES_PASSWORD=clone -e POSTGRES_DB=mydata postgres:16 \
+# Container de outra versão (rodadas antigas usavam postgres:16) é recriado.
+if docker ps -a --format '{{.Names}} {{.Image}}' | grep -q "^$CONT " \
+   && ! docker ps -a --format '{{.Names}} {{.Image}}' | grep -qx "$CONT $IMAGEM"; then
+  echo "  recriando o clone em $IMAGEM"
+  docker rm -f "$CONT" >/dev/null; docker volume rm "$VOL" >/dev/null 2>&1 || true
+fi
+if ! docker ps -a --format '{{.Names}}' | grep -qx "$CONT"; then
+  # Postgres 18 guarda os dados em /var/lib/postgresql (não mais .../data).
+  docker run -d --name "$CONT" -p "$PORTA:5432" -v "$VOL:/var/lib/postgresql" \
+    -e POSTGRES_PASSWORD=clone -e POSTGRES_DB=mydata "$IMAGEM" \
     -c shared_buffers=1GB -c work_mem=64MB -c maintenance_work_mem=512MB >/dev/null \
     || die "docker run falhou"
 fi
+docker start "$CONT" >/dev/null 2>&1 || true
 for i in $(seq 1 30); do docker exec "$CONT" pg_isready -U postgres >/dev/null 2>&1 && break; sleep 2; done
 ok "clone em localhost:$PORTA"
 echo "  (config do clone: shared_buffers=1GB; a produção pode ter outra — compare com SHOW ALL lá se o tempo divergir)"
 
 if [[ $SEM_DUMP -eq 0 ]]; then
-  say "2/5 · pg_dump da produção (só leitura; pode levar alguns minutos)"
+  say "2/5 · pg_dump da produção, de dentro do container $IMAGEM (só leitura)"
+  # A URL pública entra no container por variável de ambiente (-e NOME, sem
+  # valor na linha de comando) e o pg_dump roda lá dentro, na versão certa.
   railway run --project "$PROJETO_ID" --environment "$AMB" --service Postgres -- bash -c \
     '[[ -n "${DATABASE_PUBLIC_URL:-}" ]] || { echo "Postgres sem DATABASE_PUBLIC_URL" >&2; exit 1; }
-     exec pg_dump --format=custom --no-owner --no-privileges --dbname="$DATABASE_PUBLIC_URL" --file="$0"' "$DUMP" \
+     exec docker exec -e DATABASE_PUBLIC_URL "$0" sh -c \
+       "pg_dump --format=custom --no-owner --no-privileges --dbname=\"\$DATABASE_PUBLIC_URL\" --file=/tmp/prod.dump"' "$CONT" \
     || die "pg_dump falhou"
-  ok "dump em $DUMP ($(du -h "$DUMP" | cut -f1))"
+  ok "dump feito ($(docker exec "$CONT" du -h /tmp/prod.dump | cut -f1))"
 
   say "3/5 · Restaurar no clone"
-  pg_restore --no-owner --no-privileges --clean --if-exists --jobs=4 --dbname="$CLONE_DSN" "$DUMP" 2>"$SAIDA/restore.log" \
+  docker exec "$CONT" pg_restore -U postgres --no-owner --no-privileges --clean --if-exists --jobs=4 \
+    --dbname=mydata /tmp/prod.dump 2>"$SAIDA/restore.log" \
     || echo "  pg_restore terminou com avisos (ver $SAIDA/restore.log)"
   psql "$CLONE_DSN" -qc "ANALYZE" || die "ANALYZE falhou"
   ok "restaurado e analisado"
