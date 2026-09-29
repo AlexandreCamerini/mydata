@@ -6,6 +6,7 @@ executa essa frase, ela é uma intenção. Estes testes a executam.
 """
 from __future__ import annotations
 
+import os
 import time
 
 from app.motor import ingestao, verificacao
@@ -159,4 +160,7 @@ def test_carga_em_bloco_e_ordens_de_grandeza_mais_rapida(sink_cvm):
     inicio = time.monotonic()
     sink_cvm.carregar_em_lote("fato_conta", campos, chave, linhas)
     decorrido = time.monotonic() - inicio
-    assert decorrido < 40, f"carga de 20 mil linhas levou {decorrido:.1f}s"
+    # 40 s na máquina de desenvolvimento; o runner do CI é mais lento e pede
+    # folga (PORTAL_TESTE_LIMITE_CARGA_S). A ordem de grandeza é o que importa.
+    limite = float(os.getenv("PORTAL_TESTE_LIMITE_CARGA_S", "40"))
+    assert decorrido < limite, f"carga de 20 mil linhas levou {decorrido:.1f}s"
