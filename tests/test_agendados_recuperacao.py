@@ -143,6 +143,29 @@ def test_teto_por_disparo_e_o_resto_fica_para_o_proximo(sink_cvm, monkeypatch):
     assert falso.janelas() == ["2026-09-11", "2026-09-14"]
 
 
+def test_feriado_na_cabeca_da_fila_nao_trava_o_teto(sink_cvm, monkeypatch):
+    """Produção, 2026-10: o 12/10 (feriado, 404) ficava na cabeça da fila e,
+    com teto 1, era a única janela tentada em todo disparo — 13/10 em diante
+    nunca rodava e o cron saía com 1 todos os dias."""
+    falso = Falso(sink_cvm, monkeypatch, relogio=lambda: acordar(9, 16),
+                  falha_em={"2026-09-09"})
+    inserir(sink_cvm, "b3_cotahist", "2026-09-08", "publicado",
+            acordar(9, 9), acordar(9, 9))
+
+    saida, falhas = rodar(sink_cvm, acordar(9, 16), teto_janelas=1)
+
+    assert falso.janelas() == ["2026-09-09", "2026-09-10"]
+    assert falhas == 1
+    adiado = [s for s in saida if s["status"] == "adiado"]
+    assert adiado[0]["janelas"] == ["2026-09-11", "2026-09-14", "2026-09-15"]
+
+    # A marca d'água andou: o feriado saiu da fila e o disparo seguinte segue.
+    falso.chamadas.clear()
+    saida, falhas = rodar(sink_cvm, acordar(9, 17), teto_janelas=1)
+    assert falso.janelas() == ["2026-09-11"]
+    assert falhas == 0
+
+
 @pytest.fixture(autouse=True)
 def _teto_cinco_nos_cenarios(monkeypatch):
     """Os cenários de recuperação foram escritos com teto 5; o padrão de

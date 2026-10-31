@@ -172,6 +172,7 @@ def rodar_agendados(
         # Sem esta checagem um gatilho diário reingeriria tudo todo dia, e o
         # cron do painel viraria a única frequência do sistema.
         janelas = [janela]
+        limite: int | None = None   # só a fila de janelas pendentes tem teto
         if (ag["janela_padrao"] in agenda.PADROES_DIARIOS
                 and ingestao.janela_recuperavel(sink, dataset)):
             # Janela de dia: vencido é "há janela sem publicar", não "o horário
@@ -188,13 +189,7 @@ def rodar_agendados(
                               "motivo": "todas as janelas até a devida já foram publicadas"})
                 continue
             if pendentes:
-                janelas = pendentes[:teto]
-                if len(pendentes) > teto:
-                    saida.append({
-                        "agendamento": ag["chave"], "status": "adiado",
-                        "janelas": pendentes[teto:],
-                        "motivo": f"teto de {teto} janela(s) por disparo",
-                    })
+                janelas, limite = pendentes, teto
         else:
             ultima = sink.um(
                 "SELECT max(terminado_em) AS q FROM log_execucao "
@@ -213,7 +208,20 @@ def rodar_agendados(
         # 404; se parasse a fila, travaria tudo para sempre); outra carga
         # com a janela, sim: publicar as de depois deixaria essa abaixo da
         # marca d'água, perdida se o dono dela falhar.
-        for j in janelas:
+        #
+        # O teto conta janelas que andaram, não tentativas. Feriado é 404 e
+        # não publica, então não move a marca d'água: se a falha gastasse o
+        # teto, com teto 1 o feriado na cabeça da fila seria a única janela
+        # tentada em todo disparo e nenhuma posterior seria alcançada.
+        andadas = 0
+        for i, j in enumerate(janelas):
+            if limite is not None and andadas >= limite:
+                saida.append({
+                    "agendamento": ag["chave"], "status": "adiado",
+                    "janelas": janelas[i:],
+                    "motivo": f"teto de {limite} janela(s) por disparo",
+                })
+                break
             try:
                 res = ingestao.executar(
                     sink, dataset, j, trigger="cron", baixar=baixar,
@@ -224,6 +232,7 @@ def rodar_agendados(
                               "status": "falha", "erro": str(e)})
                 log.error("agendamento %s falhou em %s: %s", ag["chave"], j, e)
                 continue
+            andadas += 1
             if res.status == "ja_em_execucao":
                 saida.append({"agendamento": ag["chave"], "janela": j,
                               "status": "pulado",
