@@ -15,6 +15,7 @@ Aqui `ingestao.executar` é substituído por um falso que só grava a linha em
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
