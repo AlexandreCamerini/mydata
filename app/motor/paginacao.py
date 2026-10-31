@@ -84,6 +84,9 @@ def montar_url(template: str, parametros: dict, pagina: int,
     return template.replace("{parametros}", valor)
 
 
+ESPERAS_RESPOSTA_INVALIDA = (2, 4)
+
+
 def capturar(
     template: str, parametros: dict, baixar: Callable[[str], bytes],
     pausa: float = PAUSA_ENTRE_PAGINAS, limite: int = LIMITE_PAGINAS,
@@ -119,7 +122,30 @@ def capturar(
         total = None
         numero = 1
         while numero <= limite:
-            cru = baixar(montar_url(template, parametros, numero, item))
+            url = montar_url(template, parametros, numero, item)
+            cru = baixar(url)
+            # Fonte de resposta única e sem iteração (uma série do SGS) que
+            # devolve HTML com status 200 não tem outra página nem outro item
+            # a que recorrer: o bronze é imutável e guardaria o lixo. Tenta
+            # de novo e, se persistir, falha alto sem capturar.
+            if pagina_unica and itens is None:
+                for espera in ESPERAS_RESPOSTA_INVALIDA:
+                    try:
+                        json.loads(cru)
+                        break
+                    except ValueError:
+                        log.warning("resposta não-JSON (%d bytes); nova tentativa "
+                                    "em %ds", len(cru), espera)
+                        time.sleep(espera)
+                        cru = baixar(url)
+                else:
+                    try:
+                        json.loads(cru)
+                    except ValueError:
+                        raise ErroPaginacao(
+                            f"a fonte respondeu algo que não é JSON "
+                            f"({len(cru)} bytes) em todas as tentativas"
+                        ) from None
             try:
                 corpo = json.loads(cru)
             except ValueError:

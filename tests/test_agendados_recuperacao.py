@@ -515,3 +515,19 @@ def test_sql_novo_traduz_para_psycopg_sem_sobrar_interrogacao():
     )
     assert "?" not in reaper and reaper.count("%s") == 3
     assert "%" not in reaper.replace("%s", "")
+
+
+# --------------------------------------------------------------------------
+# Fonte de resposta única que devolve HTML com status 200 (SGS, 2026-10-31)
+# --------------------------------------------------------------------------
+def test_pagina_unica_html_tenta_de_novo_e_nao_captura_lixo(monkeypatch):
+    from app.motor import paginacao
+
+    monkeypatch.setattr(paginacao.time, "sleep", lambda s: None)
+    respostas = iter([b"<!doctype html>", b"<!doctype html>", b'[{"data":"x"}]'])
+    saida = paginacao.capturar("http://x/serie", {}, lambda u: next(respostas))
+    assert b'"data"' in saida
+
+    sempre_html = lambda u: b"<!doctype html>"  # noqa: E731
+    with pytest.raises(paginacao.ErroPaginacao, match="não é JSON"):
+        paginacao.capturar("http://x/serie", {}, sempre_html)
