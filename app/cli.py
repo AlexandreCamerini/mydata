@@ -112,6 +112,14 @@ def _positivo(bruto: str | None, padrao: float, nome: str) -> float:
     return valor
 
 
+def _sem_arquivo(e: BaseException) -> bool:
+    """404 na origem: a fonte não publicou aquela janela (feriado). Distingue
+    de timeout, 5xx e queda de conexão, que valem nova tentativa no disparo
+    seguinte e por isso não podem deixar a fila andar por cima."""
+    resp = getattr(e.__cause__, "response", None)
+    return getattr(resp, "status_code", None) == 404
+
+
 def rodar_agendados(
     sink, *, chave: str | None = None, forcar: bool = False,
     agora: datetime | None = None, baixar=None,
@@ -209,10 +217,12 @@ def rodar_agendados(
         # com a janela, sim: publicar as de depois deixaria essa abaixo da
         # marca d'água, perdida se o dono dela falhar.
         #
-        # O teto conta janelas que andaram, não tentativas. Feriado é 404 e
-        # não publica, então não move a marca d'água: se a falha gastasse o
-        # teto, com teto 1 o feriado na cabeça da fila seria a única janela
-        # tentada em todo disparo e nenhuma posterior seria alcançada.
+        # Só o 404 deixa de gastar o teto. Feriado não publica e não move a
+        # marca d'água: se gastasse, com teto 1 o feriado na cabeça da fila
+        # seria a única janela tentada em todo disparo e nenhuma posterior
+        # seria alcançada. Outra falha (timeout, 5xx) gasta o teto como antes:
+        # seguir adiante publicaria uma janela posterior, subiria a marca e
+        # a janela que só falhou de passagem nunca mais seria tentada.
         andadas = 0
         for i, j in enumerate(janelas):
             if limite is not None and andadas >= limite:
@@ -231,6 +241,8 @@ def rodar_agendados(
                 saida.append({"agendamento": ag["chave"], "janela": j,
                               "status": "falha", "erro": str(e)})
                 log.error("agendamento %s falhou em %s: %s", ag["chave"], j, e)
+                if not _sem_arquivo(e):
+                    andadas += 1
                 continue
             andadas += 1
             if res.status == "ja_em_execucao":
