@@ -124,7 +124,7 @@ def capturar(
         while numero <= limite:
             url = montar_url(template, parametros, numero, item)
             cru = baixar(url)
-            # Fonte de resposta única e sem iteração (uma série do SGS) que
+            # Fonte de resposta única e sem iteração (uma série temporal) que
             # devolve HTML com status 200 não tem outra página nem outro item
             # a que recorrer: o bronze é imutável e guardaria o lixo. Tenta
             # de novo e, se persistir, falha alto sem capturar.

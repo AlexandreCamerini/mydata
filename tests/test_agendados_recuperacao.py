@@ -518,7 +518,7 @@ def test_sql_novo_traduz_para_psycopg_sem_sobrar_interrogacao():
 
 
 # --------------------------------------------------------------------------
-# Fonte de resposta única que devolve HTML com status 200 (SGS, 2026-10-31)
+# Fonte de resposta única que devolve HTML com status 200 (2026-10-31)
 # --------------------------------------------------------------------------
 def test_pagina_unica_html_tenta_de_novo_e_nao_captura_lixo(monkeypatch):
     from app.motor import paginacao
