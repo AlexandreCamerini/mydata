@@ -15,6 +15,7 @@ Aqui `ingestao.executar` é substituído por um falso que só grava a linha em
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -39,13 +40,20 @@ def inserir(sink, dataset, janela, status, iniciado, terminado=None, erro=None):
     return exec_id
 
 
+def _http(status: int):
+    import requests
+
+    return requests.HTTPError(response=SimpleNamespace(status_code=status))
+
+
 class Falso:
     """Substitui `ingestao.executar`: registra a chamada e grava a execução."""
 
     def __init__(self, sink, monkeypatch, *, relogio, lag=timedelta(hours=1),
-                 falha_em=(), ocupada_em=()):
+                 falha_em=(), ocupada_em=(), transitoria_em=()):
         self.sink, self.relogio, self.lag = sink, relogio, lag
         self.falha_em, self.ocupada_em = set(falha_em), set(ocupada_em)
+        self.transitoria_em = set(transitoria_em)
         self.chamadas: list[tuple[str, str]] = []
         monkeypatch.setattr(ingestao, "executar", self)
 
@@ -57,7 +65,10 @@ class Falso:
         agora = self.relogio()
         if janela in self.falha_em:
             inserir(sink, dataset, janela, "falha", agora, agora, "404")
-            raise RuntimeError(f"404 em {janela}")
+            raise RuntimeError(f"404 em {janela}") from _http(404)
+        if janela in self.transitoria_em:
+            inserir(sink, dataset, janela, "falha", agora, agora, "503")
+            raise RuntimeError(f"503 em {janela}") from _http(503)
         eid = inserir(sink, dataset, janela, "publicado", agora, agora + self.lag)
         return ingestao.Resultado(eid, dataset, janela, "publicado",
                                   linhas_silver=1)
@@ -141,6 +152,43 @@ def test_teto_por_disparo_e_o_resto_fica_para_o_proximo(sink_cvm, monkeypatch):
     falso.chamadas.clear()
     rodar(sink_cvm, acordar(9, 17), teto_janelas=2)
     assert falso.janelas() == ["2026-09-11", "2026-09-14"]
+
+
+def test_falha_transitoria_na_cabeca_nao_deixa_a_fila_andar(sink_cvm, monkeypatch):
+    """Timeout/5xx gasta o teto: publicar a janela seguinte subiria a marca
+    d'água e a janela que só falhou de passagem nunca mais seria tentada."""
+    falso = Falso(sink_cvm, monkeypatch, relogio=lambda: acordar(9, 16),
+                  transitoria_em={"2026-09-09"})
+    inserir(sink_cvm, "b3_cotahist", "2026-09-08", "publicado",
+            acordar(9, 9), acordar(9, 9))
+
+    _, falhas = rodar(sink_cvm, acordar(9, 16), teto_janelas=1)
+
+    assert falso.janelas() == ["2026-09-09"]
+    assert falhas == 1
+
+
+def test_feriado_na_cabeca_da_fila_nao_trava_o_teto(sink_cvm, monkeypatch):
+    """Produção, 2026-10: o 12/10 (feriado, 404) ficava na cabeça da fila e,
+    com teto 1, era a única janela tentada em todo disparo — 13/10 em diante
+    nunca rodava e o cron saía com 1 todos os dias."""
+    falso = Falso(sink_cvm, monkeypatch, relogio=lambda: acordar(9, 16),
+                  falha_em={"2026-09-09"})
+    inserir(sink_cvm, "b3_cotahist", "2026-09-08", "publicado",
+            acordar(9, 9), acordar(9, 9))
+
+    saida, falhas = rodar(sink_cvm, acordar(9, 16), teto_janelas=1)
+
+    assert falso.janelas() == ["2026-09-09", "2026-09-10"]
+    assert falhas == 1
+    adiado = [s for s in saida if s["status"] == "adiado"]
+    assert adiado[0]["janelas"] == ["2026-09-11", "2026-09-14", "2026-09-15"]
+
+    # A marca d'água andou: o feriado saiu da fila e o disparo seguinte segue.
+    falso.chamadas.clear()
+    saida, falhas = rodar(sink_cvm, acordar(9, 17), teto_janelas=1)
+    assert falso.janelas() == ["2026-09-11"]
+    assert falhas == 0
 
 
 @pytest.fixture(autouse=True)
@@ -467,3 +515,19 @@ def test_sql_novo_traduz_para_psycopg_sem_sobrar_interrogacao():
     )
     assert "?" not in reaper and reaper.count("%s") == 3
     assert "%" not in reaper.replace("%s", "")
+
+
+# --------------------------------------------------------------------------
+# Fonte de resposta única que devolve HTML com status 200 (2026-10-31)
+# --------------------------------------------------------------------------
+def test_pagina_unica_html_tenta_de_novo_e_nao_captura_lixo(monkeypatch):
+    from app.motor import paginacao
+
+    monkeypatch.setattr(paginacao.time, "sleep", lambda s: None)
+    respostas = iter([b"<!doctype html>", b"<!doctype html>", b'[{"data":"x"}]'])
+    saida = paginacao.capturar("http://x/serie", {}, lambda u: next(respostas))
+    assert b'"data"' in saida
+
+    sempre_html = lambda u: b"<!doctype html>"  # noqa: E731
+    with pytest.raises(paginacao.ErroPaginacao, match="não é JSON"):
+        paginacao.capturar("http://x/serie", {}, sempre_html)
