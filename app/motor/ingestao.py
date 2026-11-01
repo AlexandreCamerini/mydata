@@ -115,6 +115,19 @@ def capturas_da_janela(sink: Sink, dataset_chave: str, janela: str) -> list[dict
     return list(vistos.values())
 
 
+def capturas_por_id(sink: Sink, ids: list[int]) -> list[dict]:
+    """As capturas pedidas, na ordem em que a rodada as obteve, sem repetir."""
+    unicos = list(dict.fromkeys(ids))
+    marcas = ",".join("?" for _ in unicos)
+    linhas = {
+        int(r["id"]): r for r in sink.consultar(
+            f"SELECT id, nome_arquivo, url, sha256, capturado_em "
+            f"FROM bronze_captura WHERE id IN ({marcas})", tuple(unicos),
+        )
+    }
+    return [linhas[i] for i in unicos if i in linhas]
+
+
 def payload_de(sink: Sink, captura_id: int) -> bytes:
     linha = sink.um("SELECT payload FROM bronze_captura WHERE id = ?", (captura_id,))
     if linha is None:
@@ -433,6 +446,12 @@ def _executar(
     try:
         # ---------- baixar + bronze ----------
         repo.atualizar_execucao(sink, exec_id, status="baixando")
+        # Capturas que ESTA rodada obteve (ou reconheceu como já guardadas).
+        # O bronze deduplica por hash em todo o dataset, então baixar de novo
+        # um conteúdo bom que já existe não cria linha nova: a "última captura
+        # da janela" continuaria sendo um lixo gravado depois dele, e o silver
+        # leria o lixo mesmo com a fonte respondendo certo.
+        desta_rodada: list[int] = []
         with obs.fase(sink, exec_id, "baixar"):
             if baixar is not None:
                 # A credencial da fonte entra aqui, uma vez, e o resto do
@@ -470,12 +489,13 @@ def _executar(
                             )
                     payload = paginacao.capturar(url, _parametros(ds), baixar,
                                                  itens=itens)
-                    _, nova = gravar_bronze(
+                    cid, nova = gravar_bronze(
                         sink, dataset_chave, janela,
                         credenciais.censurar(url, fonte["credencial_ref"]),
                         f"{dataset_chave}.json", payload,
                     )
                     res.capturas_novas += int(nova)
+                    desta_rodada.append(cid)
                 elif fonte["tipo_transporte"] == "http_token":
                     # Duas requisições para um arquivo: a primeira devolve um
                     # JSON com um bilhete, a segunda troca o bilhete pelos
@@ -489,7 +509,7 @@ def _executar(
                             url, _parametros(ds), baixar
                         )
                         payload = baixar(url_arquivo)
-                        _, nova = gravar_bronze(
+                        cid, nova = gravar_bronze(
                             sink, dataset_chave, janela,
                             # O bronze guarda o endereço do **pedido**, não o
                             # do bilhete: o bilhete vence e o segundo endereço
@@ -499,19 +519,22 @@ def _executar(
                             nome, payload,
                         )
                         res.capturas_novas += int(nova)
+                        desta_rodada.append(cid)
                 else:
                     for url in _urls_da_janela(fonte, ds, janela):
                         nome = url.rsplit("/", 1)[-1].split("?")[0]
                         payload = baixar(url)
-                        _, nova = gravar_bronze(
+                        cid, nova = gravar_bronze(
                             sink, dataset_chave, janela,
                             credenciais.censurar(url, fonte["credencial_ref"]),
                             nome, payload,
                         )
                         res.capturas_novas += int(nova)
+                        desta_rodada.append(cid)
         repo.atualizar_execucao(sink, exec_id, status="capturado")
 
-        capturas = capturas_da_janela(sink, dataset_chave, janela)
+        capturas = (capturas_por_id(sink, desta_rodada) if desta_rodada
+                    else capturas_da_janela(sink, dataset_chave, janela))
         res.capturas = len(capturas)
         if not capturas:
             raise ErroIngestao(
