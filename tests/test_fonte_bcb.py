@@ -97,6 +97,25 @@ def test_parametros_do_mapeamento_viram_coluna(sink_cvm):
     assert linhas[0]["valor"] == pytest.approx(11.75)
 
 
+def test_captura_ruim_gravada_depois_nao_mascara_o_conteudo_bom(sink_cvm):
+    """Produção, 2026-11: uma resposta sem `data` ficou no bronze como a última
+    captura da janela. O conteúdo bom voltou depois, mas o bronze deduplica por
+    hash (no-op) e a leitura seguia pegando a ruim — erro todo dia, mesmo com a
+    fonte respondendo certo. A rodada lê o que ela mesma obteve."""
+    ok = ingestao.executar(sink_cvm, "bcb_selic_meta", "2024",
+                           baixar=falso_sgs([]))
+    assert ok.status == "publicado", ok.erro
+
+    with pytest.raises(Exception, match="campo obrigatório"):
+        ingestao.executar(sink_cvm, "bcb_selic_meta", "2024",
+                          baixar=falso_sgs([], registros=[]))
+
+    de_novo = ingestao.executar(sink_cvm, "bcb_selic_meta", "2024",
+                                baixar=falso_sgs([]))
+    assert de_novo.status == "publicado", de_novo.erro
+    assert de_novo.capturas_novas == 0   # o conteúdo bom já estava guardado
+
+
 def test_fonte_nova_atravessa_o_ciclo_ate_gold(sink_cvm):
     """O aceite da etapa: uma fonte que não existia chega a dado publicado."""
     res = ingestao.executar(sink_cvm, "bcb_selic_meta", "2024",
