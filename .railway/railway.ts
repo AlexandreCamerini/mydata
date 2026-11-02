@@ -25,7 +25,14 @@ export const partial = "mydata";
 export default defineRailway(() => {
   const repo = github("AlexandreCamerini/mydata", { checkSuites: false });
 
+  // Limite de memória de 1 GB (FinOps F1, docs/finops-mydata.md, 2026-11-02).
+  // Sem limite, o cache de página do kernel enchia até ~2–2,6 GB e o Railway
+  // cobra memory.current — 65–81 % da conta do projeto. O Postgres precisa de
+  // ~250 MB (anon + shared_buffers + kernel); sob limite o kernel devolve
+  // cache antes de matar processo. Tirar daqui = um apply volta a 24 GB.
+  // Forma que o `railway config pull` gera: limite fora das opções do construtor.
   const Postgres = postgres("Postgres", { region: "us-east4-eqdc4a" });
+  Postgres.deploy = { limitOverride: { containers: { cpu: 24, memoryBytes: 1_000_000_000 } } };
   const postgresVolume = volume("postgres-volume", {
     alerts: { usage: { "100": {}, "80": {}, "95": {} } },
     allowOnlineResize: true,
@@ -56,6 +63,17 @@ export default defineRailway(() => {
     domains: ["mydata.acamerini.app", "mydata.semente.dev"],
     env: {
       BRAPI_TOKEN: preserve(),
+      // Console central (ADR-25), criadas no painel em 2026-09-27/28 e
+      // ausentes daqui até 2026-11-02 — um apply nesse intervalo as apagaria.
+      CONSOLE_BORIS_OBS_CHAVE: preserve(),
+      CONSOLE_BORIS_URL: preserve(),
+      CONSOLE_CLIENT_ID: preserve(),
+      CONSOLE_CLIENT_SECRET: preserve(),
+      CONSOLE_COLETOR: preserve(),
+      CONSOLE_MCP_URL: preserve(),
+      CONSOLE_PORTAL_URL: preserve(),
+      CONSOLE_RAILWAY_PROJETOS: preserve(),
+      CONSOLE_RAILWAY_TOKEN: preserve(),
       DATABASE_URL: preserve(),
       PORTAL_ADMIN_TOKEN: preserve(),
       PORTAL_MIGRAR_NO_BOOT: preserve(),
@@ -82,6 +100,7 @@ export default defineRailway(() => {
     deploy: { cronSchedule: "0 6 * * *", restartPolicyType: "NEVER" },
     env: {
       DATABASE_URL: preserve(),
+      PORTAL_MAX_JANELAS_POR_DISPARO: preserve(),
       PORTAL_PAPEL: preserve(),
       PORTAL_WEBHOOK_ALERTAS: preserve(),
     },
