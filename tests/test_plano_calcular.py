@@ -97,3 +97,74 @@ def test_duckdb_nao_recebe_nada_disso(sink):
     finally:
         sink.executar = original
     assert not any("enable_nestloop" in s for s in gravado)
+
+
+# --------------------------------------------------------------------------
+# F3: o UPDATE de janela só grava linha cujo valor muda
+# --------------------------------------------------------------------------
+def _update_de_janela(campos):
+    return next(s for s in _executar(campos)
+                if s.startswith("UPDATE") and "log_retorno" in s)
+
+
+def test_update_de_janela_so_toca_linha_que_muda():
+    sql = _update_de_janela([JANELA])
+    assert "alvo.log_retorno IS DISTINCT FROM origem.valor_calculado" in sql
+
+
+def test_filtro_de_mudanca_nao_substitui_a_juncao_por_chave():
+    """A junção continua igualdade comum (merge/hash join); o filtro é só filtro."""
+    sql = _update_de_janela([JANELA])
+    assert "COALESCE(alvo.dt_pregao::text, chr(1)) = " in sql
+    assert "COALESCE(alvo.codneg::text, chr(1)) = " in sql
+
+
+def test_escalar_nao_ganha_o_filtro():
+    """O escalar já é recortado pelas capturas novas — linhas com coluna nula —
+    e reavaliaria a subconsulta correlacionada duas vezes por linha."""
+    sql = next(s for s in _executar([ESCALAR])
+               if s.startswith("UPDATE fato_negociacao SET x"))
+    assert "DISTINCT" not in sql
+
+
+def test_recompute_sem_mudanca_nao_regrava_nenhuma_linha(sink):
+    """Equivalência (DuckDB): rodar o calcular de novo, sem dado novo, deixa
+    a tabela idêntica e não toca nenhuma linha dos campos de janela."""
+    import pytest
+
+    if sink.dialeto != "duckdb":
+        pytest.skip("contagem de linhas tocadas só no DuckDB; o formato do SQL "
+                    "é coberto nos testes acima para os dois dialetos")
+    from app import seed_fontes
+    from app.motor import ingestao
+    from app import repositorio as repo
+    from tests.test_escopo_da_escrita import ARQ_D1, ARQ_D2
+
+    seed_fontes.aplicar(sink)
+    for dia, arq in (("2026-07-31", ARQ_D1), ("2026-08-03", ARQ_D2)):
+        ingestao.executar(sink, "b3_cotahist", dia,
+                          baixar=lambda url, cabecalhos=None, a=arq: a)
+
+    ds = sink.um("SELECT * FROM cfg_dataset WHERE chave = 'b3_cotahist' AND vigente")
+    janelas = [c for c in repo.calculados_do(sink, ds["id"])
+               if c["classe"] == "janela"]
+    assert janelas
+    antes = sink.consultar("SELECT * FROM fato_negociacao ORDER BY dt_pregao, codneg")
+
+    tocadas = []
+    original = sink.executar
+
+    def espiar(sql, params=()):
+        original(sql, params)
+        if sql.lstrip().startswith("UPDATE"):
+            tocadas.append(sink.con.fetchone()[0])
+
+    sink.executar = espiar
+    try:
+        calc.aplicar(sink, ds, janelas, capturas=None)
+    finally:
+        sink.executar = original
+
+    assert tocadas == [0] * len(janelas)
+    assert sink.consultar(
+        "SELECT * FROM fato_negociacao ORDER BY dt_pregao, codneg") == antes

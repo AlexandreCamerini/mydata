@@ -52,16 +52,21 @@ lido. O que derruba a conta é limitar a memória do serviço.
 
 | Quando | O quê | Ganho medido |
 |---|---|---|
-| 2026-09-28/29 | `calcular` com leitura escopada nos campos de janela, `ANALYZE` antes, e UPDATE de janela sem laço aninhado (`b948320`, `82b70e2`) | CPU do Postgres de $5–6/mês para cerca de $0,08/mês (−99 %). As 16–44 h por pregão sumiram |
+| 2026-09-29 | `ANALYZE` antes do `calcular` e UPDATE de janela sem laço aninhado (`82b70e2`) | CPU do Postgres de $5–6/mês para cerca de $0,08/mês (−99 %). As 16–44 h por pregão sumiram. A leitura escopada (`b948320`) **não** entrou em `main`: está só na branch `escopo-calcular`, e a leitura do `calcular` segue integral |
 | 2026-09-29 | Trava por dataset+janela e reaper de execuções abandonadas (`6b64310`) | Sem execução duplicada nem presa. Era o que empilhava `calcular` |
-| 2026-10-31 | Cron: falha não consome o teto de janelas; resposta não-JSON tenta de novo (`9e428f0`, `b9efabe`, `d42ac1c`) | Operacional. Acaba com o reprocessamento em cascata depois de feriado |
+| 2026-10-31 | Cron: só o 404 (feriado, sem arquivo) deixa de consumir o teto de janelas; timeout e 5xx continuam consumindo. Resposta não-JSON tenta de novo (`9e428f0`, `b9efabe`, `d42ac1c`) | Operacional. Acaba com o reprocessamento em cascata depois de feriado |
 | 2026-11-01 | `ANALYZE` de `fato_conta`, `fato_negociacao` e `dim_instrumento` | Estatística corrigida (`fato_conta` estava com `n_live_tup = 0` desde o restart de 10/09) |
 | 2026-11-01 | `VACUUM FULL fato_conta` | 1.363 MB → 375 MB, banco 3.445 MB → 2.456 MB, digital de gold idêntica. Cerca de $0,15/mês direto; reduz o teto do cache |
 | 2026-11-02 | **F1: limite de 1 GB de memória no Postgres** | Memória cobrada de 2.566 MB para 811 MB na hora. Pelo menos −$6,6/mês esperado |
 
-Do [plano de setembro](plano-custos-armazenamento-mydata.md): A2, B1 e B2
-estão feitos; A3 e A5 estão parciais. C1 (`hash_conteudo`), C2 (pular
-payload idêntico) e o timeout por fase não existem no código.
+Do [plano de setembro](plano-custos-armazenamento-mydata.md), conferido
+contra `main` em 2026-11-02: A2 (perfil e correção do plano) e a trava do B1
+(advisory lock) estão feitos. Estão **parciais**: A3 (só a escrita é
+escopada; a leitura integral), A4, A5, B1 (sem índice único parcial em
+`log_execucao` nem status `pulada`) e B2 (só o reaper de 72 h do cron, sem
+timeout por fase, heartbeat nem reconciliação no boot). Não existem no
+código: C1 (`hash_conteudo`), C2 (pular payload idêntico), D2 (`razao_sla`) e
+a tabela de triagem do `cvm_itr` (B3).
 
 ## 4. Plano
 
@@ -117,9 +122,19 @@ Plano original:
 - **Aceite:** o mesmo de F1, por mais 7 dias.
 - **Kill:** um OOM volta para 1 GB, sem segunda tentativa.
 
-### F3. `calcular` sem regravar linha que não mudou
+### F3. `calcular` sem regravar linha que não mudou — NO CÓDIGO em 2026-11-02, falta deploy e medição
 
-- **Problema:** 13,7 milhões de UPDATEs em `fato_negociacao` desde 10/09, para
+- **Feito:** o UPDATE de campo de janela ganhou
+  `alvo.<campo> IS DISTINCT FROM origem.valor_calculado` (`app/motor/calculados.py`).
+  Escalar e numérico ficam de fora de propósito: já são recortados pelas
+  capturas novas (coluna nula, sempre distinta) e o escalar reavaliaria a
+  subconsulta correlacionada duas vezes. Testes em `tests/test_plano_calcular.py`:
+  recomputar sem dado novo deixa a tabela idêntica e toca 0 linhas (5 por
+  campo antes da mudança), e a junção por chave continua igualdade comum.
+- **Falta:** deploy; medir `n_tup_upd` de `fato_negociacao` em uns dias; só
+  então `VACUUM FULL fato_negociacao` e `dim_instrumento`. A suíte em Postgres
+  roda no CI.
+- **Problema original:** 13,7 milhões de UPDATEs em `fato_negociacao` desde 10/09, para
   459 mil inserções. Cada linha é regravada cerca de 30 vezes, com 2 % de
   HOT. Isso gera WAL, I/O e um bloat de 58 % que puxa páginas para o cache.
 - **Fix:** `UPDATE … WHERE (novo) IS DISTINCT FROM (atual)` nos UPDATEs de

@@ -361,6 +361,14 @@ def aplicar(
                 marcadores = ",".join("?" for _ in capturas)
                 condicao.append(f"alvo.captura_id IN ({marcadores})")
                 parametros_janela = list(capturas)
+            # Só grava o que mudou: quem retroage (ou carrega histórico fora
+            # de ordem) reescreve a tabela inteira, e quase tudo volta com o
+            # mesmo valor — 13,7 milhões de UPDATEs em fato_negociacao para
+            # 459 mil inserções, com WAL, bloat e 2 % de HOT. É um filtro, não
+            # uma chave de junção: o plano de merge join não muda.
+            condicao.append(
+                f"alvo.{campo['nome']} IS DISTINCT FROM origem.valor_calculado"
+            )
             with _sem_laco_aninhado(sink):
                 sink.executar(
                     f"""UPDATE {tabela} AS alvo
