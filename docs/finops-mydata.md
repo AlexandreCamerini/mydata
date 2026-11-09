@@ -117,15 +117,54 @@ Plano original:
 - **Degradação:** se houver OOM, subir para 2 GB (ainda abaixo dos ~2 GB
   médios de hoje) e medir `anon` em `memory.stat` durante a `calcular`.
 
-### F2. Baixar para 500 MB — APLICADO em 2026-11-08, um dia antes do previsto
+### Resultado do F1 (semana de 04/11 a 08/11): aceite FALHOU no `calcular`
 
-Entrou com 6 dos 7 dias limpos de F1 (02/11 → 09/11), não com 7. A janela de
-aceite de F2 vale **de 2026-11-08 a 2026-11-15**, e conta só a partir do
-restart de 2026-11-09 01:29 UTC.
+Fonte: [relatórios diários](relatorios-finops/), coletados por
+`scripts/finops-checagem.sh`.
 
-- **Ganho:** mais cerca de −$5/mês. Memória do Postgres a no máximo $5/mês.
-- **Aceite:** o mesmo de F1, por mais 7 dias. O primeiro cron sob o limite
-  roda em 2026-11-09 06:00 UTC.
+- **Memória e OOM:** passou. Foram 5 dias sem OOM nem reinício, e
+  `memory.current` ficou entre 91 % e 100 % do teto. O F1 funciona como teto
+  de custo, mas não reduz o consumo para baixo do teto: o cache sempre ocupa
+  o que sobra.
+- **`calcular` do `b3_cotahist`:** falhou. As medições foram 574,7, 570,5,
+  614,3 e 626,2 s, contra um aceite de no máximo cerca de 196 s (2× os 84–98 s
+  de antes do F1). A falha foi nas quatro medições, com tendência de piora.
+  O gargalo é leitura: sob 1 GB, `file` ocupa de 900 a 944 MB.
+- **Causa provável da leitura fora da rodada,** levantada em 09/11: o Boris+
+  chamava `/v1/opcoes/{ticker}/vencimentos` a cada poucos minutos, e cada
+  chamada fazia seq scan de 1,3 GB em `fato_negociacao` (ver achados
+  abaixo). Isso explica o salto da média de memória num sábado sem pregão.
+  Também deve competir por cache e I/O com o `calcular`. O índice
+  `ix_fato_negociacao_4`, de 09/11, eliminou essa varredura.
+
+### F2. Baixar para 500 MB — APLICADO em 2026-11-08 sem cumprir a pré-condição; reverter pedido
+
+O F2 dependia do aceite do F1 ("o mesmo de F1, por mais 7 dias"), e o F1
+falhou no `calcular`. O relatório de 08/11 recomendava não aplicar o F2
+enquanto o `calcular` estivesse acima de 2× o aceite. A sessão de 08/11
+aplicou mesmo assim (teto de 500 MB, `max_connections` 50,
+`effective_cache_size` 256 MB) e não registrou essa pré-condição.
+
+**Risco sob 500 MB:** a memória que o kernel não pode descartar é de cerca
+de 205 MB fixos (`anon` + `shmem`). Até três workers de autovacuum com
+`maintenance_work_mem` de 64 MB somam 192 MB. São cerca de 440 MB contra um
+teto de 500 MB, e o OOM fica plausível justamente no `calcular`. O primeiro
+pregão novo processado sob o teto é o de **terça 10/11, por volta de
+06:00 UTC**. O cron de segunda 09/11 só roda BCB, porque a janela de sexta
+já foi publicada.
+
+**Situação em 2026-11-09 03:20 UTC:** a volta para 1 GB foi tentada por esta
+sessão e negada pela permissão do agente. Está pendente com o Alex: no
+painel, serviço Postgres → Settings → Memory = 1 GB, ou permitir
+`update-service`. Aplica sem reiniciar. Com o teto de 1 GB, o valor coerente
+de `effective_cache_size` é 768 MB (`ALTER SYSTEM` + `pg_reload_conf()`,
+também sem reinício). Ele continua em 256 MB enquanto o teto for 500 MB.
+
+- **Ganho, se der certo:** mais cerca de −$5/mês. Memória do Postgres a no
+  máximo $5/mês.
+- **Pré-condição para tentar de novo:** `calcular` abaixo de cerca de 400 s
+  (2× o aceite) em 3 noites úteis seguidas sob 1 GB. A primeira medição com
+  o índice novo e sem a varredura do Boris+ sai na terça 10/11.
 - **Kill:** um OOM volta para 1 GB (`memoryBytes: 1_000_000_000` no
   `railway.ts`, e `limits.memoryGB: 1` na API, que aplica na hora), sem
   segunda tentativa.
@@ -134,7 +173,21 @@ restart de 2026-11-09 01:29 UTC.
   porque lê mais do disco, mas a causa é falta de índice, e voltar para 1 GB
   não a resolve.
 
-### F3. `calcular` sem regravar linha que não mudou — NO CÓDIGO em 2026-11-02, falta deploy e medição
+### F3. `calcular` sem regravar linha que não mudou — CONCLUÍDO (medido de 05 a 07/11)
+
+**Resultado:** a razão UPDATE/INSERT por noite útil caiu de cerca de 30 para
+9,5 (n = 3), ou seja, três vezes menos escrita. O efeito no tempo do
+`calcular` foi nenhum, porque o gargalo é leitura. O bloat ficou sob
+controle sem intervenção: as tuplas mortas oscilaram entre 82 mil e 265 mil,
+e o autovacuum devolveu o valor sozinho em ciclo de cerca de 2 dias.
+**`VACUUM FULL` de `fato_negociacao` não se justifica:** ele exige lock
+exclusivo e espaço para a cópia, e é a operação mais arriscada sob teto de
+memória. Antes de decidir, medir `pg_total_relation_size`. Se as tuplas
+mortas passarem de 350 mil, rodar `VACUUM (ANALYZE)` manual, não FULL.
+Próximo candidato na mesma linha: `dim_instrumento`, com cerca de 89 mil
+UPDATEs por noite para cerca de 350 INSERTs (F3-bis).
+
+Texto original do plano, mantido como histórico:
 
 - **Feito:** o UPDATE de campo de janela ganhou
   `alvo.<campo> IS DISTINCT FROM origem.valor_calculado` (`app/motor/calculados.py`).
@@ -218,10 +271,24 @@ estourariam o healthcheck de 30 s. Medido depois:
 - vencimentos BBDC3: 37 ms;
 - PETR4, a maior cadeia, a frio: 2.811 ms.
 
-**3. `n_tup_upd` de `fato_negociacao` na linha de base do F3:** 15.793.420
-UPDATEs para 670.664 INSERTs desde o último reset de estatística (razão de
-cerca de 23,5). Remedir depois de três pregões: com o F3 no ar, a razão por
-pregão deveria cair para perto de zero.
+**3. `n_tup_upd` de `fato_negociacao`:** 15.793.420 UPDATEs para 670.664
+INSERTs, acumulados desde 10/09. A razão acumulada, de cerca de 23,5, não
+mede o F3. A medida certa é o delta por noite, já feito pela checagem
+diária: 9,5 (ver F3).
+
+**4. Deploy do PR #9 (`71c6815`, 2026-11-09 03:22 UTC):** SUCCESS em 53 s.
+O `migrar` do boot aplicou a classe `negociacao_b3` em cerca de 1 s, sem
+refazer o índice único: `idx_scan` de `ux_fato_negociacao_identidade`
+continuou em 4.076.310, e esse contador zeraria se o índice tivesse sido
+recriado. `/health` respondeu 200, e o postmaster seguiu o de 01:29 UTC. No
+mesmo boot, o coletor do console registrou `origem=railway ok=False`
+(`AttributeError: 'NoneType' object has no attribute 'get'`); fica
+registrado no backlog, fora do FinOps.
+
+**5. Checagem de FinOps renovada:** a tarefa agendada
+`mydata-finops-checagem-diaria` passou a rodar toda terça às 08:15 BRT, de
+10/11 a 01/12, com a linha de base de 09/11 e com medição de tamanho das
+tabelas e de 499 em `/v1/opcoes`.
 
 ### Não fazer por custo
 
@@ -238,7 +305,7 @@ pregão deveria cair para perto de zero.
 |---|---|---|
 | Hoje (ritmo do período) | ≈ $18,5 | ≈ $21 |
 | F1 (1 GB) | ≈ $11 | ≈ $13,5 |
-| F1 + F2 (500 MB) — **em vigor desde 2026-11-08** | ≈ $6 | ≈ $8,5 |
+| F1 + F2 (500 MB) — aplicado em 2026-11-08 sem a pré-condição; volta para 1 GB pedida (ver F2) | ≈ $6 | ≈ $8,5 |
 
 Preço usado: o efetivo da fatura (memória ≈ $10/GB·mês, obtido de $10,30 em
 18,6 dias com média de cerca de 1,66 GB). A projeção supõe que o cache enche
