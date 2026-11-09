@@ -348,3 +348,77 @@ def test_boot_sem_nada_a_fazer_continua_barato(sink_cvm):
                         "indicador_macro", "negociacao_b3", "instrumento_b3",
                         "provento_b3")
     }
+
+
+# --------------------------------------------------------------------------
+# Índice comum novo não refaz o índice único (2026-11-09)
+# --------------------------------------------------------------------------
+def _sink_com_sensor(tmp_path, indices):
+    sink = SinkDuckDB(str(tmp_path / "sensor.duckdb"))
+    bootstrap.preparar(sink)
+    classe = {"tabela": "fato_leitura_sensor",
+              "chave_identidade": "sensor,medido_em",
+              "indices": ";".join(",".join(g) for g in indices)}
+    atributos = [
+        {"id": a["ordem"], "nome": a["nome"], "tipo": a["tipo"],
+         "obrigatorio": a.get("obrigatorio", False),
+         "guarda_texto": a.get("guarda_texto", False), "ordem": a["ordem"]}
+        for a in CLASSE_NOVA["atributos"]
+    ]
+    return sink, classe, atributos
+
+
+def test_colunas_do_indice_le_o_catalogo(tmp_path):
+    sink, classe, atributos = _sink_com_sensor(tmp_path, [["sensor"]])
+    ddl.garantir_tabela(sink, classe, atributos)
+    assert ddl.colunas_do_indice(sink, "ux_fato_leitura_sensor_identidade") == \
+        ddl.identidade_fisica(classe)
+    assert ddl.colunas_do_indice(sink, "ix_fato_leitura_sensor_1") == ["sensor"]
+    assert ddl.colunas_do_indice(sink, "nao_existe") is None
+    sink.fechar()
+
+
+def test_indice_comum_novo_nao_refaz_o_indice_unico(tmp_path, monkeypatch):
+    """Acrescentar índice muda o digest da classe, e o boot reaplicava o DDL
+    inteiro — inclusive DROP + CREATE do índice único, que em
+    `fato_negociacao` (1,4 milhão de linhas) roda no boot, sem CONCURRENTLY,
+    e deixa o `ON CONFLICT` da carga sem apoio entre os dois."""
+    sink, classe, atributos = _sink_com_sensor(tmp_path, [["sensor"]])
+    ddl.garantir_tabela(sink, classe, atributos)
+
+    executadas: list[str] = []
+    original = sink.executar
+    monkeypatch.setattr(
+        sink, "executar",
+        lambda sql, *a, **k: (executadas.append(sql), original(sql, *a, **k))[1],
+    )
+    classe = {**classe, "indices": "sensor;medido_em,temperatura"}
+    aplicadas = ddl.garantir_tabela(sink, classe, atributos)
+
+    assert aplicadas == ["CREATE INDEX ix_fato_leitura_sensor_2"]
+    assert not any("ux_fato_leitura_sensor_identidade" in s for s in executadas)
+    assert ddl.colunas_do_indice(sink, "ix_fato_leitura_sensor_2") == \
+        ["medido_em", "temperatura"]
+    sink.fechar()
+
+
+def test_identidade_alterada_continua_refazendo_o_indice_unico(tmp_path):
+    sink, classe, atributos = _sink_com_sensor(tmp_path, [["sensor"]])
+    ddl.garantir_tabela(sink, classe, atributos)
+
+    classe = {**classe, "chave_identidade": "sensor"}
+    aplicadas = ddl.garantir_tabela(sink, classe, atributos)
+
+    assert "CREATE UNIQUE INDEX ux_fato_leitura_sensor_identidade" in aplicadas
+    assert ddl.colunas_do_indice(sink, "ux_fato_leitura_sensor_identidade") == \
+        ["sensor", "origem_dataset"]
+    sink.fechar()
+
+
+def test_negociacao_b3_tem_indice_por_ticker_objeto(sink_cvm):
+    """`/v1/opcoes` e `/vencimentos` filtram por `ticker_objeto`; sem índice,
+    seq scan de 1,3 GB e 24 s em produção (2026-11-09)."""
+    assert ddl.colunas_do_indice(sink_cvm, "ix_fato_negociacao_4") == \
+        ["ticker_objeto", "dt_pregao"]
+    # Os existentes não mudam de nome: o novo entrou no fim da lista.
+    assert ddl.colunas_do_indice(sink_cvm, "ix_fato_negociacao_2") == ["codneg"]

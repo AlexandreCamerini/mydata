@@ -603,8 +603,14 @@ CLASSE_NEGOCIACAO = Classe(
     # pregão de 31/07/2026, quinze contratos a termo do mesmo papel com
     # prazos diferentes colidiam na mesma chave e o upsert guardava um só.
     chave_identidade=CHAVE_NEGOCIACAO,
+    # O quarto índice serve `/v1/opcoes` e `/v1/opcoes/{ticker}/vencimentos`,
+    # que filtram por `ticker_objeto` (e `dt_pregao`). Sem ele, cada chamada
+    # varria `fato_negociacao` inteira: 24 s medidos em produção em
+    # 2026-11-09, acima do timeout de 20 s do Boris+. Entra no fim da lista
+    # porque o nome físico é posicional (`ix_fato_negociacao_<n>`): inserir
+    # no meio renomearia os existentes.
     indices=[["dt_pregao", "isin", "tp_mercado"], ["codneg"],
-             ["dt_vencimento"]],
+             ["dt_vencimento"], ["ticker_objeto", "dt_pregao"]],
     sla_horas=24 * 4,     # pregão é diário; feriado prolongado cabe em quatro dias
     atributos=[
         _atr("dt_pregao", "data", obrigatorio=True, ordem=1),

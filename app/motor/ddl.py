@@ -131,6 +131,26 @@ def indice_existe(sink: Sink, nome: str) -> bool:
     return sink.um(sql, (nome,)) is not None
 
 
+def colunas_do_indice(sink: Sink, nome: str) -> list[str] | None:
+    """Colunas do índice, na ordem, lidas do catálogo; `None` se não existe.
+
+    Os dois dialetos guardam a definição como texto (`indexdef` no Postgres,
+    `sql` no DuckDB), sempre terminando na lista de colunas entre parênteses.
+    Os índices do motor só usam coluna simples, sem expressão, então a lista
+    é separável por vírgula.
+    """
+    if sink.dialeto == "postgres":
+        sql = "SELECT indexdef AS definicao FROM pg_indexes WHERE indexname = ?"
+    else:
+        sql = "SELECT sql AS definicao FROM duckdb_indexes() WHERE index_name = ?"
+    linha = sink.um(sql, (nome,))
+    if linha is None or not linha["definicao"]:
+        return None
+    definicao = linha["definicao"]
+    dentro = definicao[definicao.rindex("(") + 1:definicao.rindex(")")]
+    return [c.strip().strip('"') for c in dentro.split(",") if c.strip()]
+
+
 def divergencias(sink: Sink, classe: dict, atributos: list[dict]) -> list[str]:
     """O que a classe declara e a tabela não tem, e vice-versa.
 
@@ -226,14 +246,24 @@ def garantir_tabela(sink: Sink, classe: dict, atributos: list[dict]) -> list[str
                     f"WHERE origem_dataset IS NULL"
                 )
                 aplicadas.append(f"UPDATE {tabela} SET origem_dataset (do bronze)")
+        # O índice único só é refeito quando a identidade mudou ou ele sumiu.
+        # O digest muda também quando muda só um índice comum, e refazer o
+        # único nesse caso é caro e arriscado: em `fato_negociacao`, com
+        # 1,4 milhão de linhas, o DROP + CREATE roda no boot, sem
+        # CONCURRENTLY, e entre os dois o `ON CONFLICT` da carga fica sem
+        # apoio.
         indice = f"ux_{tabela}_identidade"
-        sink.executar(f"DROP INDEX IF EXISTS {indice}")
-        sink.executar(
-            f"CREATE UNIQUE INDEX {indice} ON {tabela} "
-            f"({', '.join(identidade_fisica(classe))})"
-        )
-        aplicadas.append(f"CREATE UNIQUE INDEX {indice}")
+        if colunas_do_indice(sink, indice) != identidade_fisica(classe):
+            sink.executar(f"DROP INDEX IF EXISTS {indice}")
+            sink.executar(
+                f"CREATE UNIQUE INDEX {indice} ON {tabela} "
+                f"({', '.join(identidade_fisica(classe))})"
+            )
+            aplicadas.append(f"CREATE UNIQUE INDEX {indice}")
         for sentenca in sentencas_da_classe(classe, atributos)[2:]:
+            nome = sentenca.split()[5]   # CREATE INDEX IF NOT EXISTS <nome> ON …
+            if not indice_existe(sink, nome):
+                aplicadas.append(f"CREATE INDEX {nome}")
             sink.executar(render(sentenca, sink.dialeto))
 
     sink.executar("DELETE FROM cfg_seed WHERE chave = ?", (marcador,))
