@@ -58,6 +58,7 @@ lido. O que derruba a conta é limitar a memória do serviço.
 | 2026-11-01 | `ANALYZE` de `fato_conta`, `fato_negociacao` e `dim_instrumento` | Estatística corrigida (`fato_conta` estava com `n_live_tup = 0` desde o restart de 10/09) |
 | 2026-11-01 | `VACUUM FULL fato_conta` | 1.363 MB → 375 MB, banco 3.445 MB → 2.456 MB, digital de gold idêntica. Cerca de $0,15/mês direto; reduz o teto do cache |
 | 2026-11-02 | **F1: limite de 1 GB de memória no Postgres** | Memória cobrada de 2.566 MB para 811 MB na hora. Pelo menos −$6,6/mês esperado |
+| 2026-11-08 | **F2: limite de 500 MB** (`memoryBytes: 500_000_000`), `max_connections` 500→50, `effective_cache_size` 4 GB→256 MB, restart do Postgres (`pg_postmaster_start_time()` = 2026-11-09 01:29 UTC). Sono (`sleepApplication`) ligado no `mydata` e no `mcp`; `semente-id` segue sempre ligado (é o login). `railway.ts` alinhado no mesmo dia | Esperado mais −$5/mês. O sono **não** rende nada enquanto o coletor do console rodar (ver "Achados de 2026-11-08") |
 
 Do [plano de setembro](plano-custos-armazenamento-mydata.md), conferido
 contra `main` em 2026-11-02: A2 (perfil e correção do plano) e a trava do B1
@@ -116,11 +117,22 @@ Plano original:
 - **Degradação:** se houver OOM, subir para 2 GB (ainda abaixo dos ~2 GB
   médios de hoje) e medir `anon` em `memory.stat` durante a `calcular`.
 
-### F2. Baixar para 512 MB depois de 7 dias limpos com F1
+### F2. Baixar para 500 MB — APLICADO em 2026-11-08, um dia antes do previsto
+
+Entrou com 6 dos 7 dias limpos de F1 (02/11 → 09/11), não com 7. A janela de
+aceite de F2 vale **de 2026-11-08 a 2026-11-15**, e conta só a partir do
+restart de 2026-11-09 01:29 UTC.
 
 - **Ganho:** mais cerca de −$5/mês. Memória do Postgres a no máximo $5/mês.
-- **Aceite:** o mesmo de F1, por mais 7 dias.
-- **Kill:** um OOM volta para 1 GB, sem segunda tentativa.
+- **Aceite:** o mesmo de F1, por mais 7 dias. O primeiro cron sob o limite
+  roda em 2026-11-09 06:00 UTC.
+- **Kill:** um OOM volta para 1 GB (`memoryBytes: 1_000_000_000` no
+  `railway.ts`, e `limits.memoryGB: 1` na API, que aplica na hora), sem
+  segunda tentativa.
+- **O que não é efeito do F2:** a lentidão de `/v1/opcoes/{ticker}/vencimentos`
+  já existia em 03/11 sob 1 GB (ver achados abaixo). Ela piora sob 500 MB
+  porque lê mais do disco, mas a causa é falta de índice, e voltar para 1 GB
+  não a resolve.
 
 ### F3. `calcular` sem regravar linha que não mudou — NO CÓDIGO em 2026-11-02, falta deploy e medição
 
@@ -152,6 +164,64 @@ Plano original:
   manter o hard limit em $50.
 - **Aceite:** `railway usage limit status` com soft acima do ritmo
   esperado, e um alerta disparado de verdade quando passar.
+- **Nível do limite (pendente, 2026-11-08):** os valores acima são do
+  workspace, que inclui outros projetos. Um alerta de $10 só faz sentido no
+  nível do projeto `mydata` (projeção de cerca de $8,5 com F2). No workspace,
+  ele dispararia na hora.
+
+### Achados de 2026-11-08
+
+Medido em produção entre 01:30 e 02:40 UTC de 09/11, logo depois do restart:
+`pg_stat_activity`, métricas de 2 h e logs `http`/`network-flow` do Railway.
+
+**1. O sono não acontece, e não vai acontecer do jeito que está.** Em 2 h, a
+memória mínima do `mydata` foi 53 MB e a do `mcp` 63 MB — nunca zero, então
+nenhum dos dois dormiu. Causas, por evidência:
+
+- `CONSOLE_COLETOR=1` liga, dentro do processo do `mydata`, um laço que a
+  cada 5 min (`INTERVALO_ENVELOPES_S`) chama `GET /observabilidade` das
+  origens com `requests` (`app/console/origens.py`). O log do `mcp` mostra
+  exatamente isso: `python-requests` a cada 5 min, das 01:31 às 02:36. O
+  coletor mantém o próprio `mydata` com tráfego de saída e acorda o `mcp`.
+- O `mydata` também recebe tráfego de consumidor: o Boris+ consulta
+  `/v1/opcoes` em rajadas, inclusive de madrugada.
+- Conexões no Postgres: duas origens privadas, sempre `idle`, com
+  `state_change` de minutos atrás.
+
+Consequência: ligar o sono não tem custo, mas também não rende nada. Para
+render, o coletor teria de sair do processo web (rodar como cron, por
+exemplo) ou ter cadência acima de 10 min. O ganho seria pequeno (o `mydata`
+custa cerca de 60 MB, ou cerca de $0,6/mês), e a decisão é do Alex.
+
+**2. Incidente de consumidor, anterior às mudanças de hoje.**
+`/v1/opcoes/{ticker}/vencimentos` levava de 18 a 20 s em 03–06/11 e já
+batia no timeout de 20 s do Boris+ (status 499) em 06/11 e 07/11, ainda sob
+1 GB. `EXPLAIN (ANALYZE, BUFFERS)` de
+`SELECT max(dt_pregao) FROM gold_opcoes WHERE ticker_objeto = 'BBDC3'`:
+**24,3 s**, `Parallel Seq Scan` em `fato_negociacao` (1.314 MB), 153.906
+páginas lidas do disco, 484 mil linhas descartadas por worker para achar
+8.014. Não há índice com `ticker_objeto`: os índices declarados em
+`app/seed_fontes.py` são `(dt_pregao, isin, tp_mercado)`, `codneg` e
+`dt_vencimento`. A correção é declarar `["ticker_objeto", "dt_pregao"]` na
+classe (ADR-11: o índice nasce da classe, não de DDL à mão) e migrar. Com o
+limite de 500 MB, a varredura cabe ainda menos no cache, então o problema
+piora, mas não foi o limite que o criou.
+
+*Correção aplicada em 2026-11-09 02:56 UTC:* `CREATE INDEX CONCURRENTLY IF
+NOT EXISTS ix_fato_negociacao_4 ON fato_negociacao (ticker_objeto,
+dt_pregao)`. Levou 52 s, o índice está válido e ocupa 14 MB. Tem o mesmo
+nome e a mesma definição que a classe passa a declarar (PR #9), então o
+`migrar` do deploy só confirma que ele existe. Feito no boot, os 52 s
+estourariam o healthcheck de 30 s. Medido depois:
+
+- `max(dt_pregao)` BBDC3: de 24.330 ms para 500 ms a frio e 36 ms com cache;
+- vencimentos BBDC3: 37 ms;
+- PETR4, a maior cadeia, a frio: 2.811 ms.
+
+**3. `n_tup_upd` de `fato_negociacao` na linha de base do F3:** 15.793.420
+UPDATEs para 670.664 INSERTs desde o último reset de estatística (razão de
+cerca de 23,5). Remedir depois de três pregões: com o F3 no ar, a razão por
+pregão deveria cair para perto de zero.
 
 ### Não fazer por custo
 
@@ -168,7 +238,7 @@ Plano original:
 |---|---|---|
 | Hoje (ritmo do período) | ≈ $18,5 | ≈ $21 |
 | F1 (1 GB) | ≈ $11 | ≈ $13,5 |
-| F1 + F2 (512 MB) | ≈ $6 | ≈ $8,5 |
+| F1 + F2 (500 MB) — **em vigor desde 2026-11-08** | ≈ $6 | ≈ $8,5 |
 
 Preço usado: o efetivo da fatura (memória ≈ $10/GB·mês, obtido de $10,30 em
 18,6 dias com média de cerca de 1,66 GB). A projeção supõe que o cache enche
