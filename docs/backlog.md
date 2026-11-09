@@ -22,7 +22,7 @@ não edição a partir daqui.
 | # | Item | Valor | Esforço | Dono | Pronto quando |
 |---|---|---|---|---|---|
 | U1 ✅ | **Índice `(ticker_objeto, dt_pregao)` em `negociacao_b3`.** Criado em produção com `CONCURRENTLY` em 09/11 02:56 UTC; a consulta caiu de 24 s para 36–500 ms. Declaração na classe e correção do motor (o índice único deixa de ser refeito à toa) mergeadas no [PR #9](https://github.com/AlexandreCamerini/mydata/pull/9) | Destrava o Boris+ e elimina seq scans de 1,3 GB que enchiam o cache | feito | Claude | Falta conferir 24 h de log `http` sem 499 nessa rota |
-| U2 | **Voltar o Postgres para 1 GB (reverter o F2).** O F2 foi aplicado em 08/11 sem cumprir a pré-condição: o aceite do F1 falhou, com o `calcular` em 575–626 s contra o aceite de 196 s. Sob 500 MB, a memória que o kernel não descarta (cerca de 205 MB) mais o autovacuum (até 192 MB) fica perto do teto. O primeiro pregão novo sob o limite roda na terça 10/11, por volta de 06:00 UTC. Painel → Postgres → Settings → Memory = 1 GB (sem restart). Depois, `effective_cache_size` = 768 MB e `railway.ts` com `1_000_000_000` | Evita OOM no `calcular`; custa cerca de $0,16/dia | 5 min | **Alex (painel)**: a permissão do agente negou `update-service` | `memory.max` = 1 GB antes de terça 06:00 UTC; detalhe em [finops-mydata.md, F2](finops-mydata.md) |
+| U2 ✅ | **Voltar o Postgres para 1 GB (reverter o F2).** Feito em 09/11 por volta de 03:45 UTC, sem reinício: `memory.max` = 1 GB, `effective_cache_size` = 768 MB, `railway.ts` com `1_000_000_000`. O F2 só volta com `calcular` < 400 s em 3 noites úteis (QW7) | Evita OOM no `calcular` de terça | feito | Claude (`update-service` liberado pelo Alex) | — |
 
 ## 1. Quick wins
 
@@ -41,7 +41,7 @@ está em [finops-mydata.md](finops-mydata.md#achados-de-2026-11-08).
 | QW8 | **Chaves de consumidor, lado de cá.** Reemitir a chave do MCP serviço com escopo `setups`; revogar `dadbd4b0` assim que o BolsIA confirmar a `f00b4554` | Destrava `/v1/setups` para o MCP; tira uma chave sobrando do ar | 10 min | Alex decide, Claude executa | Linhas correspondentes em `contrato-consumidor.md` marcadas como resolvidas |
 | QW9 | **Higiene do git.** Branches remotas já contidas em `main` (conferido em 08/11 com `git branch -r --merged origin/main`): `plano-calcular`, `trava-e-recuperacao`, `claude/mydata-handoff-3b2cc1`, `claude/remote-control-d97624`, `claude/vanity-engineering-review-911d2b`. Worktrees paradas: `vanity-engineering-review-911d2b` e `vibrant-stonebraker-910d98` (HEAD destacado). **Não** mergeadas, olhar antes de apagar: `affectionate-meitner-95c32a`, `bronze-captura-da-rodada`, `escopo-calcular` (QW7), `fix-path-prompt-mcp`, `worktree-async-singing-mccarthy`, `worktree-fase4-fechamento-contrato` | Ruído a menos | 10 min | Claude, com confirmação item a item | Só o que está em `--merged` é apagado sem pergunta; cada não mergeada tem destino decidido (merge, descarte ou manter) |
 
-Próximos passos: **U2 antes de terça 10/11 06:00 UTC**; QW4 na terça de manhã; QW6 e QW7 quando você puder abrir o painel.
+Próximos passos: QW4 na terça 10/11 de manhã (checagem agendada); QW6 e QW7 quando você puder abrir o painel.
 
 ---
 

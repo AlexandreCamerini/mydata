@@ -137,7 +137,7 @@ Fonte: [relatórios diários](relatorios-finops/), coletados por
   Também deve competir por cache e I/O com o `calcular`. O índice
   `ix_fato_negociacao_4`, de 09/11, eliminou essa varredura.
 
-### F2. Baixar para 500 MB — APLICADO em 2026-11-08 sem cumprir a pré-condição; reverter pedido
+### F2. Baixar para 500 MB — aplicado em 2026-11-08 sem a pré-condição, REVERTIDO em 2026-11-09
 
 O F2 dependia do aceite do F1 ("o mesmo de F1, por mais 7 dias"), e o F1
 falhou no `calcular`. O relatório de 08/11 recomendava não aplicar o F2
@@ -153,12 +153,14 @@ pregão novo processado sob o teto é o de **terça 10/11, por volta de
 06:00 UTC**. O cron de segunda 09/11 só roda BCB, porque a janela de sexta
 já foi publicada.
 
-**Situação em 2026-11-09 03:20 UTC:** a volta para 1 GB foi tentada por esta
-sessão e negada pela permissão do agente. Está pendente com o Alex: no
-painel, serviço Postgres → Settings → Memory = 1 GB, ou permitir
-`update-service`. Aplica sem reiniciar. Com o teto de 1 GB, o valor coerente
-de `effective_cache_size` é 768 MB (`ALTER SYSTEM` + `pg_reload_conf()`,
-também sem reinício). Ele continua em 256 MB enquanto o teto for 500 MB.
+**Revertido em 2026-11-09, por volta de 03:45 UTC** (`update-service`
+`limits.memoryGB: 1`, liberado pelo Alex). `memory.max` voltou a
+999.997.440, sem reinício: o postmaster seguiu o de 01:29 UTC.
+`effective_cache_size` passou de 256 para 768 MB (`ALTER SYSTEM` +
+`pg_reload_conf()`), valor coerente com o teto de 1 GB. `max_connections`
+fica em 50: estava superdimensionado (500) e não pesa na conta. O
+`railway.ts` voltou a declarar `1_000_000_000`, e `railway config plan` só
+acusa o resíduo de `restartPolicyType`.
 
 - **Ganho, se der certo:** mais cerca de −$5/mês. Memória do Postgres a no
   máximo $5/mês.
@@ -305,7 +307,7 @@ tabelas e de 499 em `/v1/opcoes`.
 |---|---|---|
 | Hoje (ritmo do período) | ≈ $18,5 | ≈ $21 |
 | F1 (1 GB) | ≈ $11 | ≈ $13,5 |
-| F1 + F2 (500 MB) — aplicado em 2026-11-08 sem a pré-condição; volta para 1 GB pedida (ver F2) | ≈ $6 | ≈ $8,5 |
+| F1 + F2 (500 MB) — tentado em 08/11 e revertido em 09/11; só volta com a pré-condição (ver F2) | ≈ $6 | ≈ $8,5 |
 
 Preço usado: o efetivo da fatura (memória ≈ $10/GB·mês, obtido de $10,30 em
 18,6 dias com média de cerca de 1,66 GB). A projeção supõe que o cache enche
