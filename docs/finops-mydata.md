@@ -207,6 +207,17 @@ classe (ADR-11: o índice nasce da classe, não de DDL à mão) e migrar. Com o
 limite de 500 MB, a varredura cabe ainda menos no cache, então o problema
 piora, mas não foi o limite que o criou.
 
+*Correção aplicada em 2026-11-09 02:56 UTC:* `CREATE INDEX CONCURRENTLY IF
+NOT EXISTS ix_fato_negociacao_4 ON fato_negociacao (ticker_objeto,
+dt_pregao)`. Levou 52 s, o índice está válido e ocupa 14 MB. Tem o mesmo
+nome e a mesma definição que a classe passa a declarar (PR #9), então o
+`migrar` do deploy só confirma que ele existe. Feito no boot, os 52 s
+estourariam o healthcheck de 30 s. Medido depois:
+
+- `max(dt_pregao)` BBDC3: de 24.330 ms para 500 ms a frio e 36 ms com cache;
+- vencimentos BBDC3: 37 ms;
+- PETR4, a maior cadeia, a frio: 2.811 ms.
+
 **3. `n_tup_upd` de `fato_negociacao` na linha de base do F3:** 15.793.420
 UPDATEs para 670.664 INSERTs desde o último reset de estatística (razão de
 cerca de 23,5). Remedir depois de três pregões: com o F3 no ar, a razão por
