@@ -17,22 +17,30 @@ não edição a partir daqui.
 
 ---
 
-## 1. Quick wins
+## 0. Urgente — consumidor quebrado
 
 | # | Item | Valor | Esforço | Dono | Pronto quando |
 |---|---|---|---|---|---|
-| QW1 | **Deriva do IaC.** `.railway/railway.ts` declara `memoryBytes: 1_000_000_000` no Postgres e não declara o sono do `mydata`. O próximo `railway config apply` desfaz o teto de 512 MB e o sono de 08/11 | Protege −US$ 5/mês do F2 | 15 min | Claude | `railway.ts` com 512 MB e `sleepApplication` no `mydata`; `railway config plan` sem diff além do resíduo conhecido de `restartPolicyType`. O `mcp` não está no `railway.ts`: registrar isso no comentário, não inventar declaração |
-| QW2 | **Registrar 08/11 em `finops-mydata.md`.** Teto de 512 MB, `max_connections` 500→50, `effective_cache_size` 4 GB→256 MB, sono no `mydata` e no `mcp`, restart do Postgres. Corrigir a contagem do F2: entrou um dia antes dos 7 dias do F1, então o aceite de 7 dias vai de 08/11 a 15/11 | Documento volta a ser fonte de verdade | 15 min | Claude | Seção 3 e F2 atualizados, projeção da seção 5 marcada com o cenário em vigor |
-| QW3 | **Conferir se o sono acontece.** `pg_stat_activity` agrupado por `application_name`/`client_addr` com `state_change`, mais métricas e logs do `mydata` e do `mcp`. Conexão de pool viva conta como tráfego e impede o sono | Valida a economia do sono antes de esperar a fatura | 15 min | Claude | Ou os dois serviços aparecem dormindo nas métricas, ou a conexão que os segura está identificada com origem |
+| U1 | **Índice `(ticker_objeto, dt_pregao)` em `negociacao_b3`.** `/v1/opcoes/{ticker}/vencimentos` faz seq scan em `fato_negociacao` (1,3 GB): 24 s medidos em 09/11, e o Boris+ desiste aos 20 s (499) desde pelo menos 06/11. Correção declarativa: uma entrada em `indices=` da classe em `app/seed_fontes.py` (ADR-11), teste, deploy e `migrar`. Conferir antes se o `motor.ddl` cria índice com `CONCURRENTLY`; sem isso, o `CREATE INDEX` bloqueia a escrita na tabela durante a criação, então fazer fora do cron das 06:00 UTC | Destrava o Boris+ e reduz a leitura de disco sob 500 MB | 1–2 h | Claude, deploy aprovado pelo Alex | `EXPLAIN` da consulta com `Index Scan`/`Index Only Scan` e menos de 100 ms; nenhum 499 nessa rota no log `http` de 24 h. Detalhe em [finops-mydata.md, achados de 08/11](finops-mydata.md#achados-de-2026-11-08) |
+
+## 1. Quick wins
+
+Feitos em 08–09/11: QW1, QW2, QW3 e o primeiro ponto do QW5. O resultado
+está em [finops-mydata.md](finops-mydata.md#achados-de-2026-11-08).
+
+| # | Item | Valor | Esforço | Dono | Pronto quando |
+|---|---|---|---|---|---|
+| QW1 ✅ | **Deriva do IaC.** `.railway/railway.ts` declara `memoryBytes: 1_000_000_000` no Postgres e não declara o sono do `mydata`. O próximo `railway config apply` desfaz o teto de 512 MB e o sono de 08/11 | Protege −US$ 5/mês do F2 | 15 min | Claude | `railway.ts` com 512 MB e `sleepApplication` no `mydata`; `railway config plan` sem diff além do resíduo conhecido de `restartPolicyType`. O `mcp` não está no `railway.ts`: registrar isso no comentário, não inventar declaração |
+| QW2 ✅ | **Registrar 08/11 em `finops-mydata.md`.** Teto de 512 MB, `max_connections` 500→50, `effective_cache_size` 4 GB→256 MB, sono no `mydata` e no `mcp`, restart do Postgres. Corrigir a contagem do F2: entrou um dia antes dos 7 dias do F1, então o aceite de 7 dias vai de 08/11 a 15/11 | Documento volta a ser fonte de verdade | 15 min | Claude | Seção 3 e F2 atualizados, projeção da seção 5 marcada com o cenário em vigor |
+| QW3 ✅ | **Conferir se o sono acontece.** Resultado: não dorme. O coletor do console (`CONSOLE_COLETOR=1`, a cada 5 min) mantém o `mydata` ativo e acorda o `mcp`. Decisão pendente: tirar o coletor do processo web ou aceitar que o sono não rende (~$0,6/mês). `pg_stat_activity` agrupado por `application_name`/`client_addr` com `state_change`, mais métricas e logs do `mydata` e do `mcp`. Conexão de pool viva conta como tráfego e impede o sono | Valida a economia do sono antes de esperar a fatura | 15 min | Claude | Ou os dois serviços aparecem dormindo nas métricas, ou a conexão que os segura está identificada com origem |
 | QW4 | **Ler o primeiro cron sob 512 MB** (09/11, 06:00 UTC = 03:00 BRT). `pg_postmaster_start_time()` igual ao do restart de 08/11; duração da fase `calcular` do `b3_cotahist` em `log_fase` contra a linha de base de 84–98 s; memória no pico | Detecta OOM em 1 dia, não em 7 | 15 min, a partir de 09/11 ~06:30 UTC | Claude | Os três números registrados em `finops-mydata.md`. Se houve OOM: teto volta a 1 GB, sem segunda tentativa (regra do F2) |
-| QW5 | **Linha de base do F3.** `n_tup_upd` e `n_tup_ins` de `fato_negociacao` agora, e de novo depois de 3 pregões | Destrava o `VACUUM FULL` (M1) | 10 min + 10 min | Claude | Razão UPD/INS por pregão caiu de ~30 para perto de 0 |
+| QW5 ◐ | **Linha de base do F3.** Medido em 09/11: 15.793.420 UPDATEs para 670.664 INSERTs. Remedir depois de 3 pregões | Destrava o `VACUUM FULL` (M1) | 10 min + 10 min | Claude | Razão UPD/INS por pregão caiu de ~30 para perto de 0 |
 | QW6 | **Alerta e limite de gasto.** Decidir antes se é no workspace ou no projeto: o `finops-mydata.md` usa o workspace (soft US$ 15, hard US$ 50, estimativa US$ 38,69 com outros projetos); o alerta de US$ 10 sugerido no handoff só faz sentido no nível do projeto, no workspace ele dispara na hora | Rede de proteção contra regressão de custo | 5 min | Alex (painel) | `railway usage limit status` com soft acima do ritmo esperado e um alerta que dispara de verdade quando passar |
 | QW7 | **Decidir o destino de `escopo-calcular`.** A leitura escopada (A3) nunca entrou em `main`; a CPU do Postgres já está em ~US$ 0,08/mês, então o ganho que sobra é latência, não custo | Fecha um "parcial" que confunde o plano | 5 min de decisão | Alex | A3 marcado como descartado (e a branch apagada) ou como item do nível 2 com motivo |
 | QW8 | **Chaves de consumidor, lado de cá.** Reemitir a chave do MCP serviço com escopo `setups`; revogar `dadbd4b0` assim que o BolsIA confirmar a `f00b4554` | Destrava `/v1/setups` para o MCP; tira uma chave sobrando do ar | 10 min | Alex decide, Claude executa | Linhas correspondentes em `contrato-consumidor.md` marcadas como resolvidas |
 | QW9 | **Higiene do git.** Branches remotas já contidas em `main` (conferido em 08/11 com `git branch -r --merged origin/main`): `plano-calcular`, `trava-e-recuperacao`, `claude/mydata-handoff-3b2cc1`, `claude/remote-control-d97624`, `claude/vanity-engineering-review-911d2b`. Worktrees paradas: `vanity-engineering-review-911d2b` e `vibrant-stonebraker-910d98` (HEAD destacado). **Não** mergeadas, olhar antes de apagar: `affectionate-meitner-95c32a`, `bronze-captura-da-rodada`, `escopo-calcular` (QW7), `fix-path-prompt-mcp`, `worktree-async-singing-mccarthy`, `worktree-fase4-fechamento-contrato` | Ruído a menos | 10 min | Claude, com confirmação item a item | Só o que está em `--merged` é apagado sem pergunta; cada não mergeada tem destino decidido (merge, descarte ou manter) |
 
-Ordem de execução sugerida: QW1 → QW2 → QW3 hoje; QW4 e o primeiro ponto de
-QW5 em 09/11 de manhã; QW6 e QW7 quando você puder abrir o painel.
+Próximos passos: U1; QW4 em 09/11 depois das 06:30 UTC; remedir o QW5 por volta de 12/11; QW6 e QW7 quando você puder abrir o painel.
 
 ---
 

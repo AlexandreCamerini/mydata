@@ -25,14 +25,16 @@ export const partial = "mydata";
 export default defineRailway(() => {
   const repo = github("AlexandreCamerini/mydata", { checkSuites: false });
 
-  // Limite de memória de 1 GB (FinOps F1, docs/finops-mydata.md, 2026-11-02).
-  // Sem limite, o cache de página do kernel enchia até ~2–2,6 GB e o Railway
-  // cobra memory.current — 65–81 % da conta do projeto. O Postgres precisa de
-  // ~250 MB (anon + shared_buffers + kernel); sob limite o kernel devolve
-  // cache antes de matar processo. Tirar daqui = um apply volta a 24 GB.
+  // Limite de memória de 500 MB (FinOps F2, docs/finops-mydata.md, 2026-11-08;
+  // era 1 GB pelo F1 de 2026-11-02). Sem limite, o cache de página do kernel
+  // enchia até ~2–2,6 GB e o Railway cobra memory.current — 65–81 % da conta
+  // do projeto. O Postgres precisa de ~250 MB (anon + shared_buffers +
+  // kernel); sob limite o kernel devolve cache antes de matar processo.
+  // Tirar daqui = um apply volta a 24 GB. Recuo do F2: um OOM volta para
+  // 1_000_000_000, sem segunda tentativa.
   // Forma que o `railway config pull` gera: limite fora das opções do construtor.
   const Postgres = postgres("Postgres", { region: "us-east4-eqdc4a" });
-  Postgres.deploy = { limitOverride: { containers: { cpu: 24, memoryBytes: 1_000_000_000 } } };
+  Postgres.deploy = { limitOverride: { containers: { cpu: 24, memoryBytes: 500_000_000 } } };
   const postgresVolume = volume("postgres-volume", {
     alerts: { usage: { "100": {}, "80": {}, "95": {} } },
     allowOnlineResize: true,
@@ -48,7 +50,11 @@ export default defineRailway(() => {
     // `restartPolicyType` aplica com sucesso e relê `null` — a plataforma
     // guarda o default (ON_FAILURE) como nulo, e o plan acusa este diff
     // para sempre. Comportamento efetivo é o declarado; ignorar o resíduo.
-    deploy: { restartPolicyType: "ON_FAILURE", restartPolicyMaxRetries: 3 },
+    // `sleepApplication` desde 2026-11-08 (FinOps, docs/finops-mydata.md):
+    // sem tráfego de saída por ~10 min o serviço dorme e a primeira
+    // requisição o acorda. Conexão viva com o Postgres conta como tráfego e
+    // impede o sono — conferir em pg_stat_activity antes de culpar o Railway.
+    deploy: { restartPolicyType: "ON_FAILURE", restartPolicyMaxRetries: 3, sleepApplication: true },
     replicas: { "us-east4-eqdc4a": 1 },
     // Os domínios são intencionais (decisão do Alex, 26/08/2026, mais
     // `mydata.semente.dev` anexado em 29/08 — Fase 2 do ADR-23) — não
