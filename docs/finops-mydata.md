@@ -12,6 +12,7 @@ Data-base: 2026-11-01. Fontes: `railway usage projects --project mydata`
 | 14/08–14/09 | $22,08 | $13,40 | $6,25 | $0,74 | $1,69 |
 | 14/09–14/10 | $25,78 | $16,46 | $5,34 | $0,90 | $2,78 |
 | 14/10–01/11 (18,6 de 31 dias) | $12,71 (ritmo ≈ $21/mês) | $10,30 | $0,05 | $0,60 | $1,55 |
+| 14/10–10/11 (27,9 de 31 dias, parcial; F1 desde 02/11) | $16,19 | $12,71 | $0,10 | $0,91 | $2,24 |
 
 O mydata é 58 % do workspace no período corrente ($12,71 de $21,86). O
 workspace já passou do soft limit de $15, e o Railway estima $38,69 para o
@@ -301,17 +302,80 @@ tabelas e de 499 em `/v1/opcoes`.
 - **Trocar o Postgres do Railway por serviço externo:** a regra de custo do
   projeto proíbe, e o problema é configuração, não plataforma.
 
-## 5. Projeção
+## 5. Ganhos medidos (2026-11-10)
 
-| Cenário | Postgres/mês | Projeto mydata/mês |
-|---|---|---|
-| Hoje (ritmo do período) | ≈ $18,5 | ≈ $21 |
-| F1 (1 GB) | ≈ $11 | ≈ $13,5 |
-| F1 + F2 (500 MB) — tentado em 08/11 e revertido em 09/11; só volta com a pré-condição (ver F2) | ≈ $6 | ≈ $8,5 |
+Calculados por `scripts/finops-ganhos.py` a partir das leituras datadas de
+`railway usage projects` (relatórios diários e coleta de 10/11). O cálculo
+usa o **ritmo**, a diferença entre duas leituras dividida pelo tempo, e
+não o total acumulado: a fatura de 14/10–14/11 mistura 19 dias de antes
+com 9 dias de depois do F1 e não serve de linha de base.
 
-Preço usado: o efetivo da fatura (memória ≈ $10/GB·mês, obtido de $10,30 em
-18,6 dias com média de cerca de 1,66 GB). A projeção supõe que o cache enche
-até o limite, e por isso é conservadora.
+| Trecho | Dias | Projeto $/mês | Memória PG $/mês | GB médio implícito |
+|---|---|---|---|---|
+| 14/10 → 01/11 (pré-F1) | 18,6 | 20,77 | 16,83 | 1,68 |
+| 04/11 → 08/11 (F1) | 4,0 | 11,01 | 7,52 | 0,75 |
+| 08/11 → 10/11 (F1; F2 por cerca de 2 h, depois revertido) | 2,5 | 11,24 | 7,61 | 0,76 |
+| **04/11 → 10/11 (F1)** | **6,5** | **11,10** | **7,55** | **0,76** |
+
+**Cruzamento:** memória de $7,55/mês ÷ $10/GB·mês dá 0,76 GB, e o
+`railway metrics` de 7 dias mede 0,82 GB médio. As duas fontes concordam,
+com cerca de 8 % de folga.
+
+**Ganhos, por origem:**
+
+- **F1 (teto de 1 GB, 2026-11-02): −$9,67/mês no projeto** (−47 %) contra
+  o ritmo pré-F1. Quase tudo é memória do Postgres (−$9,28/mês).
+- **Correção do CPU do `calcular` (2026-09-29): cerca de −$5,3/mês.** O CPU
+  do Postgres caiu de $5,34 na fatura de 14/09–14/10 para cerca de
+  $0,10/mês. Já estava no ritmo pré-F1 deste período.
+- **Os dois juntos, contra a última fatura fechada (14/09–14/10, $25,78):
+  −$14,68/mês (−57 %).** O projeto roda hoje a cerca de **$11,10/mês**.
+- **Sessão de 08–10/11: cerca de $0/mês, e isso foi medido.** O ritmo de
+  08→10/11 ($0,370/dia) é igual ao de 04→08/11 ($0,362/dia). O F2 durou
+  cerca de 2 h, o sono do `mydata` e do `mcp` não acontece (coletor do
+  console) e `max_connections` 500→50 tirou cerca de 20 MB de `shmem`
+  (cerca de $0,20/mês). Os ganhos desta sessão não são em dólar:
+  `/v1/opcoes/{ticker}/vencimentos` passou de 24 s e 499 para p50 de 49 ms
+  e zero 499 em 332 chamadas do Boris+; o `railway.ts` deixou de ter
+  deriva; e o motor deixou de refazer o índice único à toa.
+
+**A meta de $7–8/mês não foi atingida.** O piso com a configuração atual é
+de cerca de $11/mês. Sobre o que faltaria:
+
+- **F2 vale cerca de −$2,5/mês, não −$5:** hoje se paga 0,76 GB médio, e
+  não 1 GB cheio. A 0,5 GB, a economia é (0,76 − 0,5) × $10. A estimativa
+  antiga supunha cache sempre no teto.
+- Com o F2, o projeto ficaria em cerca de $8,5/mês. Mas o F2 só volta com
+  `calcular` < 400 s em 3 noites úteis, e hoje ele está em 671 s.
+- O resto (`semente-id`, `mcp`, `mydata`, cron, volume e backup) soma cerca
+  de $3,4/mês, sem alavanca grande.
+
+**Projeção da primeira fatura limpa (14/11–14/12), no ritmo pós-F1:**
+cerca de **$11,10** no projeto (Postgres cerca de $8,9: memória $7,6, volume
+e backup $1,0, CPU e egress $0,3). A fatura de 14/10–14/11 vai fechar perto
+de $17,3, porque mistura os dois regimes.
+
+### `calcular` piorou para 671 s em 10/11, com causas que não dá para separar
+
+Série sob 1 GB: 574,7 / 570,5 / 614,3 / 626,2 / **671,1 s** (aceite ≤ 196 s).
+A tendência vinha em cerca de +12 s por noite útil, e o salto de 10/11 foi
+de +44,9 s. A rodada de 10/11 difere das da semana do F1 em pelo menos três
+pontos, e um ponto só não separa nenhum deles:
+
+1. **`effective_cache_size`:** era 4 GB em todas as medições de 575–626 s,
+   e desde 09/11 é 768 MB. É uma mudança de planner que ficou em vigor.
+2. **Cache espremido:** o F2 reduziu o cache para cerca de 200 MB na noite
+   de 08 para 09/11. O teto voltou a 1 GB às 03:45 UTC de 09/11, mas o
+   cache precisa reaquecer.
+3. **Índice `ix_fato_negociacao_4`:** é mais uma estrutura a manter em
+   cerca de 126 mil UPDATEs não-HOT por noite. Isso pesa segundos, não
+   45 s. `idx_scan` = 1.304 em 10/11, compatível com as chamadas do Boris+,
+   e não com uso pelo `calcular`.
+
+Checagem que separa o primeiro ponto, ainda não feita: `EXPLAIN` (sem
+ANALYZE) dos statements do `calcular` sob `SET effective_cache_size='4GB'`
+e sob `'768MB'`. Se o plano mudar, volta para 4 GB (só planner, sem custo
+de memória) e mede de novo. Ver QW7 em [backlog.md](backlog.md).
 
 ## 6. Como medir de novo
 
