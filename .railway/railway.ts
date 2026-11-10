@@ -25,16 +25,16 @@ export const partial = "mydata";
 export default defineRailway(() => {
   const repo = github("AlexandreCamerini/mydata", { checkSuites: false });
 
-  // Limite de memória de 500 MB (FinOps F2, docs/finops-mydata.md, 2026-11-08;
-  // era 1 GB pelo F1 de 2026-11-02). Sem limite, o cache de página do kernel
-  // enchia até ~2–2,6 GB e o Railway cobra memory.current — 65–81 % da conta
-  // do projeto. O Postgres precisa de ~250 MB (anon + shared_buffers +
-  // kernel); sob limite o kernel devolve cache antes de matar processo.
-  // Tirar daqui = um apply volta a 24 GB. Recuo do F2: um OOM volta para
-  // 1_000_000_000, sem segunda tentativa.
+  // Limite de memória de 1 GB (FinOps F1, docs/finops-mydata.md, 2026-11-02).
+  // Sem limite, o cache de página do kernel enchia até ~2–2,6 GB e o Railway
+  // cobra memory.current — 65–81 % da conta do projeto. O Postgres precisa de
+  // ~250 MB (anon + shared_buffers + kernel); sob limite o kernel devolve
+  // cache antes de matar processo. Tirar daqui = um apply volta a 24 GB.
+  // O F2 (500 MB) entrou em 2026-11-08 sem a pré-condição e foi revertido em
+  // 2026-11-09: só volta com `calcular` < ~400 s em 3 noites úteis (ver F2).
   // Forma que o `railway config pull` gera: limite fora das opções do construtor.
   const Postgres = postgres("Postgres", { region: "us-east4-eqdc4a" });
-  Postgres.deploy = { limitOverride: { containers: { cpu: 24, memoryBytes: 500_000_000 } } };
+  Postgres.deploy = { limitOverride: { containers: { cpu: 24, memoryBytes: 1_000_000_000 } } };
   const postgresVolume = volume("postgres-volume", {
     alerts: { usage: { "100": {}, "80": {}, "95": {} } },
     allowOnlineResize: true,
