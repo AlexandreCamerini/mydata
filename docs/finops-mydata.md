@@ -376,10 +376,34 @@ pontos, e um ponto só não separa nenhum deles:
    45 s. `idx_scan` = 1.304 em 10/11, compatível com as chamadas do Boris+,
    e não com uso pelo `calcular`.
 
-Checagem que separa o primeiro ponto, ainda não feita: `EXPLAIN` (sem
-ANALYZE) dos statements do `calcular` sob `SET effective_cache_size='4GB'`
-e sob `'768MB'`. Se o plano mudar, volta para 4 GB (só planner, sem custo
-de memória) e mede de novo. Ver QW7 em [backlog.md](backlog.md).
+**Checagem feita em 2026-11-11, por volta de 00:30 UTC: o `effective_cache_size`
+não é a causa.** O SQL que o `calcular` do `b3_cotahist` gera para a janela
+2026-11-09 (captura 364) foi reproduzido a partir do código e da
+configuração. Foram 7 statements, rodados com `EXPLAIN` sem ANALYZE, em
+transação com ROLLBACK, uma vez sob `'4GB'` e outra sob `'768MB'`. **Os 7
+planos saíram idênticos.** O `effective_cache_size` fica em 768 MB.
+
+**Causa provável, medida:** `fato_negociacao` não tem índice em
+`captura_id`. Os planos mostram 7 `Seq Scan on fato_negociacao` com
+`Filter: (captura_id = 364)`: os 4 campos escalares e o lado `alvo` dos 3
+campos de janela. Fora deles, ainda há:
+
+- o SELECT paginado dos campos numéricos (`LIMIT 20000 OFFSET …`), 2
+  consultas por onda × 3 ondas;
+- o `_carga_no_fim`, um `min(...) WHERE captura_id IN` por campo de janela.
+
+São até cerca de 16 varreduras completas para achar as 15.708 linhas da
+carga. Uma delas, isolada, medida com `EXPLAIN (ANALYZE, BUFFERS)`: **24,5 s
+e 155 mil páginas lidas do disco** (cerca de 1,2 GB), descartando 1,46
+milhão de linhas. Na rodada real parte disso vem do cache, mas a ordem de
+grandeza explica boa parte dos 671 s. Também explica a piora contínua: cada
+pregão aumenta a tabela.
+
+**Correção proposta (U3 no backlog):** índice em `captura_id` declarado na
+classe `negociacao_b3`, com o mesmo procedimento do U1 (`CREATE INDEX
+CONCURRENTLY` antes, depois PR). Estimativa grosseira: de 150 a 350 s a
+menos no `calcular`, a confirmar na rodada seguinte. Se o `calcular` cair
+abaixo de 400 s, começa a contagem das 3 noites úteis que destrava o F2.
 
 ## 6. Como medir de novo
 
