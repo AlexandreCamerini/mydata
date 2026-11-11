@@ -399,11 +399,28 @@ milhão de linhas. Na rodada real parte disso vem do cache, mas a ordem de
 grandeza explica boa parte dos 671 s. Também explica a piora contínua: cada
 pregão aumenta a tabela.
 
-**Correção proposta (U3 no backlog):** índice em `captura_id` declarado na
-classe `negociacao_b3`, com o mesmo procedimento do U1 (`CREATE INDEX
-CONCURRENTLY` antes, depois PR). Estimativa grosseira: de 150 a 350 s a
-menos no `calcular`, a confirmar na rodada seguinte. Se o `calcular` cair
-abaixo de 400 s, começa a contagem das 3 noites úteis que destrava o F2.
+**U3 aplicado em 2026-11-11 00:38 UTC:** `CREATE INDEX CONCURRENTLY
+ix_fato_negociacao_5 ON fato_negociacao (captura_id)`. Levou 48 s; o índice
+é válido e ocupa 10 MB, sem reinício. A declaração na classe está no PR #12.
+Depois dele, os 7 statements e o SELECT dos numéricos usam `Bitmap Index
+Scan on ix_fato_negociacao_5`, e a mesma consulta caiu de 24,5 s para
+**2,2 s** a frio.
+
+**Linha de base por campo** (log do `mydata-cron`, rodada de 2026-11-10,
+total de 671 s):
+
+| Campo | Tipo | s | O índice alcança |
+|---|---|---|---|
+| `ticker_objeto` (inclui ANALYZE) | escalar | 32 | sim |
+| `preco_objeto`, `taxa_livre_risco`, `hv21_objeto` | escalar | 25 + 27 + 26 | sim |
+| `log_retorno`, `hv21`, `hv63` | janela | 130 + 154 + 121 | só o lado `alvo`; a subconsulta lê a tabela inteira por definição |
+| `prazo_anos`, `volatilidade_implicita`, gregas | numérico | 52 + 54 + 51 | os 2 SELECTs por onda (cerca de 49 s por onda) |
+
+**Estimativa (substitui a contagem de "até 16 varreduras"):** −250 a
+−300 s, com o `calcular` entre cerca de 370 e 420 s. Os três campos de
+janela, cerca de 330 s depois do índice, passam a ser o grosso da fase.
+Abaixo disso, o caminho é a leitura escopada (`escopo-calcular`, QW7).
+Confirma ou derruba no cron de 11/11 06:00 UTC.
 
 ## 6. Como medir de novo
 
