@@ -217,6 +217,13 @@ def listar_fontes(sink: Sink) -> list[dict]:
 # --------------------------------------------------------------------------
 TIPOS_ATRIBUTO = ("texto", "inteiro", "numero", "data", "booleano")
 
+# Coluna de sistema que uma classe pode indexar sem declarar como atributo.
+# `captura_id` existe em toda tabela de classe (motor.ddl.COLUNAS_DE_SISTEMA)
+# e é o filtro do `calcular` (`calculados._recorte`): sem índice, cada campo
+# varre a tabela inteira para achar a carga do dia (24,5 s por varredura em
+# `fato_negociacao`, medido em 2026-11-11).
+COLUNAS_DE_SISTEMA_INDEXAVEIS = frozenset({"captura_id"})
+
 
 def validar_classe(c: Classe) -> None:
     nomes = [a.nome for a in c.atributos]
@@ -245,7 +252,8 @@ def validar_classe(c: Classe) -> None:
             f"inexistente: {', '.join(ausentes)}"
         )
     for indice in c.indices:
-        fora = [k for k in indice if k not in nomes]
+        fora = [k for k in indice
+                if k not in nomes and k not in COLUNAS_DE_SISTEMA_INDEXAVEIS]
         if fora:
             raise ErroConfiguracao(
                 f"índice da classe '{c.chave}' cita atributo inexistente: "

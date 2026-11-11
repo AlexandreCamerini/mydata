@@ -609,8 +609,13 @@ CLASSE_NEGOCIACAO = Classe(
     # 2026-11-09, acima do timeout de 20 s do Boris+. Entra no fim da lista
     # porque o nome físico é posicional (`ix_fato_negociacao_<n>`): inserir
     # no meio renomearia os existentes.
+    # O quinto serve o `calcular`: escalares, numéricos e o lado `alvo` dos
+    # campos de janela filtram por `captura_id`. Sem ele, até 16 varreduras
+    # completas por pregão (24,5 s cada, medido em 2026-11-11, de 671 s da
+    # fase). Também no fim, pelo mesmo motivo do quarto.
     indices=[["dt_pregao", "isin", "tp_mercado"], ["codneg"],
-             ["dt_vencimento"], ["ticker_objeto", "dt_pregao"]],
+             ["dt_vencimento"], ["ticker_objeto", "dt_pregao"],
+             ["captura_id"]],
     sla_horas=24 * 4,     # pregão é diário; feriado prolongado cabe em quatro dias
     atributos=[
         _atr("dt_pregao", "data", obrigatorio=True, ordem=1),

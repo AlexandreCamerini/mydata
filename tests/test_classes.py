@@ -177,3 +177,18 @@ def test_guarda_texto_gera_a_coluna_sombra(sink_cvm):
     colunas = dict(ddl.colunas_da_classe(repo.atributos_de(sink_cvm, classe["id"])))
     assert "vl_conta_txt" in colunas
     assert "cd_cvm_txt" not in colunas, "sombra é opt-in, não automática"
+
+
+def test_indice_aceita_captura_id_e_recusa_outra_coluna_de_sistema():
+    """`captura_id` é coluna de sistema de toda tabela de classe e é o filtro
+    do `calcular`; a classe pode indexá-la sem declará-la como atributo.
+    As demais colunas de sistema continuam recusadas."""
+    repo.validar_classe(repo.Classe(
+        chave="x", nome="X", tabela="tab_x", chave_identidade=["a"],
+        atributos=[repo.Atributo("a")], indices=[["captura_id"]],
+    ))
+    with pytest.raises(repo.ErroConfiguracao, match="inexistente"):
+        repo.validar_classe(repo.Classe(
+            chave="x", nome="X", tabela="tab_x", chave_identidade=["a"],
+            atributos=[repo.Atributo("a")], indices=[["fonte_arquivo"]],
+        ))
