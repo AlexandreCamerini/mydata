@@ -59,7 +59,7 @@ lido. O que derruba a conta é limitar a memória do serviço.
 | 2026-11-01 | `ANALYZE` de `fato_conta`, `fato_negociacao` e `dim_instrumento` | Estatística corrigida (`fato_conta` estava com `n_live_tup = 0` desde o restart de 10/09) |
 | 2026-11-01 | `VACUUM FULL fato_conta` | 1.363 MB → 375 MB, banco 3.445 MB → 2.456 MB, digital de gold idêntica. Cerca de $0,15/mês direto; reduz o teto do cache |
 | 2026-11-02 | **F1: limite de 1 GB de memória no Postgres** | Memória cobrada de 2.566 MB para 811 MB na hora. Pelo menos −$6,6/mês esperado |
-| 2026-11-08 | **F2: limite de 500 MB** (`memoryBytes: 500_000_000`), `max_connections` 500→50, `effective_cache_size` 4 GB→256 MB, restart do Postgres (`pg_postmaster_start_time()` = 2026-11-09 01:29 UTC). Sono (`sleepApplication`) ligado no `mydata` e no `mcp`; `semente-id` segue sempre ligado (é o login). `railway.ts` alinhado no mesmo dia | Esperado mais −$5/mês. O sono **não** rende nada enquanto o coletor do console rodar (ver "Achados de 2026-11-08") |
+| 2026-11-08 | **F2: limite de 500 MB** (`memoryBytes: 500_000_000`), `max_connections` 500→50, `effective_cache_size` 4 GB→256 MB, restart do Postgres (`pg_postmaster_start_time()` = 2026-11-09 01:29 UTC). Sono (`sleepApplication`) ligado no `mydata` e no `mcp`; `semente-id` segue sempre ligado (é o login). `railway.ts` alinhado no mesmo dia | Esperado mais −$5/mês na época; o ritmo medido mostra cerca de −$2,6 (ver §5). O sono **não** rende nada enquanto o coletor do console rodar (ver "Achados de 2026-11-08") |
 
 Do [plano de setembro](plano-custos-armazenamento-mydata.md), conferido
 contra `main` em 2026-11-02: A2 (perfil e correção do plano) e a trava do B1
@@ -163,8 +163,9 @@ fica em 50: estava superdimensionado (500) e não pesa na conta. O
 `railway.ts` voltou a declarar `1_000_000_000`, e `railway config plan` só
 acusa o resíduo de `restartPolicyType`.
 
-- **Ganho, se der certo:** mais cerca de −$5/mês. Memória do Postgres a no
-  máximo $5/mês.
+- **Ganho, se der certo:** cerca de −$2,6/mês, medido em 10/11 (§5). A
+  estimativa original, de −$5, supunha o cache sempre no teto de 1 GB, mas
+  o médio pago é de 0,76 GB.
 - **Pré-condição para tentar de novo:** `calcular` abaixo de cerca de 400 s
   (2× o aceite) em 3 noites úteis seguidas sob 1 GB. A primeira medição com
   o índice novo e sem a varredura do Boris+ sai na terça 10/11.
@@ -313,23 +314,26 @@ com 9 dias de depois do F1 e não serve de linha de base.
 | Trecho | Dias | Projeto $/mês | Memória PG $/mês | GB médio implícito |
 |---|---|---|---|---|
 | 14/10 → 01/11 (pré-F1) | 18,6 | 20,77 | 16,83 | 1,68 |
-| 04/11 → 08/11 (F1) | 4,0 | 11,01 | 7,52 | 0,75 |
+| 04/11 → 08/11 (F1) | 3,9 | 11,22 | 7,66 | 0,77 |
 | 08/11 → 10/11 (F1; F2 por cerca de 2 h, depois revertido) | 2,5 | 11,24 | 7,61 | 0,76 |
-| **04/11 → 10/11 (F1)** | **6,5** | **11,10** | **7,55** | **0,76** |
+| **04/11 → 10/11 (F1)** | **6,4** | **11,23** | **7,64** | **0,76** |
 
-**Cruzamento:** memória de $7,55/mês ÷ $10/GB·mês dá 0,76 GB, e o
+**Cruzamento:** memória de $7,64/mês ÷ $10/GB·mês dá 0,76 GB, e o
 `railway metrics` de 7 dias mede 0,82 GB médio. As duas fontes concordam,
 com cerca de 8 % de folga.
 
 **Ganhos, por origem:**
 
-- **F1 (teto de 1 GB, 2026-11-02): −$9,67/mês no projeto** (−47 %) contra
-  o ritmo pré-F1. Quase tudo é memória do Postgres (−$9,28/mês).
+- **F1 (teto de 1 GB, 2026-11-02): −$9,55/mês no projeto** (−46 %) contra
+  o ritmo pré-F1. Quase tudo é memória do Postgres (−$9,19/mês).
 - **Correção do CPU do `calcular` (2026-09-29): cerca de −$5,3/mês.** O CPU
   do Postgres caiu de $5,34 na fatura de 14/09–14/10 para cerca de
   $0,10/mês. Já estava no ritmo pré-F1 deste período.
 - **Os dois juntos, contra a última fatura fechada (14/09–14/10, $25,78):
-  −$14,68/mês (−57 %).** O projeto roda hoje a cerca de **$11,10/mês**.
+  −$14,55/mês (−56 %).** O projeto roda hoje a cerca de **$11,2/mês**,
+  numa janela de 6,4 dias. É uma faixa, não um ponto: a média diária de
+  memória oscilou entre 741 e 1.004 MB na semana do F1, e com o cache
+  sempre no teto de 1 GB o projeto chegaria a cerca de $13,6/mês.
 - **Sessão de 08–10/11: cerca de $0/mês, e isso foi medido.** O ritmo de
   08→10/11 ($0,370/dia) é igual ao de 04→08/11 ($0,362/dia). O F2 durou
   cerca de 2 h, o sono do `mydata` e do `mcp` não acontece (coletor do
@@ -339,10 +343,10 @@ com cerca de 8 % de folga.
   e zero 499 em 332 chamadas do Boris+; o `railway.ts` deixou de ter
   deriva; e o motor deixou de refazer o índice único à toa.
 
-**A meta de $7–8/mês não foi atingida.** O piso com a configuração atual é
-de cerca de $11/mês. Sobre o que faltaria:
+**A meta de $7–8/mês não foi atingida.** Com a configuração atual, o
+projeto fica entre cerca de $11 e $13,6/mês. Sobre o que faltaria:
 
-- **F2 vale cerca de −$2,5/mês, não −$5:** hoje se paga 0,76 GB médio, e
+- **F2 vale cerca de −$2,6/mês, não −$5:** hoje se paga 0,76 GB médio, e
   não 1 GB cheio. A 0,5 GB, a economia é (0,76 − 0,5) × $10. A estimativa
   antiga supunha cache sempre no teto.
 - Com o F2, o projeto ficaria em cerca de $8,5/mês. Mas o F2 só volta com
@@ -351,7 +355,7 @@ de cerca de $11/mês. Sobre o que faltaria:
   de $3,4/mês, sem alavanca grande.
 
 **Projeção da primeira fatura limpa (14/11–14/12), no ritmo pós-F1:**
-cerca de **$11,10** no projeto (Postgres cerca de $8,9: memória $7,6, volume
+cerca de **$11,2** no projeto, com teto de cerca de $13,6 (Postgres cerca de $8,9: memória $7,6, volume
 e backup $1,0, CPU e egress $0,3). A fatura de 14/10–14/11 vai fechar perto
 de $17,3, porque mistura os dois regimes.
 

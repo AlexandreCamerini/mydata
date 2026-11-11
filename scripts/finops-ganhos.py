@@ -11,7 +11,7 @@ ini = datetime(2026,10,14,0,0,tzinfo=UTC)
 L = [
  ("início período", ini, 0.00, 0.00),
  ("01/11 (doc, 18,6 d)", ini+timedelta(days=18.6), 12.71, 10.30),
- ("04/11 08:12 BRT", datetime(2026,11,4,8,12,tzinfo=BRT), 13.81, 11.09),
+ ("04/11 ~10:00 BRT", datetime(2026,11,4,10,0,tzinfo=BRT), 13.81, 11.09),
  ("05/11 08:13 BRT", datetime(2026,11,5,8,13,tzinfo=BRT), 14.11, 11.29),
  ("06/11 08:14 BRT", datetime(2026,11,6,8,14,tzinfo=BRT), 14.47, 11.52),
  ("07/11 08:14 BRT", datetime(2026,11,7,8,14,tzinfo=BRT), 14.83, 11.76),
@@ -26,7 +26,7 @@ for a,b in [(0,1),(1,2),(2,6),(6,7),(2,7)]:
     d,p,m=taxa(a,b)
     print(f"{L[a][0]} → {L[b][0]} | {d:.2f} | {p:.3f} ({p*M:.2f}) | {m:.3f} ({m*M:.2f}) | {m*M/10:.2f}")
 _,p_pre,m_pre=taxa(0,1); _,p_pos,m_pos=taxa(2,7)
-print(f"\nganho F1+CPU vs ritmo pré-F1: projeto {(p_pre-p_pos)*M:.2f} $/mês ({(1-p_pos/p_pre)*100:.0f}%), memória PG {(m_pre-m_pos)*M:.2f} $/mês")
+print(f"\nganho F1 vs ritmo pré-F1 (o CPU de setembro já estava nele): projeto {(p_pre-p_pos)*M:.2f} $/mês ({(1-p_pos/p_pre)*100:.0f}%), memória PG {(m_pre-m_pos)*M:.2f} $/mês")
 print(f"vs fatura fechada 14/09–14/10 ($25,78): {25.78-p_pos*M:.2f} $/mês ({(1-p_pos*M/25.78)*100:.0f}%)")
 # F2: upside real = metade do GB médio pago hoje, se o cache encher 500 MB
 gb_pos=m_pos*M/10
