@@ -167,8 +167,8 @@ acusa o resíduo de `restartPolicyType`.
   estimativa original, de −$5, supunha o cache sempre no teto de 1 GB, mas
   o médio pago é de 0,76 GB.
 - **Pré-condição para tentar de novo:** `calcular` abaixo de cerca de 400 s
-  (2× o aceite) em 3 noites úteis seguidas sob 1 GB. A primeira medição com
-  o índice novo e sem a varredura do Boris+ sai na terça 10/11.
+  (2× o aceite) em 3 noites úteis seguidas sob 1 GB. Contagem: 11/11 =
+  394,2 s (1ª noite, depois do U3); faltam 2 noites úteis seguidas.
 - **Kill:** um OOM volta para 1 GB (`memoryBytes: 1_000_000_000` no
   `railway.ts`, e `limits.memoryGB: 1` na API, que aplica na hora), sem
   segunda tentativa.
@@ -350,7 +350,8 @@ projeto fica entre cerca de $11 e $13,6/mês. Sobre o que faltaria:
   não 1 GB cheio. A 0,5 GB, a economia é (0,76 − 0,5) × $10. A estimativa
   antiga supunha cache sempre no teto.
 - Com o F2, o projeto ficaria em cerca de $8,5/mês. Mas o F2 só volta com
-  `calcular` < 400 s em 3 noites úteis, e hoje ele está em 671 s.
+  `calcular` < 400 s em 3 noites úteis. Estava em 671 s em 10/11; com o U3,
+  foi a 394,2 s em 11/11 (1ª de 3 noites, com folga de 6 s).
 - O resto (`semente-id`, `mcp`, `mydata`, cron, volume e backup) soma cerca
   de $3,4/mês, sem alavanca grande.
 
@@ -421,6 +422,35 @@ total de 671 s):
 janela, cerca de 330 s depois do índice, passam a ser o grosso da fase.
 Abaixo disso, o caminho é a leitura escopada (`escopo-calcular`, QW7).
 Confirma ou derruba no cron de 11/11 06:00 UTC.
+
+**Resultado no cron de 2026-11-11 (janela 2026-11-10): `calcular` = 394,2 s
+em `log_fase`**, contra 671,1 s (−277 s, −41 %). Ficou dentro da estimativa
+e abaixo de 400 s: é a **1ª de 3 noites úteis** da pré-condição do F2.
+
+| Campo | Tipo | 10/11 (s) | 11/11 (s) |
+|---|---|---|---|
+| `ticker_objeto` (inclui ANALYZE) | escalar | 32 | ~17 (por diferença) |
+| `preco_objeto` / `taxa_livre_risco` / `hv21_objeto` | escalar | 25 / 27 / 26 | 2,8 / 3,6 / 3,1 |
+| `log_retorno` / `hv21` / `hv63` | janela | 130 / 154 / 121 | 114,7 / 118,0 / 127,6 |
+| `prazo_anos` / `volatilidade_implicita` / gregas | numérico | 52 / 54 / 51 | 2,2 / 2,9 / 2,2 |
+
+Os tempos por campo são a diferença entre linhas consecutivas
+`campo calculado aplicado` do log do `mydata-cron`. O `ticker_objeto` não
+tem marca de início no log, então é o total de `log_fase` menos a soma dos
+outros campos.
+
+- **Escalares e numéricos:** de ~287 s para ~34 s. O índice resolveu o
+  que alcançava.
+- **Janela:** de ~405 s para ~360 s, ou 91 % da fase. A subconsulta lê
+  `fato_negociacao` inteira por definição e cresce a cada pregão.
+- **Folga de 6 s sobre os 400 s.** A série sob 1 GB subia cerca de +12 s
+  por noite útil, puxada pelo crescimento da tabela, e é isso que os campos
+  de janela ainda pagam. É provável que a 2ª ou a 3ª noite estoure. Se
+  estourar, o próximo passo é a leitura escopada do QW7 (`escopo-calcular`,
+  `b948320`), e não subir memória.
+- **Sem efeito colateral:** Postgres sem reinício desde 09/11 01:29 UTC,
+  `memory.max` 999997440, pico de 1021 MB em 24 h (anon ~30 MB, o resto
+  cache), 7 cargas publicadas, sem falha em 48 h.
 
 ## 6. Como medir de novo
 
