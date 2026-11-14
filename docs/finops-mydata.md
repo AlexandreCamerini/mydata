@@ -12,6 +12,7 @@ Data-base: 2026-11-01. Fontes: `railway usage projects --project mydata`
 | 14/08–14/09 | $22,08 | $13,40 | $6,25 | $0,74 | $1,69 |
 | 14/09–14/10 | $25,78 | $16,46 | $5,34 | $0,90 | $2,78 |
 | 14/10–01/11 (18,6 de 31 dias) | $12,71 (ritmo ≈ $21/mês) | $10,30 | $0,05 | $0,60 | $1,55 |
+| 14/10–10/11 (27,9 de 31 dias, parcial; F1 desde 02/11) | $16,19 | $12,71 | $0,10 | $0,91 | $2,24 |
 
 O mydata é 58 % do workspace no período corrente ($12,71 de $21,86). O
 workspace já passou do soft limit de $15, e o Railway estima $38,69 para o
@@ -58,7 +59,7 @@ lido. O que derruba a conta é limitar a memória do serviço.
 | 2026-11-01 | `ANALYZE` de `fato_conta`, `fato_negociacao` e `dim_instrumento` | Estatística corrigida (`fato_conta` estava com `n_live_tup = 0` desde o restart de 10/09) |
 | 2026-11-01 | `VACUUM FULL fato_conta` | 1.363 MB → 375 MB, banco 3.445 MB → 2.456 MB, digital de gold idêntica. Cerca de $0,15/mês direto; reduz o teto do cache |
 | 2026-11-02 | **F1: limite de 1 GB de memória no Postgres** | Memória cobrada de 2.566 MB para 811 MB na hora. Pelo menos −$6,6/mês esperado |
-| 2026-11-08 | **F2: limite de 500 MB** (`memoryBytes: 500_000_000`), `max_connections` 500→50, `effective_cache_size` 4 GB→256 MB, restart do Postgres (`pg_postmaster_start_time()` = 2026-11-09 01:29 UTC). Sono (`sleepApplication`) ligado no `mydata` e no `mcp`; `semente-id` segue sempre ligado (é o login). `railway.ts` alinhado no mesmo dia | Esperado mais −$5/mês. O sono **não** rende nada enquanto o coletor do console rodar (ver "Achados de 2026-11-08") |
+| 2026-11-08 | **F2: limite de 500 MB** (`memoryBytes: 500_000_000`), `max_connections` 500→50, `effective_cache_size` 4 GB→256 MB, restart do Postgres (`pg_postmaster_start_time()` = 2026-11-09 01:29 UTC). Sono (`sleepApplication`) ligado no `mydata` e no `mcp`; `semente-id` segue sempre ligado (é o login). `railway.ts` alinhado no mesmo dia | Esperado mais −$5/mês na época; o ritmo medido mostra cerca de −$2,6 (ver §5). O sono **não** rende nada enquanto o coletor do console rodar (ver "Achados de 2026-11-08") |
 
 Do [plano de setembro](plano-custos-armazenamento-mydata.md), conferido
 contra `main` em 2026-11-02: A2 (perfil e correção do plano) e a trava do B1
@@ -162,11 +163,14 @@ fica em 50: estava superdimensionado (500) e não pesa na conta. O
 `railway.ts` voltou a declarar `1_000_000_000`, e `railway config plan` só
 acusa o resíduo de `restartPolicyType`.
 
-- **Ganho, se der certo:** mais cerca de −$5/mês. Memória do Postgres a no
-  máximo $5/mês.
+- **Ganho, se der certo:** cerca de −$2,6/mês, medido em 10/11 (§5). A
+  estimativa original, de −$5, supunha o cache sempre no teto de 1 GB, mas
+  o médio pago é de 0,76 GB.
 - **Pré-condição para tentar de novo:** `calcular` abaixo de cerca de 400 s
-  (2× o aceite) em 3 noites úteis seguidas sob 1 GB. A primeira medição com
-  o índice novo e sem a varredura do Boris+ sai na terça 10/11.
+  (2× o aceite) em 3 noites úteis seguidas sob 1 GB. Contagem: 11/11 =
+  394,2 s, 12/11 ≈ 392 s, 13/11 ≈ 408 s. **A contagem provavelmente
+  quebrou na 3ª noite** (12 e 13/11 estimados pelo log, ver §5). Recomeça
+  depois do QW7.
 - **Kill:** um OOM volta para 1 GB (`memoryBytes: 1_000_000_000` no
   `railway.ts`, e `limits.memoryGB: 1` na API, que aplica na hora), sem
   segunda tentativa.
@@ -301,17 +305,186 @@ tabelas e de 499 em `/v1/opcoes`.
 - **Trocar o Postgres do Railway por serviço externo:** a regra de custo do
   projeto proíbe, e o problema é configuração, não plataforma.
 
-## 5. Projeção
+## 5. Ganhos medidos (2026-11-10)
 
-| Cenário | Postgres/mês | Projeto mydata/mês |
-|---|---|---|
-| Hoje (ritmo do período) | ≈ $18,5 | ≈ $21 |
-| F1 (1 GB) | ≈ $11 | ≈ $13,5 |
-| F1 + F2 (500 MB) — tentado em 08/11 e revertido em 09/11; só volta com a pré-condição (ver F2) | ≈ $6 | ≈ $8,5 |
+Calculados por `scripts/finops-ganhos.py` a partir das leituras datadas de
+`railway usage projects` (relatórios diários e coleta de 10/11). O cálculo
+usa o **ritmo**, a diferença entre duas leituras dividida pelo tempo, e
+não o total acumulado: a fatura de 14/10–14/11 mistura 19 dias de antes
+com 9 dias de depois do F1 e não serve de linha de base.
 
-Preço usado: o efetivo da fatura (memória ≈ $10/GB·mês, obtido de $10,30 em
-18,6 dias com média de cerca de 1,66 GB). A projeção supõe que o cache enche
-até o limite, e por isso é conservadora.
+| Trecho | Dias | Projeto $/mês | Memória PG $/mês | GB médio implícito |
+|---|---|---|---|---|
+| 14/10 → 01/11 (pré-F1) | 18,6 | 20,77 | 16,83 | 1,68 |
+| 04/11 → 08/11 (F1) | 3,9 | 11,22 | 7,66 | 0,77 |
+| 08/11 → 10/11 (F1; F2 por cerca de 2 h, depois revertido) | 2,5 | 11,24 | 7,61 | 0,76 |
+| **04/11 → 10/11 (F1)** | **6,4** | **11,23** | **7,64** | **0,76** |
+
+**Cruzamento:** memória de $7,64/mês ÷ $10/GB·mês dá 0,76 GB, e o
+`railway metrics` de 7 dias mede 0,82 GB médio. As duas fontes concordam,
+com cerca de 8 % de folga.
+
+**Ganhos, por origem:**
+
+- **F1 (teto de 1 GB, 2026-11-02): −$9,55/mês no projeto** (−46 %) contra
+  o ritmo pré-F1. Quase tudo é memória do Postgres (−$9,19/mês).
+- **Correção do CPU do `calcular` (2026-09-29): cerca de −$5,3/mês.** O CPU
+  do Postgres caiu de $5,34 na fatura de 14/09–14/10 para cerca de
+  $0,10/mês. Já estava no ritmo pré-F1 deste período.
+- **Os dois juntos, contra a última fatura fechada (14/09–14/10, $25,78):
+  −$14,55/mês (−56 %).** O projeto roda hoje a cerca de **$11,2/mês**,
+  numa janela de 6,4 dias. É uma faixa, não um ponto: a média diária de
+  memória oscilou entre 741 e 1.004 MB na semana do F1, e com o cache
+  sempre no teto de 1 GB o projeto chegaria a cerca de $13,6/mês.
+- **Sessão de 08–10/11: cerca de $0/mês, e isso foi medido.** O ritmo de
+  08→10/11 ($0,370/dia) é igual ao de 04→08/11 ($0,362/dia). O F2 durou
+  cerca de 2 h, o sono do `mydata` e do `mcp` não acontece (coletor do
+  console) e `max_connections` 500→50 tirou cerca de 20 MB de `shmem`
+  (cerca de $0,20/mês). Os ganhos desta sessão não são em dólar:
+  `/v1/opcoes/{ticker}/vencimentos` passou de 24 s e 499 para p50 de 49 ms
+  e zero 499 em 332 chamadas do Boris+; o `railway.ts` deixou de ter
+  deriva; e o motor deixou de refazer o índice único à toa.
+
+**A meta de $7–8/mês não foi atingida.** Com a configuração atual, o
+projeto fica entre cerca de $11 e $13,6/mês. Sobre o que faltaria:
+
+- **F2 vale cerca de −$2,6/mês, não −$5:** hoje se paga 0,76 GB médio, e
+  não 1 GB cheio. A 0,5 GB, a economia é (0,76 − 0,5) × $10. A estimativa
+  antiga supunha cache sempre no teto.
+- Com o F2, o projeto ficaria em cerca de $8,5/mês. Mas o F2 só volta com
+  `calcular` < 400 s em 3 noites úteis. Estava em 671 s em 10/11; com o U3,
+  foi a 394,2 s em 11/11 e ~392 s em 12/11, mas ~408 s em 13/11: a
+  contagem provavelmente quebrou.
+- O resto (`semente-id`, `mcp`, `mydata`, cron, volume e backup) soma cerca
+  de $3,4/mês, sem alavanca grande.
+
+**Projeção da primeira fatura limpa (14/11–14/12), no ritmo pós-F1:**
+cerca de **$11,2** no projeto, com teto de cerca de $13,6 (Postgres cerca de $8,9: memória $7,6, volume
+e backup $1,0, CPU e egress $0,3). A fatura de 14/10–14/11 vai fechar perto
+de $17,3, porque mistura os dois regimes.
+
+### `calcular` piorou para 671 s em 10/11, com causas que não dá para separar
+
+Série sob 1 GB: 574,7 / 570,5 / 614,3 / 626,2 / **671,1 s** (aceite ≤ 196 s).
+A tendência vinha em cerca de +12 s por noite útil, e o salto de 10/11 foi
+de +44,9 s. A rodada de 10/11 difere das da semana do F1 em pelo menos três
+pontos, e um ponto só não separa nenhum deles:
+
+1. **`effective_cache_size`:** era 4 GB em todas as medições de 575–626 s,
+   e desde 09/11 é 768 MB. É uma mudança de planner que ficou em vigor.
+2. **Cache espremido:** o F2 reduziu o cache para cerca de 200 MB na noite
+   de 08 para 09/11. O teto voltou a 1 GB às 03:45 UTC de 09/11, mas o
+   cache precisa reaquecer.
+3. **Índice `ix_fato_negociacao_4`:** é mais uma estrutura a manter em
+   cerca de 126 mil UPDATEs não-HOT por noite. Isso pesa segundos, não
+   45 s. `idx_scan` = 1.304 em 10/11, compatível com as chamadas do Boris+,
+   e não com uso pelo `calcular`.
+
+**Checagem feita em 2026-11-11, por volta de 00:30 UTC: o `effective_cache_size`
+não é a causa.** O SQL que o `calcular` do `b3_cotahist` gera para a janela
+2026-11-09 (captura 364) foi reproduzido a partir do código e da
+configuração. Foram 7 statements, rodados com `EXPLAIN` sem ANALYZE, em
+transação com ROLLBACK, uma vez sob `'4GB'` e outra sob `'768MB'`. **Os 7
+planos saíram idênticos.** O `effective_cache_size` fica em 768 MB.
+
+**Causa provável, medida:** `fato_negociacao` não tem índice em
+`captura_id`. Os planos mostram 7 `Seq Scan on fato_negociacao` com
+`Filter: (captura_id = 364)`: os 4 campos escalares e o lado `alvo` dos 3
+campos de janela. Fora deles, ainda há:
+
+- o SELECT paginado dos campos numéricos (`LIMIT 20000 OFFSET …`), 2
+  consultas por onda × 3 ondas;
+- o `_carga_no_fim`, um `min(...) WHERE captura_id IN` por campo de janela.
+
+São até cerca de 16 varreduras completas para achar as 15.708 linhas da
+carga. Uma delas, isolada, medida com `EXPLAIN (ANALYZE, BUFFERS)`: **24,5 s
+e 155 mil páginas lidas do disco** (cerca de 1,2 GB), descartando 1,46
+milhão de linhas. Na rodada real parte disso vem do cache, mas a ordem de
+grandeza explica boa parte dos 671 s. Também explica a piora contínua: cada
+pregão aumenta a tabela.
+
+**U3 aplicado em 2026-11-11 00:38 UTC:** `CREATE INDEX CONCURRENTLY
+ix_fato_negociacao_5 ON fato_negociacao (captura_id)`. Levou 48 s; o índice
+é válido e ocupa 10 MB, sem reinício. A declaração na classe está no PR #12.
+Depois dele, os 7 statements e o SELECT dos numéricos usam `Bitmap Index
+Scan on ix_fato_negociacao_5`, e a mesma consulta caiu de 24,5 s para
+**2,2 s** a frio.
+
+**Linha de base por campo** (log do `mydata-cron`, rodada de 2026-11-10,
+total de 671 s):
+
+| Campo | Tipo | s | O índice alcança |
+|---|---|---|---|
+| `ticker_objeto` (inclui ANALYZE) | escalar | 32 | sim |
+| `preco_objeto`, `taxa_livre_risco`, `hv21_objeto` | escalar | 25 + 27 + 26 | sim |
+| `log_retorno`, `hv21`, `hv63` | janela | 130 + 154 + 121 | só o lado `alvo`; a subconsulta lê a tabela inteira por definição |
+| `prazo_anos`, `volatilidade_implicita`, gregas | numérico | 52 + 54 + 51 | os 2 SELECTs por onda (cerca de 49 s por onda) |
+
+**Estimativa (substitui a contagem de "até 16 varreduras"):** −250 a
+−300 s, com o `calcular` entre cerca de 370 e 420 s. Os três campos de
+janela, cerca de 330 s depois do índice, passam a ser o grosso da fase.
+Abaixo disso, o caminho é a leitura escopada (`escopo-calcular`, QW7).
+Confirma ou derruba no cron de 11/11 06:00 UTC.
+
+**Resultado no cron de 2026-11-11 (janela 2026-11-10): `calcular` = 394,2 s
+em `log_fase`**, contra 671,1 s (−277 s, −41 %). Ficou dentro da estimativa
+e abaixo de 400 s: é a **1ª de 3 noites úteis** da pré-condição do F2.
+
+| Campo | Tipo | 10/11 (s) | 11/11 (s) |
+|---|---|---|---|
+| `ticker_objeto` (inclui ANALYZE) | escalar | 32 | ~17 (por diferença) |
+| `preco_objeto` / `taxa_livre_risco` / `hv21_objeto` | escalar | 25 / 27 / 26 | 2,8 / 3,6 / 3,1 |
+| `log_retorno` / `hv21` / `hv63` | janela | 130 / 154 / 121 | 114,7 / 118,0 / 127,6 |
+| `prazo_anos` / `volatilidade_implicita` / gregas | numérico | 52 / 54 / 51 | 2,2 / 2,9 / 2,2 |
+
+Os tempos por campo são a diferença entre linhas consecutivas
+`campo calculado aplicado` do log do `mydata-cron`. O `ticker_objeto` não
+tem marca de início no log, então é o total de `log_fase` menos a soma dos
+outros campos.
+
+- **Escalares e numéricos:** de ~287 s para ~34 s. O índice resolveu o
+  que alcançava.
+- **Janela:** de ~405 s para ~360 s, ou 91 % da fase. A subconsulta lê
+  `fato_negociacao` inteira por definição e cresce a cada pregão.
+- **Folga de 6 s sobre os 400 s.** A série sob 1 GB subia cerca de +12 s
+  por noite útil, puxada pelo crescimento da tabela, e é isso que os campos
+  de janela ainda pagam. É provável que a 2ª ou a 3ª noite estoure. Se
+  estourar, o próximo passo é a leitura escopada do QW7 (`escopo-calcular`,
+  `b948320`), e não subir memória.
+- **Sem efeito colateral:** Postgres sem reinício desde 09/11 01:29 UTC,
+  `memory.max` 999997440, pico de 1021 MB em 24 h (anon ~30 MB, o resto
+  cache), 7 cargas publicadas, sem falha em 48 h.
+
+**Noites seguintes (estimadas pelo log do `mydata-cron`):** 12/11 ≈ 392 s,
+13/11 ≈ **408 s**. A estimativa é o intervalo entre `aplicado: ticker_objeto`
+e `aplicado: rho` (374,9 s e 391,0 s), mais os ~17 s do `ticker_objeto`
+medidos em 11/11. O `log_fase` não foi lido porque o SSH ao Postgres estava
+bloqueado pelo sandbox da sessão. Mesmo com ±5 s de erro, 13/11 passa de
+400 s. A piora de +16 s em uma noite é a dos campos de janela, como previsto.
+A contagem do F2 recomeça depois do QW7.
+
+### Ocupação em 2026-11-13 (22:41 BRT)
+
+Fontes: métricas e logs do Railway e `railway usage`. Sem SSH, não há
+tamanho por tabela nem por camada.
+
+| Item | Valor |
+|---|---|
+| Banco (`banco=` no log da carga) | 2.704,9 MB; +19 MB desde 11/11, cerca de +9–10 MB por noite útil |
+| Volume do Postgres | 4,27 GB de 50 GB (8,5 %), pico de 4,50 GB em 24 h; ~1,5 GB além do banco (WAL e catálogo, não separado) |
+| Projeção do motor | 5,4 GB em 12 meses |
+| Bronze capturado por noite útil | `b3_instrumentos` 20,3 MB, `b3_proventos_*` 2,4 + 2,4 MB, `b3_cotahist` 0,5 MB, BCB ~1 MB |
+| Memória do Postgres (24 h) | atual 997 MB, média 828 MB, pico no teto de 1 GB; sem reinício, OOM ou FATAL desde 11/11 |
+| Memória do `mydata` / `mcp` | ~68–71 MB cada, nunca dormem (coletor do console, QW3) |
+| CPU do Postgres | média 0,3 %, pico de 46 % no cron |
+| Fatura 14/10–14/11 | US$ 17,42 até agora (Postgres US$ 14,92); fecha perto de US$ 18 |
+| Ritmo atual | US$ 1,00 em 61,4 h entre 11/11 09:18 e 13/11 22:41, ou cerca de **US$ 11,9/mês** |
+
+O banco cresce menos que o bronze capturado (cerca de 9 contra 27 MB por
+noite). A hipótese é que captura com o mesmo hash não seja regravada; não
+foi verificada. As métricas do Postgres mostram mínimo 0 em todas as
+medidas ao mesmo tempo, o que foi tratado como falha de coleta: o log não
+tem nenhum sinal de reinício.
 
 ## 6. Como medir de novo
 
