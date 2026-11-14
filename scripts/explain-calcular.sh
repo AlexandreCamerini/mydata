@@ -30,7 +30,7 @@ VOL="mydata-clone-explain-vol"
 PORTA=55432
 # Mesma versão da produção (Postgres 18): pg_dump recusa servidor mais novo que ele.
 IMAGEM="${IMAGEM:-postgres:18}"
-CLONE_DSN="postgresql://postgres:clone@localhost:$PORTA/mydata"
+CLONE_DSN="postgresql://postgres:Testes%2312345%23@localhost:$PORTA/mydata"
 BASE="${TMPDIR:-/tmp}/mydata-explain"
 SAIDA="${SAIDA:-$BASE/explain-$(date +%Y%m%d-%H%M)}"
 
@@ -65,7 +65,7 @@ fi
 if ! docker ps -a --format '{{.Names}}' | grep -qx "$CONT"; then
   # Postgres 18 guarda os dados em /var/lib/postgresql (não mais .../data).
   docker run -d --name "$CONT" -p "$PORTA:5432" -v "$VOL:/var/lib/postgresql" \
-    -e POSTGRES_PASSWORD=clone -e POSTGRES_DB=mydata "$IMAGEM" \
+    -e POSTGRES_PASSWORD='Testes#12345#' -e POSTGRES_DB=mydata "$IMAGEM" \
     -c shared_buffers=1GB -c work_mem=64MB -c maintenance_work_mem=512MB >/dev/null \
     || die "docker run falhou"
 fi

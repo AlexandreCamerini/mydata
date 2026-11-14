@@ -154,7 +154,7 @@ def test_credencial_desconhecida_nao_gasta_o_desafio(sink):
 
 
 def test_formulario_de_token_aparece_enquanto_nao_ha_passkey(sink, monkeypatch):
-    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "x" * 43)
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "Testes#12345#")
     monkeypatch.delenv("PORTAL_ACESSO_LEGADO", raising=False)
     # Sem esta regra o primeiro passkey nunca entraria: registrar exige
     # sessão, e a primeira sessão vem do token.
@@ -162,7 +162,7 @@ def test_formulario_de_token_aparece_enquanto_nao_ha_passkey(sink, monkeypatch):
 
 
 def test_formulario_de_token_some_depois_do_primeiro_passkey(sink, monkeypatch):
-    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "x" * 43)
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "Testes#12345#")
     monkeypatch.delenv("PORTAL_ACESSO_LEGADO", raising=False)
     _guardar_passkey(sink)
     assert acesso.token_no_formulario(sink) is False
@@ -174,7 +174,7 @@ def test_acesso_legado_traz_o_formulario_de_volta(sink, monkeypatch):
     É a diferença entre reversível no papel e reversível às onze da noite pelo
     painel do Railway, com o autenticador perdido.
     """
-    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "x" * 43)
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "Testes#12345#")
     monkeypatch.setenv("PORTAL_ACESSO_LEGADO", "1")
     _guardar_passkey(sink)
     assert acesso.token_no_formulario(sink) is True
@@ -204,12 +204,12 @@ def test_cabecalho_de_token_vale_sempre(sink, monkeypatch):
     cabeçalho caísse junto com o formulário, registrar um autenticador e
     perdê-lo trancaria o dono fora de tudo ao mesmo tempo.
     """
-    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "segredo-longo-o-bastante-para-servir")
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "Testes#12345#")
     monkeypatch.delenv("PORTAL_ACESSO_LEGADO", raising=False)
     _guardar_passkey(sink)
     assert acesso.token_no_formulario(sink) is False
     pedido = _Pedido(sink,
-                     headers={"X-Admin-Token": "segredo-longo-o-bastante-para-servir"})
+                     headers={"X-Admin-Token": "Testes#12345#"})
     assert auth.sessao_admin(pedido) is True
 
 
@@ -220,23 +220,23 @@ def test_cookie_no_formato_antigo_continua_valendo(sink, monkeypatch):
     Recusar o formato antigo derrubaria o dono no momento exato em que a
     mudança subisse.
     """
-    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "segredo-antigo-de-43-caracteres-ou-perto")
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "Testes#12345#")
     pedido = _Pedido(
         sink,
-        cookies={auth.COOKIE_SESSAO: "segredo-antigo-de-43-caracteres-ou-perto"},
+        cookies={auth.COOKIE_SESSAO: "Testes#12345#"},
     )
     assert auth.sessao_admin(pedido) is True
 
 
 def test_cookie_de_sessao_nova_vale(sink, monkeypatch):
-    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "x" * 43)
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "Testes#12345#")
     ident = acesso.abrir_sessao(sink, "passkey:telefone")
     pedido = _Pedido(sink, cookies={auth.COOKIE_SESSAO: ident})
     assert auth.sessao_admin(pedido) is True
 
 
 def test_cookie_qualquer_nao_vale(sink, monkeypatch):
-    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "x" * 43)
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "Testes#12345#")
     pedido = _Pedido(sink, cookies={auth.COOKIE_SESSAO: "chute"})
     assert auth.sessao_admin(pedido) is False
 
@@ -244,7 +244,7 @@ def test_cookie_qualquer_nao_vale(sink, monkeypatch):
 # --------------------------------------------------------------------------
 # Ponta a ponta, pela HTTP
 # --------------------------------------------------------------------------
-TOKEN = "token-de-teste-longo-o-bastante-para-servir"
+TOKEN = "Testes#12345#"
 
 
 @pytest.fixture()
@@ -400,7 +400,7 @@ def autenticador(monkeypatch):
 
 
 def test_registro_e_entrada_ponta_a_ponta(sink, autenticador, monkeypatch):
-    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "x" * 43)
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "Testes#12345#")
 
     opcoes = acesso.opcoes_de_registro(sink, "notebook", ORIGEM)
     acesso.registrar(sink, autenticador.registrar(opcoes, ORIGEM),

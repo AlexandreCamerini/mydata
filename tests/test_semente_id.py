@@ -23,7 +23,7 @@ PORTAL = "https://id.semente.dev"
 @pytest.fixture()
 def env_semente_id(monkeypatch):
     monkeypatch.setenv("SEMENTE_ID_CLIENT_ID", CLIENT_ID)
-    monkeypatch.setenv("SEMENTE_ID_CLIENT_SECRET", "segredo-teste")
+    monkeypatch.setenv("SEMENTE_ID_CLIENT_SECRET", "Testes#12345#")
     monkeypatch.setenv("SEMENTE_ID_URL", PORTAL)
     monkeypatch.setenv("PORTAL_URL_PUBLICA", "https://mydata.acamerini.app")
 

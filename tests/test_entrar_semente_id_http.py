@@ -32,7 +32,7 @@ def cliente(tmp_path, monkeypatch, chave_portal):
     # si não é usado nestes testes: o caminho exercitado é o federado.
     monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "token-nao-usado-nesta-suite")
     monkeypatch.setenv("SEMENTE_ID_CLIENT_ID", CLIENT_ID)
-    monkeypatch.setenv("SEMENTE_ID_CLIENT_SECRET", "segredo-teste")
+    monkeypatch.setenv("SEMENTE_ID_CLIENT_SECRET", "Testes#12345#")
     monkeypatch.setenv("SEMENTE_ID_URL", PORTAL)
     monkeypatch.setenv("PORTAL_URL_PUBLICA", "http://testserver")
 

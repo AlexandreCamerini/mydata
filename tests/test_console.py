@@ -19,7 +19,7 @@ from app import bootstrap
 from app.console import credencial, coletor, origens
 from app.sinks import SinkDuckDB
 
-TOKEN = "token-console-de-teste-com-tamanho-razoavel"
+TOKEN = "Testes#12345#"
 
 PACOTE = pathlib.Path(__file__).resolve().parents[1] / "app" / "console"
 
@@ -95,7 +95,7 @@ def _token(access_token: str, expires_in=3600):
 
 ENVELOPE_OK = {"situacao": "ok", "alertas": [], "ultimas_execucoes": [], "proximas": []}
 CLIENT_ID = "console-client"
-CLIENT_SECRET = "segredo-super-secreto-do-client"
+CLIENT_SECRET = "Testes#12345#"
 
 
 @pytest.fixture(autouse=True)

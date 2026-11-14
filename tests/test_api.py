@@ -442,7 +442,7 @@ def test_meta_execucoes_filtra_por_status(cliente):
 def test_v1_aceita_sessao_de_admin_sem_chave(cliente, monkeypatch):
     """A apresentação lê /v1 sob a sessão do dono: nenhuma chave de API
     existe no navegador, e o cookie HttpOnly é a credencial."""
-    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "segredo-de-teste")
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "Testes#12345#")
 
     # Sem chave e sem sessão: 401, como sempre.
     r = cliente.get("/v1/empresas", headers={"X-API-Key": ""})
@@ -454,7 +454,7 @@ def test_v1_aceita_sessao_de_admin_sem_chave(cliente, monkeypatch):
     assert "portal_sessao" not in cliente.cookies
 
     # Entrar com o token cria o cookie HttpOnly e volta para a raiz.
-    r = cliente.post("/entrar", data={"token": "segredo-de-teste"},
+    r = cliente.post("/entrar", data={"token": "Testes#12345#"},
                      follow_redirects=False)
     assert r.status_code == 303
     assert "httponly" in r.headers["set-cookie"].lower()
@@ -476,13 +476,13 @@ def test_apresentacao_responde_401_sem_sessao(cliente, monkeypatch):
 
     if not RAIZ_WEB.exists():
         pytest.skip("front não construído neste ambiente")
-    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "segredo-de-teste")
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "Testes#12345#")
 
     r = cliente.get("/")
     assert r.status_code == 401
     assert "Entrar" in r.text and "token" in r.text.lower()
 
-    cliente.post("/entrar", data={"token": "segredo-de-teste"})
+    cliente.post("/entrar", data={"token": "Testes#12345#"})
     r = cliente.get("/")
     assert r.status_code == 200
     assert "apresentacao" in r.text or "root" in r.text
@@ -667,8 +667,8 @@ def test_resumo_omite_o_que_a_chave_nao_le(cliente):
 def test_chave_emitida_com_classes_nasce_restrita(cliente, monkeypatch):
     """A única decisão de autorização do produto. Enquanto a tela não enviava
     `classes`, toda chave criada por ela nascia lendo tudo — em silêncio."""
-    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "segredo-de-teste")
-    cab = {"X-Admin-Token": "segredo-de-teste"}
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "Testes#12345#")
+    cab = {"X-Admin-Token": "Testes#12345#"}
 
     r = cliente.post("/admin/api/chaves", headers=cab, json={
         "consumidor": "so_empresa_ui",
@@ -694,8 +694,8 @@ def test_chave_emitida_com_classes_nasce_restrita(cliente, monkeypatch):
 def test_chave_sem_classes_continua_lendo_tudo(cliente, monkeypatch):
     """O padrão permissivo é intencional e compatível com as chaves já
     emitidas. O que mudou é que agora a tela diz isso em voz alta."""
-    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "segredo-de-teste")
-    cab = {"X-Admin-Token": "segredo-de-teste"}
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "Testes#12345#")
+    cab = {"X-Admin-Token": "Testes#12345#"}
 
     r = cliente.post("/admin/api/chaves", headers=cab, json={
         "consumidor": "sem_escopo_ui", "quota_minuto": 60, "quota_dia": 1000,
