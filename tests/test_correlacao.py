@@ -154,8 +154,8 @@ def test_correlacao_nova_nao_exige_deploy(sink_cvm):
 def test_gestao_reune_o_que_estava_em_cinco_rotas(cliente, monkeypatch):
     """A pergunta que o operador faz primeiro — "como está o sistema" — passa a
     ter uma resposta só, sem ele abrir o banco nem cinco telas."""
-    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "segredo-de-teste")
-    r = cliente.get("/admin/api/gestao", headers={"X-Admin-Token": "segredo-de-teste"})
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "Testes#12345#")
+    r = cliente.get("/admin/api/gestao", headers={"X-Admin-Token": "Testes#12345#"})
     assert r.status_code == 200, r.text
     d = r.json()["dados"]
 

@@ -10,7 +10,7 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_PASSWORD: ci-password
+          POSTGRES_PASSWORD: "Testes#12345#"
           POSTGRES_DB: mydata_test
         ports:
           - 5432:5432
@@ -57,7 +57,7 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           PORTAL_TESTE_LIMITE_CARGA_S: "120"
-          PORTAL_TESTE_POSTGRES: postgresql://postgres:ci-password@localhost:5432/mydata_test
+          PORTAL_TESTE_POSTGRES: postgresql://postgres:Testes%2312345%23@localhost:5432/mydata_test
         run: python -m pytest -q
 
   front:

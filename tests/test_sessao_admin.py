@@ -18,7 +18,7 @@ from app import bootstrap, seed_fontes
 from app.api import auth
 from app.sinks import SinkDuckDB
 
-TOKEN = "token-de-teste-com-tamanho-razoavel"
+TOKEN = "Testes#12345#"
 
 
 @pytest.fixture()

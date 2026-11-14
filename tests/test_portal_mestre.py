@@ -261,7 +261,7 @@ def test_admin_exige_token_para_ler_tambem(base, monkeypatch):
     autenticação nenhuma — contornando de uma vez o escopo por classe das
     chaves de API.
     """
-    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "segredo-de-teste")
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "Testes#12345#")
     app = recarregar_app()
     with TestClient(app) as c:
         for caminho in ("/admin/api/classes", "/admin/api/execucoes",
@@ -270,7 +270,7 @@ def test_admin_exige_token_para_ler_tambem(base, monkeypatch):
             r = c.get(caminho)
             assert r.status_code == 401, f"{caminho} respondeu {r.status_code}"
 
-        cab = {"X-Admin-Token": "segredo-de-teste"}
+        cab = {"X-Admin-Token": "Testes#12345#"}
         assert c.get("/admin/api/classes", headers=cab).status_code == 200
 
 
