@@ -422,3 +422,11 @@ def test_negociacao_b3_tem_indice_por_ticker_objeto(sink_cvm):
         ["ticker_objeto", "dt_pregao"]
     # Os existentes não mudam de nome: o novo entrou no fim da lista.
     assert ddl.colunas_do_indice(sink_cvm, "ix_fato_negociacao_2") == ["codneg"]
+
+
+def test_negociacao_b3_tem_indice_por_captura_id(sink_cvm):
+    """O `calcular` filtra por `captura_id`; sem índice, cada campo varria
+    `fato_negociacao` inteira (24,5 s por varredura, medido em 2026-11-11)."""
+    assert ddl.colunas_do_indice(sink_cvm, "ix_fato_negociacao_5") == ["captura_id"]
+    assert ddl.colunas_do_indice(sink_cvm, "ix_fato_negociacao_4") == \
+        ["ticker_objeto", "dt_pregao"]
