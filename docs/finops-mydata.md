@@ -169,8 +169,8 @@ acusa o resíduo de `restartPolicyType`.
 - **Pré-condição para tentar de novo:** `calcular` abaixo de cerca de 400 s
   (2× o aceite) em 3 noites úteis seguidas sob 1 GB. Contagem: 11/11 =
   394,2 s, 12/11 ≈ 392 s, 13/11 ≈ 408 s. **A contagem provavelmente
-  quebrou na 3ª noite** (12 e 13/11 estimados pelo log, ver §5). Recomeça
-  depois do QW7.
+  quebrou na 3ª noite** (12 e 13/11 estimados pelo log, ver §5). 14/11 ≈
+  349 s, mas a causa não foi identificada (§5). Recomeça depois do QW7.
 - **Kill:** um OOM volta para 1 GB (`memoryBytes: 1_000_000_000` no
   `railway.ts`, e `limits.memoryGB: 1` na API, que aplica na hora), sem
   segunda tentativa.
@@ -462,6 +462,38 @@ medidos em 11/11. O `log_fase` não foi lido porque o SSH ao Postgres estava
 bloqueado pelo sandbox da sessão. Mesmo com ±5 s de erro, 13/11 passa de
 400 s. A piora de +16 s em uma noite é a dos campos de janela, como previsto.
 A contagem do F2 recomeça depois do QW7.
+
+**Noite de 14/11 (janela 13/11, primeiro cron com `b7f6fe3`, que traz o
+PR #12):** ≈ **349 s** (331,8 s entre `ticker_objeto` e `rho`, mais ~17 s),
+publicada como gold v561. Sem `log_fase`, pelo mesmo motivo de antes.
+
+| Campo de janela | 11/11 (s) | 12/11 (s) | 13/11 (s) | 14/11 (s) |
+|---|---|---|---|---|
+| `log_retorno` | 114,7 | 126,5 | 130,0 | 109,3 |
+| `hv21` | 118,0 | 113,2 | 124,8 | 107,9 |
+| `hv63` | 127,6 | 117,6 | 115,2 | 101,7 |
+| **soma** | 360,3 | 357,3 | 370,0 | **318,9** |
+
+- A queda de ~51 s em relação a 13/11 é uniforme nos três campos de janela,
+  entre 12 % e 16 %. Escalares e numéricos ficaram iguais (~13 s fora o
+  `ticker_objeto`).
+- **Causa não identificada.** O PR #12 não muda o plano, porque o índice já
+  existia desde 11/11 e o boot não recriou nada. Uma queda igual nos três
+  campos aponta para o estado do banco, não para o código. Há duas
+  hipóteses que só o SQL confirma: um autovacuum em `fato_negociacao`
+  entre 13 e 14/11 (mapa de visibilidade atualizado) ou cache mais quente.
+- **Não reabre a contagem do F2.** Uma noite boa sem causa conhecida não
+  desfaz a tendência de +12 s por noite útil. Se o motivo for o vacuum, ele
+  se repete sozinho e as próximas noites confirmam. A regra continua sendo
+  3 noites úteis seguidas abaixo de 400 s.
+- **Cron saiu com código 1 (deploy `CRASHED`) por um motivo que não é o
+  `calcular`.** O `b3_instrumentos_diario` de 13/11 recebeu 400 da B3. Às
+  16:26 UTC, `InstrumentsConsolidated&date=2026-11-13` ainda dava 400,
+  enquanto o de 12/11 dava 200: o arquivo de sexta não tinha sido
+  publicado. A janela continua pendente e o próximo cron tenta de novo (400
+  não é 404, então gasta o teto da rodada, mas não sobe a marca d'água). O
+  alerta saiu pelo webhook. As cargas de cotahist, proventos e BCB foram
+  publicadas.
 
 ### Ocupação em 2026-11-13 (22:41 BRT)
 
