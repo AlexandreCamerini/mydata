@@ -168,7 +168,9 @@ acusa o resíduo de `restartPolicyType`.
   o médio pago é de 0,76 GB.
 - **Pré-condição para tentar de novo:** `calcular` abaixo de cerca de 400 s
   (2× o aceite) em 3 noites úteis seguidas sob 1 GB. Contagem: 11/11 =
-  394,2 s (1ª noite, depois do U3); faltam 2 noites úteis seguidas.
+  394,2 s, 12/11 ≈ 392 s, 13/11 ≈ 408 s. **A contagem provavelmente
+  quebrou na 3ª noite** (12 e 13/11 estimados pelo log, ver §5). Recomeça
+  depois do QW7.
 - **Kill:** um OOM volta para 1 GB (`memoryBytes: 1_000_000_000` no
   `railway.ts`, e `limits.memoryGB: 1` na API, que aplica na hora), sem
   segunda tentativa.
@@ -351,7 +353,8 @@ projeto fica entre cerca de $11 e $13,6/mês. Sobre o que faltaria:
   antiga supunha cache sempre no teto.
 - Com o F2, o projeto ficaria em cerca de $8,5/mês. Mas o F2 só volta com
   `calcular` < 400 s em 3 noites úteis. Estava em 671 s em 10/11; com o U3,
-  foi a 394,2 s em 11/11 (1ª de 3 noites, com folga de 6 s).
+  foi a 394,2 s em 11/11 e ~392 s em 12/11, mas ~408 s em 13/11: a
+  contagem provavelmente quebrou.
 - O resto (`semente-id`, `mcp`, `mydata`, cron, volume e backup) soma cerca
   de $3,4/mês, sem alavanca grande.
 
@@ -451,6 +454,37 @@ outros campos.
 - **Sem efeito colateral:** Postgres sem reinício desde 09/11 01:29 UTC,
   `memory.max` 999997440, pico de 1021 MB em 24 h (anon ~30 MB, o resto
   cache), 7 cargas publicadas, sem falha em 48 h.
+
+**Noites seguintes (estimadas pelo log do `mydata-cron`):** 12/11 ≈ 392 s,
+13/11 ≈ **408 s**. A estimativa é o intervalo entre `aplicado: ticker_objeto`
+e `aplicado: rho` (374,9 s e 391,0 s), mais os ~17 s do `ticker_objeto`
+medidos em 11/11. O `log_fase` não foi lido porque o SSH ao Postgres estava
+bloqueado pelo sandbox da sessão. Mesmo com ±5 s de erro, 13/11 passa de
+400 s. A piora de +16 s em uma noite é a dos campos de janela, como previsto.
+A contagem do F2 recomeça depois do QW7.
+
+### Ocupação em 2026-11-13 (22:41 BRT)
+
+Fontes: métricas e logs do Railway e `railway usage`. Sem SSH, não há
+tamanho por tabela nem por camada.
+
+| Item | Valor |
+|---|---|
+| Banco (`banco=` no log da carga) | 2.704,9 MB; +19 MB desde 11/11, cerca de +9–10 MB por noite útil |
+| Volume do Postgres | 4,27 GB de 50 GB (8,5 %), pico de 4,50 GB em 24 h; ~1,5 GB além do banco (WAL e catálogo, não separado) |
+| Projeção do motor | 5,4 GB em 12 meses |
+| Bronze capturado por noite útil | `b3_instrumentos` 20,3 MB, `b3_proventos_*` 2,4 + 2,4 MB, `b3_cotahist` 0,5 MB, BCB ~1 MB |
+| Memória do Postgres (24 h) | atual 997 MB, média 828 MB, pico no teto de 1 GB; sem reinício, OOM ou FATAL desde 11/11 |
+| Memória do `mydata` / `mcp` | ~68–71 MB cada, nunca dormem (coletor do console, QW3) |
+| CPU do Postgres | média 0,3 %, pico de 46 % no cron |
+| Fatura 14/10–14/11 | US$ 17,42 até agora (Postgres US$ 14,92); fecha perto de US$ 18 |
+| Ritmo atual | US$ 1,00 em 61,4 h entre 11/11 09:18 e 13/11 22:41, ou cerca de **US$ 11,9/mês** |
+
+O banco cresce menos que o bronze capturado (cerca de 9 contra 27 MB por
+noite). A hipótese é que captura com o mesmo hash não seja regravada; não
+foi verificada. As métricas do Postgres mostram mínimo 0 em todas as
+medidas ao mesmo tempo, o que foi tratado como falha de coleta: o log não
+tem nenhum sinal de reinício.
 
 ## 6. Como medir de novo
 
