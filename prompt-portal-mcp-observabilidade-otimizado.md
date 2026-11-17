@@ -68,14 +68,14 @@ o servidor como processo filho por stdio. Uso pessoal, uma sessão por vez
 (E.sessao_unica), protegido por senha única (SENHA) e cookie de sessão por
 visitante.
 
-Ele é consumidor do MyData (~/dev/cvm-financas), pela porta que o MyData
+Ele é consumidor do MyData (~/dev/mydata), pela porta que o MyData
 define: GET /v1, com header X-API-Key. A chave de produção já existe e não
-muda — c8125eee, ver ~/dev/cvm-financas/docs/contrato-consumidor.md:70. O
+muda — c8125eee, ver ~/dev/mydata/docs/contrato-consumidor.md:70. O
 endereço, sim, precisa mudar: mydata.semente.dev é o endereço primário do
 MyData desde 29/08/2026 (mydata.acamerini.app convive até corte decidido
 pelo Alex, mas não é mais o padrão a assumir em código novo).
 
-Contexto do ADR-23 (fonte de verdade: ~/dev/cvm-financas/docs/arquitetura.md,
+Contexto do ADR-23 (fonte de verdade: ~/dev/mydata/docs/arquitetura.md,
 seção ADR-23): o portfólio do Alex converge login e observabilidade em
 semente.dev. A Fase 3 estende o admin do MyData para um console agregador em
 admin.semente.dev, que consome GET /observabilidade de cada sistema do
@@ -87,7 +87,7 @@ portfólio no formato:
     "ultimas_execucoes": [...],
     "proximas": [...] }
 
-Implementação de referência: ~/dev/cvm-financas/app/api/admin.py:737-753
+Implementação de referência: ~/dev/mydata/app/api/admin.py:737-753
 (rota get_observabilidade), que devolve isso dentro de {"dados": {...}} e é
 só o rearranjo de estado que já existia em alertas/execuções/agendamentos —
 nada novo é calculado ali.
@@ -146,8 +146,8 @@ Dois alvos, independentes entre si:
 </restricoes>
 
 <tarefa>
-Leia o ADR-23 (~/dev/cvm-financas/docs/arquitetura.md) e
-~/dev/cvm-financas/app/api/admin.py:737-753 antes de desenhar o formato.
+Leia o ADR-23 (~/dev/mydata/docs/arquitetura.md) e
+~/dev/mydata/app/api/admin.py:737-753 antes de desenhar o formato.
 
 Entregue os dois alvos do objetivo. Para o alvo 2, decida o mapeamento de
 estado → contrato com base no que E já expõe hoje (sessão, modo_fonte,
