@@ -414,8 +414,15 @@ def ler_xml(
     def local(tag: str) -> str:
         return tag.rsplit("}", 1)[-1]
 
+    # No CSV, "obrigatória" é a coluna existir no cabeçalho. O XML não tem
+    # cabeçalho: o par é o caminho ter valor em algum registro. Tag renomeada
+    # pela fonte viraria coluna nula em silêncio.
+    obrigatorias = {c["nome_origem"].strip() for c in colunas
+                    if c["obrigatoria"] and not c["nome_origem"].startswith("$")}
+
     def registros() -> Iterator[dict[str, Any]]:
         lidos = aceitos = 0
+        faltam = set(obrigatorias)
         pilha: list = []
         dentro = 0
         for evento, el in ET.iterparse(fluxo, events=("start", "end")):
@@ -431,7 +438,10 @@ def ler_xml(
                 lidos += 1
                 if filtro is None or (el.findtext(filtro) or "").strip():
                     aceitos += 1
-                    yield {o: _valor_xml(el, c) for o, c in compiladas.items()}
+                    valores = {o: _valor_xml(el, c) for o, c in compiladas.items()}
+                    if faltam:
+                        faltam -= {o for o in faltam if valores[o]}
+                    yield valores
                 if pai is not None:
                     pai.remove(el)
             elif dentro == 0 and pai is not None:
@@ -445,6 +455,13 @@ def ler_xml(
             raise ErroParse(
                 f"{lidos} registro(s) <{registro}>, nenhum com valor em "
                 f"'{filtro_registro}'"
+            )
+        if faltam:
+            # Depois de ler tudo, e antes do upsert: a carga em lote só grava
+            # quando o gerador termina, então nada do arquivo entra.
+            raise ErroParse(
+                "a fonte não traz campo obrigatório declarado (nenhum dos "
+                f"{aceitos} registros tem valor): " + ", ".join(sorted(faltam))
             )
 
     cabecalho = {o.upper() for o in origens}
@@ -474,6 +491,20 @@ def membros_em_fluxo(payload: bytes, padrao: str):
 
     with zipfile.ZipFile(io.BytesIO(payload)) as zf:
         yield from percorrer(zf)
+
+
+def tem_membro(payload: bytes, padrao: str) -> bool:
+    """O ZIP traz algum arquivo que case com o padrão? Lê só os índices.
+
+    Payload que nem é ZIP responde não: é a mesma ausência de arquivo, e o
+    erro de quem pergunta diz quantos bytes vieram.
+    """
+    try:
+        for _ in membros_em_fluxo(payload, padrao):
+            return True
+    except zipfile.BadZipFile:
+        return False
+    return False
 
 
 def membros_do_zip(

@@ -647,7 +647,7 @@ COLUNAS_INSTRUMENTOS_BVBG = [
     Coluna("FinInstrmAttrCmon/AsstDesc", "ativo_objeto_descricao", "texto",
            ordem=4),
     Coluna("InstrmInf/*/SctyCtgy", "categoria", "texto", MAPA_CATEGORIA,
-           ordem=5),
+           obrigatoria=True, ordem=5),
     Coluna(_MKT_SGMT, "mercado", "texto", MAPA_MERCADO, ordem=6),
     Coluna(_MKT_SGMT, "segmento", "texto", MAPA_SEGMENTO, ordem=7),
     Coluna("InstrmInf/*/ISIN", "isin", "texto", ordem=8),
@@ -657,7 +657,7 @@ COLUNAS_INSTRUMENTOS_BVBG = [
     # Opção sobre ação chama o campo de `OptnStyle`; sobre disponível e
     # futuro, de `ExrcStyle`. São 7 mil séries (IDI, DI1, DOL) no segundo.
     Coluna("InstrmInf/*/OptnStyle|InstrmInf/*/ExrcStyle", "estilo_exercicio",
-           "texto", ordem=11),
+           "texto", obrigatoria=True, ordem=11),
     # Ponto decimal, ao contrário do CSV.
     Coluna("InstrmInf/*/ExrcPric", "preco_exercicio", "numero", ordem=12),
     Coluna("InstrmInf/*/XprtnDt", "dt_vencimento", "data", ordem=13),
@@ -686,7 +686,11 @@ CALCULADOS_INSTRUMENTO_BVBG = [
             "AND o.origem_dataset = dim_instrumento.origem_dataset), "
             "ativo_raiz) ELSE ativo_raiz END"
         ),
-        colunas_origem=["categoria", "id_objeto", "ativo_raiz"],
+        # `ticker` e `id_instrumento` vêm de outra linha (o objeto), e por
+        # isso também são origem. `origem_dataset` não é coluna do
+        # mapeamento: é do motor, e a validação a recusaria aqui.
+        colunas_origem=["categoria", "id_objeto", "ativo_raiz", "ticker",
+                        "id_instrumento"],
         tipo_retorno="texto",
         retroage=False,
         descricao="Para opção, o ticker do objeto (`PETR4`), achado pelo id "
@@ -1497,6 +1501,9 @@ def datasets() -> list[Dataset]:
                 # Título de dívida e contrato de balcão vêm no mesmo arquivo
                 # sem código de negociação (742 registros em 18/11/2026).
                 "filtro_registro": "InstrmInf/*/TckrSymb",
+                # A fonte responde 200 com ZIP vazio de 22 bytes em dia sem
+                # pregão; sem isto, zero linhas publicariam como sucesso.
+                "exigir_membro": True,
             },
             # Limite conhecido: 1.176 tickers de custódia por lote (mercado 17,
             # `RECV3L`) vêm uma vez por distribuição, com id próprio, em ordem

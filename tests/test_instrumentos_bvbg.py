@@ -112,6 +112,37 @@ def test_dia_sem_pregao_falha_em_vez_de_publicar_vazio(sink_bvbg):
     assert sink_bvbg.um("SELECT count(*) AS n FROM dim_instrumento")["n"] == 0
 
 
+def test_zip_vazio_nao_vira_bronze_e_o_recomputo_sobrevive(sink_bvbg):
+    """O bronze é imutável e deduplica por hash: um ZIP vazio gravado lá seria
+    relido — e falharia — em todo recomputo, e todo feriado seguinte cairia
+    na mesma captura."""
+    carregar(sink_bvbg)
+    with pytest.raises(ingestao.ErroIngestao):
+        carregar(sink_bvbg, ZIP_VAZIO, janela="2026-11-20")
+    assert ingestao.janelas_capturadas(sink_bvbg, "b3_instrumentos_bvbg") == [
+        "2026-11-18"]
+    resultados = ingestao.recomputar_tudo(sink_bvbg)
+    assert {r.status for r in resultados} == {"publicado"}
+
+
+def test_a_captura_guarda_o_nome_do_pacote(sink_bvbg):
+    """O endereço é `.../download?filelist=IN261118.zip`: chamar a captura de
+    `download` apagaria de qual dia ela é."""
+    carregar(sink_bvbg)
+    nome = sink_bvbg.um("SELECT nome_arquivo FROM bronze_captura "
+                        "WHERE dataset_chave = 'b3_instrumentos_bvbg'")
+    assert nome["nome_arquivo"] == "IN261118.zip"
+
+
+def test_campo_obrigatorio_que_some_do_xml_falha(sink_bvbg):
+    """Se a B3 renomear a tag do estilo, a coluna não pode virar nula calada."""
+    sem_estilo = (AMOSTRA.replace(b"OptnStyle>", b"EstiloNovo>")
+                  .replace(b"ExrcStyle>", b"EstiloNovo>"))
+    with pytest.raises(parsing.ErroParse, match="estilo|OptnStyle"):
+        carregar(sink_bvbg, pacote((NOME_XML, sem_estilo)))
+    assert sink_bvbg.um("SELECT count(*) AS n FROM dim_instrumento")["n"] == 0
+
+
 def test_xml_sem_o_elemento_declarado_falha(sink_bvbg):
     outro = b'<?xml version="1.0"?><Document><Outra/></Document>'
     with pytest.raises(parsing.ErroParse, match="nenhum elemento <Instrm>"):

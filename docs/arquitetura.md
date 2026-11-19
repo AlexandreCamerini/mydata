@@ -1444,9 +1444,14 @@ mapeamento que o entende.
 - `mapa:` como formato de coluna: tabela de-para declarada no mapeamento.
   Código fora dela passa cru.
 - ZIP dentro de ZIP, com o membro lido em fluxo: o XML tem ~450 MB.
-- Captura XML sem membro que case, ou sem registro, é falha. A B3 responde
-  200 com um ZIP vazio de 22 bytes para dia sem pregão; publicar zero linhas
-  como sucesso deixaria a fotografia parada sem alarme.
+- `exigir_membro` no dataset: ZIP sem membro que case é falha, e falha
+  **antes** do bronze. A B3 responde 200 com um ZIP vazio de 22 bytes para
+  dia sem pregão; publicar zero linhas como sucesso deixaria a fotografia
+  parada sem alarme, e gravar o ZIP vazio em bronze (imutável, deduplicado
+  por hash) faria todo `recomputar_tudo` futuro abortar nessa janela.
+- No XML, `obrigatoria` é o caminho ter valor em algum registro — o par do
+  cabeçalho do CSV. Tag renomeada pela fonte falha a carga em vez de virar
+  coluna nula.
 - `{aa}` no `url_template`: ano em dois dígitos.
 
 **Fidelidade, medida.** Carregando pelo motor o CSV e o XML reais de 12/11 (o
@@ -1477,6 +1482,19 @@ DuckDB local: leitor 23 s e 80 MB de pico; a carga inteira 82 s (carregar
 o CSV. O que piora é o recomputo: cada dia capturado reprocessa o XML inteiro.
 Um ano de bronze são ~250 × 80 s ≈ 5,5 h de `recomputar_tudo` só nesta classe,
 contra minutos com o CSV.
+
+**Limites aceitos.**
+
+- Feriado continua saindo `falha` (e o cron com código 1) até a próxima
+  ocorrência devida — três rodadas num feriado de sexta. Não é regressão: o
+  404 do COTAHIST em feriado já faz o mesmo, e tratar "fonte não publicou"
+  como não-falha é decisão do agendador, não desta fonte.
+- `gold_opcoes` repete a precedência da classe com os nomes dos datasets.
+  Juntar na vista gerada (`gold_instrumento_b3_v{V}`) seria o certo, mas ela
+  não existe nas versões já publicadas e quebraria o boot e o `reverter`.
+  Reordenar a precedência da classe pede editar as duas.
+- `ativo_objeto` lê outra linha da tabela (o objeto) num campo escalar. O
+  recorte por captura vale porque objeto e opção chegam no mesmo arquivo.
 
 **Onde quebra.** Se a B3 voltar a publicar o CSV, religar é trocar o `False`
 do agendamento — as duas origens já convivem. Se o BVBG mudar de versão de

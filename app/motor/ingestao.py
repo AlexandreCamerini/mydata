@@ -291,14 +291,33 @@ def _trocar_bilhete(url: str, params: dict, baixar) -> tuple[str, str]:
     return modelo.format(token=bilhete), nome
 
 
+def _nome_da_captura(url: str) -> str:
+    """O nome do arquivo que a URL entrega, para a proveniência do bronze.
+
+    O último trecho do caminho, quando ele tem extensão; senão, o valor de
+    parâmetro que tiver — há fonte que serve todo arquivo pelo mesmo
+    `.../download?filelist=IN261118.zip`, e chamar toda captura de
+    `download` apagaria de qual dia ela é.
+    """
+    caminho, _, consulta = url.partition("?")
+    nome = caminho.rsplit("/", 1)[-1]
+    if "." in nome or not consulta:
+        return nome
+    for par in reversed(consulta.split("&")):
+        valor = par.partition("=")[2]
+        if "." in valor and "/" not in valor:
+            return valor
+    return nome
+
+
 def _membros_exigidos(membros, captura: dict, ds: dict):
     """Repassa os membros e falha se nenhum casou com `padrao_arquivo`.
 
-    A Pesquisa por pregão da B3 responde 200 com um ZIP vazio de 22 bytes
-    para dia sem arquivo — fim de semana, feriado, data futura. Sem esta
-    guarda a carga terminava `publicado` com zero linhas e a fotografia do
-    cadastro ficava parada sem alarme. Fica restrita ao formato XML para não
-    mudar o comportamento das fontes CSV que já rodam.
+    Fonte que responde 200 com ZIP vazio para dia sem arquivo declara
+    `exigir_membro` no dataset; sem esta guarda a carga terminaria
+    `publicado` com zero linhas e uma fotografia ficaria parada sem alarme.
+    O download já recusa o ZIP vazio antes do bronze; isto cobre o replay de
+    um bronze que tenha entrado por outro caminho.
     """
     vistos = 0
     for membro in membros:
@@ -562,8 +581,21 @@ def _executar(
                         desta_rodada.append(cid)
                 else:
                     for url in _urls_da_janela(fonte, ds, janela):
-                        nome = url.rsplit("/", 1)[-1].split("?")[0]
+                        nome = _nome_da_captura(url)
                         payload = baixar(url)
+                        if (_parametros(ds).get("exigir_membro")
+                                and fonte["tipo_transporte"] == "http_zip"
+                                and not parsing.tem_membro(
+                                    payload, ds["padrao_arquivo"])):
+                            # Antes do bronze, de propósito: o bronze é
+                            # imutável e deduplica por hash. Um ZIP vazio
+                            # gravado ali seria relido em todo recomputo —
+                            # e falharia em todo recomputo, para sempre.
+                            raise ErroIngestao(
+                                f"{nome} não traz arquivo que case com "
+                                f"'{ds['padrao_arquivo']}' — a fonte não "
+                                f"publicou esta janela ({len(payload)} bytes)"
+                            )
                         cid, nova = gravar_bronze(
                             sink, dataset_chave, janela,
                             credenciais.censurar(url, fonte["credencial_ref"]),
@@ -596,10 +628,11 @@ def _executar(
                 payload = payload_de(sink, captura["id"])
                 if (fonte["tipo_transporte"] == "http_zip"
                         and fonte.get("formato_registro") == "xml"):
-                    membros = _membros_exigidos(
-                        parsing.membros_em_fluxo(payload, ds["padrao_arquivo"]),
-                        captura, ds,
-                    )
+                    # Em fluxo: um membro XML pode ter centenas de MB.
+                    membros = parsing.membros_em_fluxo(
+                        payload, ds["padrao_arquivo"])
+                    if _parametros(ds).get("exigir_membro"):
+                        membros = _membros_exigidos(membros, captura, ds)
                 elif fonte["tipo_transporte"] == "http_zip":
                     membros = parsing.membros_do_zip(payload, ds["padrao_arquivo"])
                 elif fonte["tipo_transporte"] == "http_json":
