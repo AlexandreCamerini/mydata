@@ -140,9 +140,10 @@ class Fonte:
     url_template: str
     encoding: str = "utf-8"
     separador: str = ";"
-    # Como ler os bytes de um membro: `csv` (separador) ou `larguras`
-    # (posição declarada em cfg_coluna). Ortogonal ao transporte — um ZIP
-    # pode trazer qualquer um dos dois.
+    # Como ler os bytes de um membro: `csv` (separador), `larguras`
+    # (posição declarada em cfg_coluna) ou `xml` (caminho declarado em
+    # cfg_coluna, relativo ao elemento que o dataset nomeia em `registro`).
+    # Ortogonal ao transporte — um ZIP pode trazer qualquer um dos três.
     formato_registro: str = "csv"
     credencial_ref: str | None = None
     descricao: str | None = None
@@ -184,10 +185,10 @@ def salvar_fonte(sink: Sink, f: Fonte, autor: str = "sistema") -> int:
             f"tipo_transporte desconhecido: {f.tipo_transporte}. "
             f"Conhecidos: {', '.join(TRANSPORTES)}."
         )
-    if f.formato_registro not in ("csv", "larguras"):
+    if f.formato_registro not in ("csv", "larguras", "xml"):
         raise ErroConfiguracao(
             f"formato_registro desconhecido: {f.formato_registro}. "
-            f"Use 'csv' ou 'larguras'."
+            f"Use 'csv', 'larguras' ou 'xml'."
         )
     versao = _aposentar(sink, "cfg_fonte", f.chave)
     novo_id = sink.proximo_id("cfg_fonte")

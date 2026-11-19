@@ -294,6 +294,27 @@ Sobre o conteúdo do arquivo, porém, **a mensagem estava certa em tudo que
 afirmou** e as contagens bateram na medição. Vale registrar, já que a seção
 seguinte registra os dois erros anteriores do mesmo canal.
 
+**Troca de formato em 19/11/2026**
+([ADR-26](arquitetura.md#adr-26--o-cadastro-de-instrumentos-passa-a-vir-do-bvbg028-como-segunda-origem-da-classe)).
+A B3 parou de publicar o CSV depois de 12/11; o cadastro passou a vir do
+BVBG.028. Para quem consome, o que muda:
+
+- **Buraco de 13 a 18/11/2026.** Nenhum cadastro novo entrou nesses dias. A
+  primeira carga do BVBG traz a fotografia do dia, e as séries listadas no
+  intervalo voltam a ter `estilo_exercicio`. Os dias do meio não são
+  recuperados: o cadastro é fotografia, e a de hoje já cobre as séries vivas.
+- **Aditivo:** `ativo_raiz`, `id_instrumento` e `id_objeto` entram na classe.
+  `gold_instrumento_b3` passa a existir, e com ela a travessia
+  `negociacao_cadastro`, que até aqui não tinha vista para ler.
+- **Mais linhas:** ~27 mil instrumentos que o CSV não trazia (exercício de
+  opção, custódia por lote). Para eles `categoria` vem em **código**
+  (`17`, `25`), porque o CSV nunca publicou um nome. Quem filtra por
+  `categoria LIKE 'OPTION%'` não é afetado.
+- **Igual:** os demais atributos batem com o CSV em todos os 89.970 tickers
+  comuns, exceto `ativo_objeto` em 48 opções cujo objeto não está no arquivo
+  (vem a raiz, `INBR` em vez de `INBR32`) e `ativo_objeto_descricao` em 244
+  (vem o nome mais longo).
+
 ### Como estas respostas chegaram
 
 Duas por mensagem de outra sessão de trabalho — a do `b3-agente` —, afirmando

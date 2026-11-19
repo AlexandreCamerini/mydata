@@ -77,6 +77,28 @@ def _bool(txt: str, formato: str | None = None) -> bool | None:
     return t.upper() in ("S", "SIM", "TRUE", "T", "1", "Y")
 
 
+_MAPAS: dict[str, dict[str, str]] = {}
+
+
+def _tabela_mapa(formato: str) -> dict[str, str]:
+    """Interpreta `mapa:a=b;c=d` uma vez por formato distinto."""
+    tabela = _MAPAS.get(formato)
+    if tabela is None:
+        tabela = {}
+        for par in formato[len("mapa:"):].split(";"):
+            if not par.strip():
+                continue
+            if "=" not in par:
+                raise ErroParse(
+                    f"formato 'mapa:' com par sem '=': {par!r}. "
+                    f"Use mapa:codigo=nome;codigo=nome"
+                )
+            codigo, nome = par.split("=", 1)
+            tabela[codigo.strip()] = nome.strip()
+        _MAPAS[formato] = tabela
+    return tabela
+
+
 def converter(valor: str, tipo: str, formato: str | None) -> Any:
     if tipo == "inteiro":
         return _int(valor)
@@ -87,6 +109,14 @@ def converter(valor: str, tipo: str, formato: str | None) -> Any:
     if tipo == "booleano":
         return _bool(valor, formato)
     v = valor.strip()
+    if formato and formato.startswith("mapa:"):
+        # `mapa:7=OPTION ON EQUITIES;11=SHARES` — a fonte publica código onde
+        # a classe guarda nome. A tabela de-para é dado da fonte, declarado no
+        # mapeamento; código fora dela passa cru, para aparecer em vez de
+        # virar nulo mudo. Destino vazio (`0=`) é nulo de propósito.
+        tabela = _tabela_mapa(formato)
+        if v in tabela:
+            return tabela[v] or None
     if not v and formato and formato.startswith("vazio:"):
         # Arquivo posicional preenche com espaço o campo que não se aplica.
         # Quando esse campo está na identidade, o branco vira NULL e o
@@ -308,6 +338,173 @@ def ler_larguras(
 
     cabecalho = {origem.upper() for origem, _, _ in faixas}
     return mapear(registros(), colunas, cabecalho, contexto, extras)
+
+
+def _caminho_xml(caminho: str) -> str:
+    """`A/*/B` vira `{*}A/*/{*}B`: o caminho declarado ignora namespace.
+
+    O XML da B3 troca de namespace a cada versão de mensagem (`bvmf.100.02`);
+    amarrar o mapeamento ao namespace faria a troca de versão parecer arquivo
+    vazio, não arquivo diferente.
+    """
+    partes = [p.strip() for p in caminho.strip().strip("/").split("/")]
+    if not all(partes):
+        raise ErroParse(f"caminho XML com trecho vazio: '{caminho}'")
+    return "/".join(p if p in ("*", ".") else "{*}" + p for p in partes)
+
+
+def _compilar_origem(origem: str) -> list[list[str]]:
+    """`a|b` é o primeiro caminho que tiver valor — a B3 chama o estilo de
+    exercício de `OptnStyle` numa opção sobre ação e de `ExrcStyle` numa
+    opção sobre futuro. `a+b` junta os valores com `/` — mercado e segmento só
+    viram nome juntos (o segmento 2 é `EQUITY CALL` no mercado 70 e `EQUITY
+    PUT` no 80).
+    """
+    return [[_caminho_xml(t) for t in alt.split("+")] for alt in origem.split("|")]
+
+
+def _valor_xml(registro, compilada: list[list[str]]) -> str:
+    """O texto que a origem compilada aponta dentro do registro."""
+    for alternativa in compilada:
+        partes = [(registro.findtext(c) or "").strip() for c in alternativa]
+        if any(partes):
+            return "/".join(partes)
+    return ""
+
+
+def ler_xml(
+    fluxo,
+    colunas: list[dict],
+    registro: str,
+    filtro_registro: str | None = None,
+    contexto: dict[str, str] | None = None,
+    extras: dict[str, Any] | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Lê registros de um XML em fluxo, com o mesmo mapeamento do CSV.
+
+    `fluxo` é bytes ou um arquivo binário aberto. O arquivo da B3 tem ~450 MB
+    descomprimido; ler inteiro para a memória seria o container pagando por
+    uma árvore que só se percorre uma vez. Cada registro é lido, mapeado e
+    tirado da árvore — e o que está fora de registro (cabeçalho de mensagem)
+    também, senão os 120 mil `AppHdr` ficariam pendurados no pai.
+
+    `registro` é o nome local do elemento que vira uma linha. Cada coluna
+    declara em `nome_origem` o caminho relativo a ele (`InstrmInf/*/TckrSymb`),
+    como o layout posicional declara a faixa.
+
+    `filtro_registro` é um caminho que precisa ter valor para o registro
+    entrar — o par do `filtro_linha` do posicional. Título de dívida e
+    contrato de balcão vêm no mesmo arquivo do cadastro e não têm código de
+    negociação; sem o filtro, cada um deles chegaria com a chave nula.
+
+    Nenhum registro é erro, não arquivo vazio: um XML que não traz o elemento
+    declarado é outro arquivo, e publicar zero linhas como sucesso deixaria a
+    fotografia anterior parada sem alarme.
+    """
+    import xml.etree.ElementTree as ET
+
+    if isinstance(fluxo, (bytes, bytearray)):
+        fluxo = io.BytesIO(fluxo)
+    origens = [c["nome_origem"].strip() for c in colunas
+               if not c["nome_origem"].startswith("$")]
+    # Compilado antes de abrir o arquivo: caminho inválido falha sem ler byte.
+    compiladas = {o: _compilar_origem(o) for o in origens}
+    filtro = _caminho_xml(filtro_registro) if filtro_registro else None
+
+    def local(tag: str) -> str:
+        return tag.rsplit("}", 1)[-1]
+
+    # No CSV, "obrigatória" é a coluna existir no cabeçalho. O XML não tem
+    # cabeçalho: o par é o caminho ter valor em algum registro. Tag renomeada
+    # pela fonte viraria coluna nula em silêncio.
+    obrigatorias = {c["nome_origem"].strip() for c in colunas
+                    if c["obrigatoria"] and not c["nome_origem"].startswith("$")}
+
+    def registros() -> Iterator[dict[str, Any]]:
+        lidos = aceitos = 0
+        faltam = set(obrigatorias)
+        pilha: list = []
+        dentro = 0
+        for evento, el in ET.iterparse(fluxo, events=("start", "end")):
+            e_registro = local(el.tag) == registro
+            if evento == "start":
+                pilha.append(el)
+                dentro += e_registro
+                continue
+            pilha.pop()
+            pai = pilha[-1] if pilha else None
+            if e_registro:
+                dentro -= 1
+                lidos += 1
+                if filtro is None or (el.findtext(filtro) or "").strip():
+                    aceitos += 1
+                    valores = {o: _valor_xml(el, c) for o, c in compiladas.items()}
+                    if faltam:
+                        faltam -= {o for o in faltam if valores[o]}
+                    yield valores
+                if pai is not None:
+                    pai.remove(el)
+            elif dentro == 0 and pai is not None:
+                pai.remove(el)
+        if not lidos:
+            raise ErroParse(
+                f"o XML não traz nenhum elemento <{registro}>: ou o arquivo "
+                f"não é o declarado, ou o parâmetro 'registro' está errado"
+            )
+        if not aceitos:
+            raise ErroParse(
+                f"{lidos} registro(s) <{registro}>, nenhum com valor em "
+                f"'{filtro_registro}'"
+            )
+        if faltam:
+            # Depois de ler tudo, e antes do upsert: a carga em lote só grava
+            # quando o gerador termina, então nada do arquivo entra.
+            raise ErroParse(
+                "a fonte não traz campo obrigatório declarado (nenhum dos "
+                f"{aceitos} registros tem valor): " + ", ".join(sorted(faltam))
+            )
+
+    cabecalho = {o.upper() for o in origens}
+    return mapear(registros(), colunas, cabecalho, contexto, extras)
+
+
+def membros_em_fluxo(payload: bytes, padrao: str):
+    """Como `membros_do_zip`, mas entrega o membro aberto, não os bytes.
+
+    Para arquivo grande demais para a memória. Desce em ZIP dentro de ZIP: a
+    B3 serve o cadastro como `IN261118.zip` contendo `IN261118.zip` contendo
+    os XMLs. Quem consome tem de terminar de ler um membro antes de pedir o
+    próximo — o arquivo fecha quando o gerador anda.
+    """
+    rx = re.compile(padrao, re.IGNORECASE)
+
+    def percorrer(zf: zipfile.ZipFile):
+        for nome in sorted(zf.namelist()):
+            base = nome.rsplit("/", 1)[-1]
+            m = rx.match(base)
+            if m:
+                with zf.open(nome) as fh:
+                    yield base, fh, {k: (v or "") for k, v in m.groupdict().items()}
+            elif base.lower().endswith(".zip"):
+                with zipfile.ZipFile(io.BytesIO(zf.read(nome))) as interno:
+                    yield from percorrer(interno)
+
+    with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+        yield from percorrer(zf)
+
+
+def tem_membro(payload: bytes, padrao: str) -> bool:
+    """O ZIP traz algum arquivo que case com o padrão? Lê só os índices.
+
+    Payload que nem é ZIP responde não: é a mesma ausência de arquivo, e o
+    erro de quem pergunta diz quantos bytes vieram.
+    """
+    try:
+        for _ in membros_em_fluxo(payload, padrao):
+            return True
+    except zipfile.BadZipFile:
+        return False
+    return False
 
 
 def membros_do_zip(

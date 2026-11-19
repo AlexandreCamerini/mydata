@@ -107,7 +107,7 @@ python scripts/demo.py                  # base local com dado de exemplo
 python -m app.cli migrar --seed         # migrações + configuração (idempotente)
 python -m app.cli ingerir cvm_dfp 2023  # uma janela, com rede
 python -m app.cli ingerir b3_cotahist 2026-07-31   # um pregão da B3
-python -m app.cli ingerir b3_instrumentos 2026-08-04  # cadastro do dia
+python -m app.cli ingerir b3_instrumentos_bvbg 2026-11-19  # cadastro do dia (BVBG.028, ADR-26)
 python -m app.cli recomputar            # refaz tudo do bronze e verifica
 python -m app.cli verificar             # digital de gold, sem mexer em nada
 python -m app.cli chave app --classe empresa   # chave com escopo

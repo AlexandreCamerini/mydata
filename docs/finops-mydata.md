@@ -490,10 +490,16 @@ publicada como gold v561. Sem `log_fase`, pelo mesmo motivo de antes.
   `calcular`.** O `b3_instrumentos_diario` de 13/11 recebeu 400 da B3. Às
   16:26 UTC, `InstrumentsConsolidated&date=2026-11-13` ainda dava 400,
   enquanto o de 12/11 dava 200: o arquivo de sexta não tinha sido
-  publicado. A janela continua pendente e o próximo cron tenta de novo (400
-  não é 404, então gasta o teto da rodada, mas não sobe a marca d'água). O
+  publicado. A janela continua pendente e o próximo cron tenta de novo. O
   alerta saiu pelo webhook. As cargas de cotahist, proventos e BCB foram
   publicadas.
+  - **Corrigido em 19/11:** teto e marca d'água não se aplicam a este
+    dataset. O cadastro é fotografia (`nao_retroceder`), e o agendador tenta
+    só a janela devida do dia, sem fila. Também não era atraso: a B3 parou
+    de publicar o CSV depois de 12/11, e o cron saiu `CRASHED` de 14 a 19/11.
+    A fonte passou a ser o BVBG.028 ([ADR-26](arquitetura.md#adr-26--o-cadastro-de-instrumentos-passa-a-vir-do-bvbg028-como-segunda-origem-da-classe)).
+    Essa carga tem `calcular` próprio (~13 s, a resolução do objeto), em
+    execução separada: não entra na série do `calcular` que conta para o F2.
 
 ### Ocupação em 2026-11-13 (22:41 BRT)
 

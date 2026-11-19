@@ -175,6 +175,18 @@ def carregar_arquivo(
             contexto=contexto, extras=extras,
             herdar=_parametros(ds).get("herdar"),
         )
+    elif fonte.get("formato_registro") == "xml":
+        params = _parametros(ds)
+        if not params.get("registro"):
+            raise ErroIngestao(
+                f"formato 'xml' exige o parâmetro 'registro' no dataset "
+                f"'{ds['chave']}': o nome do elemento que vira uma linha."
+            )
+        linhas = parsing.ler_xml(
+            payload, colunas, params["registro"],
+            filtro_registro=params.get("filtro_registro"),
+            contexto=contexto, extras=extras,
+        )
     elif fonte.get("formato_registro") == "larguras":
         linhas = parsing.ler_larguras(
             payload, colunas, fonte["encoding"],
@@ -279,6 +291,46 @@ def _trocar_bilhete(url: str, params: dict, baixar) -> tuple[str, str]:
     return modelo.format(token=bilhete), nome
 
 
+def _nome_da_captura(url: str) -> str:
+    """O nome do arquivo que a URL entrega, para a proveniência do bronze.
+
+    O último trecho do caminho, quando ele tem extensão; senão, o valor de
+    parâmetro que tiver — há fonte que serve todo arquivo pelo mesmo
+    `.../download?filelist=IN261118.zip`, e chamar toda captura de
+    `download` apagaria de qual dia ela é.
+    """
+    caminho, _, consulta = url.partition("?")
+    nome = caminho.rsplit("/", 1)[-1]
+    if "." in nome or not consulta:
+        return nome
+    for par in reversed(consulta.split("&")):
+        valor = par.partition("=")[2]
+        if "." in valor and "/" not in valor:
+            return valor
+    return nome
+
+
+def _membros_exigidos(membros, captura: dict, ds: dict):
+    """Repassa os membros e falha se nenhum casou com `padrao_arquivo`.
+
+    Fonte que responde 200 com ZIP vazio para dia sem arquivo declara
+    `exigir_membro` no dataset; sem esta guarda a carga terminaria
+    `publicado` com zero linhas e uma fotografia ficaria parada sem alarme.
+    O download já recusa o ZIP vazio antes do bronze; isto cobre o replay de
+    um bronze que tenha entrado por outro caminho.
+    """
+    vistos = 0
+    for membro in membros:
+        vistos += 1
+        yield membro
+    if not vistos:
+        raise ErroIngestao(
+            f"a captura {captura['id']} ({captura['nome_arquivo']}) não traz "
+            f"arquivo que case com '{ds['padrao_arquivo']}' — a fonte não "
+            f"publicou esta janela (dia sem pregão devolve ZIP vazio)"
+        )
+
+
 def _urls_da_janela(fonte: dict, ds: dict, janela: str) -> list[str]:
     """Expande o template da fonte para a janela pedida."""
     import json as _json
@@ -292,6 +344,9 @@ def _urls_da_janela(fonte: dict, ds: dict, janela: str) -> list[str]:
     # arquivo só para conseguir montar a URL.
     if len(janela) == 10 and janela[4] == "-" and janela[7] == "-":
         contexto["ano"], contexto["mes"], contexto["dia"] = janela.split("-")
+        # Ano em dois dígitos: a Pesquisa por pregão da B3 nomeia o pacote
+        # `IN261118.zip`.
+        contexto["aa"] = contexto["ano"][2:]
     # Parâmetro declarado no dataset. O sufixo do nome fica como último
     # recurso: era a regra antiga, e adivinhava errado assim que dois
     # datasets passaram a ler o mesmo arquivo com nomes diferentes.
@@ -357,6 +412,10 @@ def previa_arquivo(
             f"prévia não cobre o transporte '{fonte['tipo_transporte']}' — "
             f"pule esta etapa."
         )
+    if fonte.get("formato_registro") == "xml":
+        # A prévia lê CSV. Um XML de 450 MB lido como CSV seria um cabeçalho
+        # de uma linha só, e a etapa mostraria lixo com cara de coluna.
+        raise ErroIngestao("prévia não cobre o formato 'xml' — pule esta etapa.")
 
     baixador = _com_credencial(fonte, baixar)
     url = _urls_da_janela(fonte, ds_rascunho, janela)[0]
@@ -522,8 +581,21 @@ def _executar(
                         desta_rodada.append(cid)
                 else:
                     for url in _urls_da_janela(fonte, ds, janela):
-                        nome = url.rsplit("/", 1)[-1].split("?")[0]
+                        nome = _nome_da_captura(url)
                         payload = baixar(url)
+                        if (_parametros(ds).get("exigir_membro")
+                                and fonte["tipo_transporte"] == "http_zip"
+                                and not parsing.tem_membro(
+                                    payload, ds["padrao_arquivo"])):
+                            # Antes do bronze, de propósito: o bronze é
+                            # imutável e deduplica por hash. Um ZIP vazio
+                            # gravado ali seria relido em todo recomputo —
+                            # e falharia em todo recomputo, para sempre.
+                            raise ErroIngestao(
+                                f"{nome} não traz arquivo que case com "
+                                f"'{ds['padrao_arquivo']}' — a fonte não "
+                                f"publicou esta janela ({len(payload)} bytes)"
+                            )
                         cid, nova = gravar_bronze(
                             sink, dataset_chave, janela,
                             credenciais.censurar(url, fonte["credencial_ref"]),
@@ -554,7 +626,14 @@ def _executar(
         with obs.fase(sink, exec_id, "carregar"):
             for captura in capturas:
                 payload = payload_de(sink, captura["id"])
-                if fonte["tipo_transporte"] == "http_zip":
+                if (fonte["tipo_transporte"] == "http_zip"
+                        and fonte.get("formato_registro") == "xml"):
+                    # Em fluxo: um membro XML pode ter centenas de MB.
+                    membros = parsing.membros_em_fluxo(
+                        payload, ds["padrao_arquivo"])
+                    if _parametros(ds).get("exigir_membro"):
+                        membros = _membros_exigidos(membros, captura, ds)
+                elif fonte["tipo_transporte"] == "http_zip":
                     membros = parsing.membros_do_zip(payload, ds["padrao_arquivo"])
                 elif fonte["tipo_transporte"] == "http_json":
                     # Numa fonte de arquivo, o contexto das pseudo-colunas `$`
