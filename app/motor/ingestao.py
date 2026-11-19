@@ -175,6 +175,18 @@ def carregar_arquivo(
             contexto=contexto, extras=extras,
             herdar=_parametros(ds).get("herdar"),
         )
+    elif fonte.get("formato_registro") == "xml":
+        params = _parametros(ds)
+        if not params.get("registro"):
+            raise ErroIngestao(
+                f"formato 'xml' exige o parâmetro 'registro' no dataset "
+                f"'{ds['chave']}': o nome do elemento que vira uma linha."
+            )
+        linhas = parsing.ler_xml(
+            payload, colunas, params["registro"],
+            filtro_registro=params.get("filtro_registro"),
+            contexto=contexto, extras=extras,
+        )
     elif fonte.get("formato_registro") == "larguras":
         linhas = parsing.ler_larguras(
             payload, colunas, fonte["encoding"],
@@ -279,6 +291,27 @@ def _trocar_bilhete(url: str, params: dict, baixar) -> tuple[str, str]:
     return modelo.format(token=bilhete), nome
 
 
+def _membros_exigidos(membros, captura: dict, ds: dict):
+    """Repassa os membros e falha se nenhum casou com `padrao_arquivo`.
+
+    A Pesquisa por pregão da B3 responde 200 com um ZIP vazio de 22 bytes
+    para dia sem arquivo — fim de semana, feriado, data futura. Sem esta
+    guarda a carga terminava `publicado` com zero linhas e a fotografia do
+    cadastro ficava parada sem alarme. Fica restrita ao formato XML para não
+    mudar o comportamento das fontes CSV que já rodam.
+    """
+    vistos = 0
+    for membro in membros:
+        vistos += 1
+        yield membro
+    if not vistos:
+        raise ErroIngestao(
+            f"a captura {captura['id']} ({captura['nome_arquivo']}) não traz "
+            f"arquivo que case com '{ds['padrao_arquivo']}' — a fonte não "
+            f"publicou esta janela (dia sem pregão devolve ZIP vazio)"
+        )
+
+
 def _urls_da_janela(fonte: dict, ds: dict, janela: str) -> list[str]:
     """Expande o template da fonte para a janela pedida."""
     import json as _json
@@ -292,6 +325,9 @@ def _urls_da_janela(fonte: dict, ds: dict, janela: str) -> list[str]:
     # arquivo só para conseguir montar a URL.
     if len(janela) == 10 and janela[4] == "-" and janela[7] == "-":
         contexto["ano"], contexto["mes"], contexto["dia"] = janela.split("-")
+        # Ano em dois dígitos: a Pesquisa por pregão da B3 nomeia o pacote
+        # `IN261118.zip`.
+        contexto["aa"] = contexto["ano"][2:]
     # Parâmetro declarado no dataset. O sufixo do nome fica como último
     # recurso: era a regra antiga, e adivinhava errado assim que dois
     # datasets passaram a ler o mesmo arquivo com nomes diferentes.
@@ -357,6 +393,10 @@ def previa_arquivo(
             f"prévia não cobre o transporte '{fonte['tipo_transporte']}' — "
             f"pule esta etapa."
         )
+    if fonte.get("formato_registro") == "xml":
+        # A prévia lê CSV. Um XML de 450 MB lido como CSV seria um cabeçalho
+        # de uma linha só, e a etapa mostraria lixo com cara de coluna.
+        raise ErroIngestao("prévia não cobre o formato 'xml' — pule esta etapa.")
 
     baixador = _com_credencial(fonte, baixar)
     url = _urls_da_janela(fonte, ds_rascunho, janela)[0]
@@ -554,7 +594,13 @@ def _executar(
         with obs.fase(sink, exec_id, "carregar"):
             for captura in capturas:
                 payload = payload_de(sink, captura["id"])
-                if fonte["tipo_transporte"] == "http_zip":
+                if (fonte["tipo_transporte"] == "http_zip"
+                        and fonte.get("formato_registro") == "xml"):
+                    membros = _membros_exigidos(
+                        parsing.membros_em_fluxo(payload, ds["padrao_arquivo"]),
+                        captura, ds,
+                    )
+                elif fonte["tipo_transporte"] == "http_zip":
                     membros = parsing.membros_do_zip(payload, ds["padrao_arquivo"])
                 elif fonte["tipo_transporte"] == "http_json":
                     # Numa fonte de arquivo, o contexto das pseudo-colunas `$`
