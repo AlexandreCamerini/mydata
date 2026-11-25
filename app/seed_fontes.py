@@ -484,6 +484,30 @@ FONTE_B3_INSTRUMENTOS = Fonte(
     separador=";",
 )
 
+# O CSV acima parou em 12/11/2026: desde 13/11 o `requestname` responde 400
+# e o arquivo sumiu do catálogo do portal (`/api/channels`), sem nome novo.
+# O cadastro continua saindo todo dia como BVBG.028 — XML, no pacote `IN` da
+# Pesquisa por pregão (ADR-26). Mesma instituição, mesmo dado oficial, outro
+# formato; por isso fonte nova e não versão nova da de cima, cujo bronze em
+# CSV precisa continuar recomputável.
+#
+# Dia sem pregão (fim de semana, feriado, data futura) responde 200 com um ZIP
+# vazio de 22 bytes, não 404 — a carga recusa captura sem membro XML.
+FONTE_B3_PESQUISA_PREGAO = Fonte(
+    chave="b3_pesquisa_pregao",
+    nome="B3 — Pesquisa por pregão (BVBG.028, cadastro de instrumentos)",
+    descricao="Pacote diário `IN` da Pesquisa por pregão: ZIP com ZIP com um "
+              "ou mais XMLs BVBG.028 (reemissões do mesmo dia). ~20 MB "
+              "comprimido, ~450 MB por XML.",
+    tipo_transporte="http_zip",
+    url_template=(
+        "https://www.b3.com.br/pesquisapregao/download"
+        "?filelist=IN{aa}{mes}{dia}.zip"
+    ),
+    encoding="utf-8",
+    formato_registro="xml",
+)
+
 CHAVE_INSTRUMENTO = ["ticker"]
 
 CLASSE_INSTRUMENTO = Classe(
@@ -498,8 +522,15 @@ CLASSE_INSTRUMENTO = Classe(
     # por ano em silver contra os 2,11 GB que o banco inteiro ocupa. A
     # história fica em bronze, que é imutável e reconstrói qualquer dia.
     chave_identidade=CHAVE_INSTRUMENTO,
-    indices=[["ativo_objeto"], ["categoria"], ["dt_vencimento"]],
+    indices=[["ativo_objeto"], ["categoria"], ["dt_vencimento"],
+             ["id_instrumento"]],
     sla_horas=24 * 4,
+    # Duas origens desde 13/11/2026 (ADR-26): o CSV, que parou, e o BVBG.028.
+    # As linhas coexistem por `origem_dataset`; a vista resolvida dá uma por
+    # ticker, com o BVBG à frente — é a fotografia mais nova. Ticker que só
+    # existiu no tempo do CSV continua respondendo pelo CSV.
+    resolucao="precedencia",
+    precedencia=["b3_instrumentos_bvbg", "b3_instrumentos"],
     atributos=[
         _atr("ticker", obrigatorio=True, ordem=1,
              descricao="Código de negociação. É a identidade, e é o que liga "
@@ -537,6 +568,16 @@ CLASSE_INSTRUMENTO = Classe(
         _atr("dt_fim_negociacao", "data", ordem=15),
         _atr("lote_padrao", "inteiro", ordem=16),
         _atr("moeda", ordem=17),
+        _atr("ativo_raiz", ordem=18,
+             descricao="A raiz do ativo (`PETR`), como o BVBG.028 a publica em "
+                       "`Asst`. O CSV não tinha este campo separado: lá, "
+                       "`Asst` de opção já era o papel (`PETR4`)."),
+        _atr("id_instrumento", ordem=19,
+             descricao="Identificador interno da B3 (`FinInstrmId`). Só o "
+                       "BVBG.028 publica; serve para achar o objeto de uma "
+                       "opção, que o arquivo referencia por id e não por ticker."),
+        _atr("id_objeto", ordem=20,
+             descricao="`id_instrumento` do ativo-objeto, quando há."),
     ],
 )
 
@@ -563,6 +604,101 @@ COLUNAS_INSTRUMENTOS = [
     Coluna("TradgEndDt", "dt_fim_negociacao", "data", ordem=15),
     Coluna("AllcnRndLot", "lote_padrao", "inteiro", ordem=16),
     Coluna("TradgCcy", "moeda", "texto", ordem=17),
+]
+
+# O mesmo cadastro no BVBG.028. `nome_origem` é caminho relativo ao elemento
+# `Instrm`, sem namespace; `*` é o bloco do tipo de instrumento
+# (`OptnOnEqtsInf`, `EqtyInf`…), que muda de registro para registro.
+#
+# As tabelas `mapa:` foram medidas cruzando os 89.970 tickers comuns ao CSV e
+# ao XML de 12/11/2026 — o último dia com os dois. Código e nome casaram 1:1;
+# o código 61 o próprio CSV publicava cru, e fica cru. Mercado e segmento só
+# viram nome juntos (`Mkt/Sgmt`). Código fora da tabela passa cru: os ~27 mil
+# instrumentos que o CSV não trazia (exercício de opção, título) chegam com o
+# código, não com um nome inventado.
+MAPA_CATEGORIA = (
+    "mapa:0=;1=BDR;2=COMMON EQUITIES FORWARD;3=ETF EQUITIES;4=FORWARD POINTS;"
+    "5=FORWARD RATE AGREEMENT;6=FUNDS;7=OPTION ON EQUITIES;8=OPTION ON INDEX;"
+    "9=RECEIPTS;10=ROLLOVER;11=SHARES;12=RIGHTS;13=UNIT;16=INDEX;20=FX SWAP;"
+    "21=ETF FOREIGN INDEX;23=WARRANT;"
+    "56=ETF PRIMARY MARKET\xa0 GROSS SETTLEMENT;"
+    "71=FIXED INCOME TRADABLE INSTRUMENT T1;80=STOCK FUTURE;90=;93=EDS DV01;"
+    "94=EDS PU NTR;95=EDS DOL DDI"
+)
+MAPA_MERCADO = (
+    "mapa:10/1=EQUITY-CASH;20/1=EQUITY-CASH;21/1=EQUITY-CASH;2/4=FUTURE;"
+    "2/5=FUTURE;3/5=OPTIONS ON SPOT;4/4=OPTIONS ON FUTURE;"
+    "4/5=OPTIONS ON FUTURE;5/3=FIXED INCOME;5/5=FORWARD;8/3=FIXED INCOME;"
+    "30/2=EQUITY-DERIVATE;70/2=EQUITY-DERIVATE;80/2=EQUITY-DERIVATE"
+)
+MAPA_SEGMENTO = (
+    "mapa:10/1=CASH;20/1=ODD LOT;21/1=Equity Block Trading Lot;"
+    "2/4=AGRIBUSINESS;2/5=FINANCIAL;3/5=FINANCIAL;4/4=AGRIBUSINESS;"
+    "4/5=FINANCIAL;5/3=FORWARD;5/5=FINANCIAL;8/3=ETF PRIMARY MARKET;"
+    "30/2=EQUITY FORWARD;70/2=EQUITY CALL;80/2=EQUITY PUT"
+)
+_MKT_SGMT = "FinInstrmAttrCmon/Mkt+FinInstrmAttrCmon/Sgmt"
+
+COLUNAS_INSTRUMENTOS_BVBG = [
+    Coluna("InstrmInf/*/TckrSymb", "ticker", "texto", obrigatoria=True, ordem=1),
+    Coluna("RptParams/RptDtAndTm/Dt", "dt_referencia", "data",
+           obrigatoria=True, ordem=2),
+    Coluna("FinInstrmAttrCmon/Asst", "ativo_raiz", "texto", ordem=3),
+    Coluna("FinInstrmAttrCmon/AsstDesc", "ativo_objeto_descricao", "texto",
+           ordem=4),
+    Coluna("InstrmInf/*/SctyCtgy", "categoria", "texto", MAPA_CATEGORIA,
+           obrigatoria=True, ordem=5),
+    Coluna(_MKT_SGMT, "mercado", "texto", MAPA_MERCADO, ordem=6),
+    Coluna(_MKT_SGMT, "segmento", "texto", MAPA_SEGMENTO, ordem=7),
+    Coluna("InstrmInf/*/ISIN", "isin", "texto", ordem=8),
+    Coluna("InstrmInf/*/CFICd", "cfi", "texto", ordem=9),
+    Coluna("InstrmInf/*/OptnTp", "tipo_opcao", "texto",
+           "mapa:CALL=Call;PUTT=Put", ordem=10),
+    # Opção sobre ação chama o campo de `OptnStyle`; sobre disponível e
+    # futuro, de `ExrcStyle`. São 7 mil séries (IDI, DI1, DOL) no segundo.
+    Coluna("InstrmInf/*/OptnStyle|InstrmInf/*/ExrcStyle", "estilo_exercicio",
+           "texto", obrigatoria=True, ordem=11),
+    # Ponto decimal, ao contrário do CSV.
+    Coluna("InstrmInf/*/ExrcPric", "preco_exercicio", "numero", ordem=12),
+    Coluna("InstrmInf/*/XprtnDt", "dt_vencimento", "data", ordem=13),
+    Coluna("InstrmInf/*/TradgStartDt", "dt_inicio_negociacao", "data", ordem=14),
+    Coluna("InstrmInf/*/TradgEndDt", "dt_fim_negociacao", "data", ordem=15),
+    Coluna("InstrmInf/*/AllcnRndLot", "lote_padrao", "inteiro", ordem=16),
+    Coluna("InstrmInf/*/TradgCcy", "moeda", "texto", ordem=17),
+    Coluna("FinInstrmId/OthrId/Id", "id_instrumento", "texto", ordem=18),
+    Coluna("InstrmInf/*/UndrlygInstrmId/OthrId/Id", "id_objeto", "texto",
+           ordem=19),
+]
+
+CALCULADOS_INSTRUMENTO_BVBG = [
+    CampoCalculado(
+        nome="ativo_objeto",
+        # O XML referencia o objeto da opção por id; o ticker dele está em
+        # outro registro do mesmo arquivo. Só opção sobre ação e índice
+        # resolve: é o que o CSV publicava em `Asst`. Fracionário, termo, BDR
+        # e opção sobre futuro também trazem id de objeto, mas o CSV dava a
+        # raiz para eles — resolver mudaria o significado do campo em 6.815
+        # linhas (medido em 12/11/2026).
+        expressao=(
+            "CASE WHEN categoria LIKE 'OPTION%' THEN "
+            "COALESCE((SELECT MAX(o.ticker) FROM dim_instrumento o "
+            "WHERE o.id_instrumento = dim_instrumento.id_objeto "
+            "AND o.origem_dataset = dim_instrumento.origem_dataset), "
+            "ativo_raiz) ELSE ativo_raiz END"
+        ),
+        # `ticker` e `id_instrumento` vêm de outra linha (o objeto), e por
+        # isso também são origem. `origem_dataset` não é coluna do
+        # mapeamento: é do motor, e a validação a recusaria aqui.
+        colunas_origem=["categoria", "id_objeto", "ativo_raiz", "ticker",
+                        "id_instrumento"],
+        tipo_retorno="texto",
+        retroage=False,
+        descricao="Para opção, o ticker do objeto (`PETR4`), achado pelo id "
+                  "que o BVBG.028 publica; para o resto, a raiz — como o CSV. "
+                  "Contra o CSV de 12/11/2026, diverge em 48 opções cujo "
+                  "objeto não está no arquivo, e que ficam com a raiz.",
+        ordem=1,
+    ),
 ]
 
 REGRAS_INSTRUMENTO = [
@@ -975,7 +1111,24 @@ VISTAS = [
                i.preco_exercicio AS strike_cadastro,
                n.captura_id, n.fonte_arquivo, n.publicado_em_versao
         FROM fato_negociacao n
-        LEFT JOIN dim_instrumento i ON i.ticker = n.codneg
+        -- Uma linha por ticker. O cadastro tem duas origens desde 13/11/2026
+        -- (ADR-26); juntar direto na tabela duplicaria toda opção cadastrada
+        -- nas duas. Mesma precedência da classe: o BVBG.028 primeiro.
+        LEFT JOIN (
+            SELECT ticker,
+                   COALESCE(
+                     MAX(CASE WHEN origem_dataset = 'b3_instrumentos_bvbg'
+                              THEN estilo_exercicio END),
+                     MAX(CASE WHEN origem_dataset = 'b3_instrumentos'
+                              THEN estilo_exercicio END)) AS estilo_exercicio,
+                   COALESCE(
+                     MAX(CASE WHEN origem_dataset = 'b3_instrumentos_bvbg'
+                              THEN preco_exercicio END),
+                     MAX(CASE WHEN origem_dataset = 'b3_instrumentos'
+                              THEN preco_exercicio END)) AS preco_exercicio
+            FROM dim_instrumento
+            GROUP BY ticker
+        ) i ON i.ticker = n.codneg
         WHERE n.tp_mercado IN ('070', '080')
           AND n.publicado_em_versao IS NOT NULL
           AND n.publicado_em_versao <= {V}
@@ -1328,6 +1481,40 @@ def datasets() -> list[Dataset]:
             regras=REGRAS_INSTRUMENTO,
         ),
         Dataset(
+            chave="b3_instrumentos_bvbg",
+            fonte_chave="b3_pesquisa_pregao",
+            nome="Cadastro de instrumentos (BVBG.028)",
+            descricao="A mesma fotografia diária do cadastro, no formato que a "
+                      "B3 continuou publicando depois de 12/11/2026 (ADR-26). "
+                      "Entra inteira — inclusive o que o CSV não trazia.",
+            # Um pacote pode trazer mais de um XML do mesmo dia (reemissão):
+            # em 18/11/2026 o segundo tinha os 119.862 tickers do primeiro e
+            # mais 138. Os dois entram; a carga é upsert por ticker.
+            padrao_arquivo=r"^BVBG\.028\.\d+_.*\.xml$",
+            tabela_destino="dim_instrumento",
+            classe_chave="instrumento_b3",
+            chave_natural=CHAVE_INSTRUMENTO,
+            particao="dia",
+            politica_versao="nao_retroceder:dt_referencia",
+            parametros={
+                "registro": "Instrm",
+                # Título de dívida e contrato de balcão vêm no mesmo arquivo
+                # sem código de negociação (742 registros em 18/11/2026).
+                "filtro_registro": "InstrmInf/*/TckrSymb",
+                # A fonte responde 200 com ZIP vazio de 22 bytes em dia sem
+                # pregão; sem isto, zero linhas publicariam como sucesso.
+                "exigir_membro": True,
+            },
+            # Limite conhecido: 1.176 tickers de custódia por lote (mercado 17,
+            # `RECV3L`) vêm uma vez por distribuição, com id próprio, em ordem
+            # que não é a de vigência (uma delas começa em 9999-12-31). A
+            # carga fica com a primeira ocorrência, como em todo dataset. O CSV
+            # não trazia esses tickers, e a cadeia de opções não os usa.
+            colunas=COLUNAS_INSTRUMENTOS_BVBG,
+            calculados=CALCULADOS_INSTRUMENTO_BVBG,
+            regras=REGRAS_INSTRUMENTO,
+        ),
+        Dataset(
             chave="b3_listadas",
             fonte_chave="b3",
             nome="Companhias listadas na B3",
@@ -1593,7 +1780,13 @@ AGENDAMENTOS = [
     # Meia hora antes do COTAHIST, e de propósito: o cadastro é o que explica
     # a cadeia, e chegar depois dela deixaria a noite inteira com a
     # negociação publicada e o estilo de exercício ausente.
-    ("b3_instrumentos_diario", "b3_instrumentos", "30 23 * * 1-5", "hoje"),
+    # Desde 19/11/2026 lê o BVBG.028 (ADR-26): o CSV deixou de ser publicado.
+    ("b3_instrumentos_diario", "b3_instrumentos_bvbg", "30 23 * * 1-5", "hoje"),
+    # O CSV fica declarado e desligado: o dataset continua existindo para o
+    # bronze dele recomputar, mas pedir o arquivo é 400 desde 13/11/2026.
+    # Religar é trocar o `False` — se a B3 voltar a publicar.
+    ("b3_instrumentos_csv_diario", "b3_instrumentos", "30 23 * * 1-5", "hoje",
+     False),
     # Proventos (ADR-22): a captura itera as ~350 listadas, uma chamada por
     # companhia. De manhã, fora da janela noturna do pregão — anúncio de
     # provento sai de deliberação de conselho, não do fechamento.
@@ -1665,6 +1858,7 @@ def aplicar(sink: Sink, forcar: bool = False) -> bool:
     salvar_fonte(sink, FONTE_BRAPI, autor="seed")
     salvar_fonte(sink, FONTE_B3_SERIE, autor="seed")
     salvar_fonte(sink, FONTE_B3_INSTRUMENTOS, autor="seed")
+    salvar_fonte(sink, FONTE_B3_PESQUISA_PREGAO, autor="seed")
     for corr in CORRELACOES:
         salvar_correlacao(sink, corr, autor="seed")
     for d in datasets():
@@ -1672,7 +1866,8 @@ def aplicar(sink: Sink, forcar: bool = False) -> bool:
     for chave, dataset_chave, cron, *resto in AGENDAMENTOS:
         salvar_agendamento(
             sink, chave, dataset_chave, cron,
-            janela_padrao=resto[0] if resto else "ano_corrente", autor="seed",
+            janela_padrao=resto[0] if resto else "ano_corrente",
+            ativo=resto[1] if len(resto) > 1 else True, autor="seed",
         )
     # Qual série converte dólar em real no relatório de carga. Fica aqui,
     # onde o nome do indicador é decidido, e não no motor — que não sabe

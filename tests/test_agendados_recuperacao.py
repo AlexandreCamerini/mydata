@@ -330,6 +330,7 @@ def test_so_recupera_dataset_cuja_janela_muda_o_endereco(sink_cvm):
     assert ingestao.janela_recuperavel(sink_cvm, "b3_cotahist") is True
     # Fotografia: a janela vira `date=` mas reingerir dia velho não retrocede.
     assert ingestao.janela_recuperavel(sink_cvm, "b3_instrumentos") is False
+    assert ingestao.janela_recuperavel(sink_cvm, "b3_instrumentos_bvbg") is False
     # API por companhia: a URL nem contém a janela.
     assert ingestao.janela_recuperavel(sink_cvm, "b3_proventos_dinheiro") is False
     assert ingestao.janela_recuperavel(sink_cvm, "cvm_dfp") is False
@@ -337,7 +338,7 @@ def test_so_recupera_dataset_cuja_janela_muda_o_endereco(sink_cvm):
 
 def test_fotografia_diaria_mantem_o_caminho_antigo(sink_cvm, monkeypatch):
     falso = Falso(sink_cvm, monkeypatch, relogio=lambda: acordar(9, 16))
-    inserir(sink_cvm, "b3_instrumentos", "2026-09-01", "publicado",
+    inserir(sink_cvm, "b3_instrumentos_bvbg", "2026-09-01", "publicado",
             acordar(9, 2), acordar(9, 2))
 
     saida, _ = cli.rodar_agendados(
@@ -346,7 +347,7 @@ def test_fotografia_diaria_mantem_o_caminho_antigo(sink_cvm, monkeypatch):
     )
 
     # Uma janela só — a devida —, sem backfill dos dias no meio.
-    assert falso.janelas("b3_instrumentos") == ["2026-09-15"]
+    assert falso.janelas("b3_instrumentos_bvbg") == ["2026-09-15"]
     assert saida[0]["status"] == "publicado"
 
 

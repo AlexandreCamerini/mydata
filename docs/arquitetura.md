@@ -1411,3 +1411,92 @@ Encoding `latin-1`, separador `;`. Colunas-chave: `CD_CVM`, `DT_REFER`,
 `VERSAO`, `ORDEM_EXERC`, `CD_CONTA`, `ST_CONTA_FIXA`, `ESCALA_MOEDA`,
 `VL_CONTA`. Cadastro de empresas é dataset separado: `cad_cia_aberta.csv`.
 `tipo_doc` é derivado do nome do arquivo, não do parâmetro de chamada.
+
+### ADR-26 — o cadastro de instrumentos passa a vir do BVBG.028, como segunda origem da classe
+
+**Contexto.** Desde 13/11/2026 o `InstrumentsConsolidated` (CSV, ADR-20)
+responde 400 para toda data, e o arquivo sumiu do catálogo do portal de
+arquivos da B3 (`/api/channels/.../publications`): até 12/11 o canal
+`Web/Consolidated` lista `InstrumentsConsolidatedFile_YYYYMMDD_1.csv`; depois,
+nada, com nenhum outro nome. O cron saiu com código 1 (deploy `CRASHED`) toda
+noite de 14 a 19/11, e as séries listadas depois de 12/11 ficaram sem estilo
+de exercício. O mesmo cadastro continua saindo todo dia como BVBG.028 (XML),
+no pacote `IN` da Pesquisa por pregão.
+
+**Decisão.** Fonte nova (`b3_pesquisa_pregao`) e dataset novo
+(`b3_instrumentos_bvbg`) na mesma classe `instrumento_b3`, que passa a
+resolver por precedência ([ADR-12](#adr-12--resolução-multi-fonte-é-derivação-não-sobrescrita)):
+BVBG primeiro, CSV depois. O agendamento `b3_instrumentos_diario` aponta para
+o dataset novo; o do CSV fica declarado e desligado.
+
+**Por que dataset novo, e não versão nova do antigo.** `recomputar` lê o bronze
+com a configuração vigente. Trocar o formato do `b3_instrumentos` para XML
+faria o bronze em CSV de 04/08 a 12/11 deixar de recomputar — e dropar e
+recomputar é a rotina de correção. Com duas origens, cada bronze é lido pelo
+mapeamento que o entende.
+
+**O que o motor ganhou, sem saber o que é B3.**
+
+- `formato_registro = 'xml'`: leitor em fluxo (`iterparse`), registro nomeado
+  no dataset (`registro`), coluna como caminho relativo e sem namespace
+  (`InstrmInf/*/TckrSymb`), `a|b` para o primeiro com valor e `a+b` para
+  juntar com `/`. `filtro_registro` é o par do `filtro_linha` do posicional.
+- `mapa:` como formato de coluna: tabela de-para declarada no mapeamento.
+  Código fora dela passa cru.
+- ZIP dentro de ZIP, com o membro lido em fluxo: o XML tem ~450 MB.
+- `exigir_membro` no dataset: ZIP sem membro que case é falha, e falha
+  **antes** do bronze. A B3 responde 200 com um ZIP vazio de 22 bytes para
+  dia sem pregão; publicar zero linhas como sucesso deixaria a fotografia
+  parada sem alarme, e gravar o ZIP vazio em bronze (imutável, deduplicado
+  por hash) faria todo `recomputar_tudo` futuro abortar nessa janela.
+- No XML, `obrigatoria` é o caminho ter valor em algum registro — o par do
+  cabeçalho do CSV. Tag renomeada pela fonte falha a carga em vez de virar
+  coluna nula.
+- `{aa}` no `url_template`: ano em dois dígitos.
+
+**Fidelidade, medida.** Carregando pelo motor o CSV e o XML reais de 12/11 (o
+último dia com os dois), nos 89.970 tickers comuns: 14 de 16 atributos
+idênticos — categoria, mercado e segmento depois do `mapa:`. `ativo_objeto`
+diverge em 48 opções cujo objeto não está no arquivo e que ficam com a raiz;
+`ativo_objeto_descricao` em 244, onde o XML traz o nome mais longo
+(`ISHARES SMAL`).
+
+**Consequências.**
+
+- O XML traz ~27 mil instrumentos que o CSV não trazia (exercício de opção,
+  custódia por lote, título). Entram, com a categoria em código quando o CSV
+  não tinha nome para ela (`17`, `25`).
+- Ticker de custódia por lote (`RECV3L`, mercado 17) vem uma vez por
+  distribuição; a carga fica com a primeira ocorrência, como em todo dataset.
+- `gold_opcoes` deixa de juntar direto em `dim_instrumento`: com duas
+  origens, a junção duplicaria a opção. Junta numa subconsulta com uma linha
+  por ticker e a mesma precedência.
+- `gold_instrumento_b3` passa a existir (gerada), e a travessia
+  `negociacao_cadastro` passa a ter vista para ler.
+- Uso pessoal, como o ADR-18 e o ADR-20: a fonte muda de formato, não de
+  licença.
+
+**Custo.** Medido no pacote de 19/11 (um XML de 481 MB, 134.924 linhas) em
+DuckDB local: leitor 23 s e 80 MB de pico; a carga inteira 82 s (carregar
+56 s, calcular 13 s, publicar 13 s). O bronze fica em ~11–21 MB por dia, como
+o CSV. O que piora é o recomputo: cada dia capturado reprocessa o XML inteiro.
+Um ano de bronze são ~250 × 80 s ≈ 5,5 h de `recomputar_tudo` só nesta classe,
+contra minutos com o CSV.
+
+**Limites aceitos.**
+
+- Feriado continua saindo `falha` (e o cron com código 1) até a próxima
+  ocorrência devida — três rodadas num feriado de sexta. Não é regressão: o
+  404 do COTAHIST em feriado já faz o mesmo, e tratar "fonte não publicou"
+  como não-falha é decisão do agendador, não desta fonte.
+- `gold_opcoes` repete a precedência da classe com os nomes dos datasets.
+  Juntar na vista gerada (`gold_instrumento_b3_v{V}`) seria o certo, mas ela
+  não existe nas versões já publicadas e quebraria o boot e o `reverter`.
+  Reordenar a precedência da classe pede editar as duas.
+- `ativo_objeto` lê outra linha da tabela (o objeto) num campo escalar. O
+  recorte por captura vale porque objeto e opção chegam no mesmo arquivo.
+
+**Onde quebra.** Se a B3 voltar a publicar o CSV, religar é trocar o `False`
+do agendamento — as duas origens já convivem. Se o BVBG mudar de versão de
+mensagem, o caminho sem namespace absorve; se mudar de estrutura, a carga
+falha com "nenhum elemento <Instrm>", não com zero linhas.
